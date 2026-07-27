@@ -6,6 +6,17 @@ You build your workout up front — the exercises, the sets, the reps. During th
 
 > Status: working foundation. Phone + watch + AI + local storage all build and run. Architecture is deliberately modular so the many planned features slot in cleanly.
 
+**Get it:** signed APKs for the phone and watch are attached to each [release](../../releases).
+
+---
+
+## Versioning
+
+`0.0.x` for small fixes, `0.x.0` for bigger changes (patch resets to 0). Before any segment would
+need a second digit, it carries into the one on its left instead — the release after `0.9.x` is
+`1.0.0`, never `0.10.0`. Phone and watch ship the same version number, since they're always
+released together and the sync protocol between them assumes a matched pair.
+
 ---
 
 ## Why it's more accurate

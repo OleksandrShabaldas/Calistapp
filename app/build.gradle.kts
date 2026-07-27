@@ -16,6 +16,9 @@ val localProps = Properties().apply {
 }
 val geminiApiKey: String = localProps.getProperty("GEMINI_API_KEY", "")
 val geminiModel: String = localProps.getProperty("GEMINI_MODEL", "gemini-2.0-flash")
+val keystoreStorePassword: String = localProps.getProperty("KEYSTORE_STORE_PASSWORD", "")
+val keystoreKeyAlias: String = localProps.getProperty("KEYSTORE_KEY_ALIAS", "")
+val keystoreKeyPassword: String = localProps.getProperty("KEYSTORE_KEY_PASSWORD", "")
 
 android {
     namespace = "com.calistapp.app"
@@ -25,8 +28,13 @@ android {
         applicationId = "com.calistapp"
         minSdk = 26
         targetSdk = 35
+        // Versioning: 0.0.x = small fixes, 0.x.0 = bigger changes (patch resets to 0). Before any
+        // segment would need a second digit, carry into the one on its left instead — the release
+        // after 0.9.x is 1.0.0, never 0.10.0. Keeps :app and :wear in lockstep since they always
+        // ship together. versionCode = major*100 + minor*10 + patch, so it's derived from
+        // versionName rather than tracked separately.
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -37,9 +45,9 @@ android {
     signingConfigs {
         create("release") {
             storeFile = rootProject.file("calistapp.jks")
-            storePassword = "calistapp123"
-            keyAlias = "calistapp"
-            keyPassword = "calistapp123"
+            storePassword = keystoreStorePassword
+            keyAlias = keystoreKeyAlias
+            keyPassword = keystoreKeyPassword
         }
     }
 
