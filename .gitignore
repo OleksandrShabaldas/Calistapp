@@ -1,0 +1,21 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+build/
+/captures
+.externalNativeBuild
+.cxx
+.kotlin/
+local.properties
+*.keystore
+*.jks
+!debug.keystore
+
+# Secrets
+secrets.properties
+
+# Claude Code project-local notes — not meant for a public repo
+CLAUDE.md
+.claude/

@@ -1,0 +1,6 @@
+<resources>
+    <!-- Advertises this watch app so the phone can find and message it. -->
+    <string-array name="android_wear_capabilities">
+        <item>calistapp_wear_app</item>
+    </string-array>
+</resources>

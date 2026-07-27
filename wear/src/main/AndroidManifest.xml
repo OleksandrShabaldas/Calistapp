@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-feature android:name="android.hardware.type.watch" />
+
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Required by Health Services to read heart rate. -->
+    <uses-permission android:name="android.permission.BODY_SENSORS" />
+    <!--
+      Android 13+ gates sensor access *while the app is in the background* behind its own
+      permission. Without this, heart rate silently stops the moment the watch screen turns off or
+      you swipe away from the app — which is most of a workout.
+    -->
+    <uses-permission android:name="android.permission.BODY_SENSORS_BACKGROUND" />
+    <!-- Keeps tracking alive with the screen off, which a workout app fundamentally needs. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.DeviceDefault">
+
+        <uses-library android:name="com.google.android.wearable" android:required="false" />
+
+        <!-- Runs without a phone-side companion being strictly required. -->
+        <meta-data
+            android:name="com.google.android.wearable.standalone"
+            android:value="true" />
+
+        <!-- Inbound from the phone: control commands (MessageClient) + profile (DataClient). -->
+        <service
+            android:name=".sync.WearListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/calistapp" />
+            </intent-filter>
+        </service>
+
+        <!-- Holds the process open for the duration of a workout. -->
+        <service
+            android:name=".session.WearSessionService"
+            android:exported="false"
+            android:foregroundServiceType="health" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.DeviceDefault">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!--
+              How the phone brings this app to the front when a workout starts. Play Services can
+              deliver the START message on its own, but it cannot raise an Activity; the phone routes
+              this deep link through RemoteActivityHelper to do that.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="calistapp" android:host="workout" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

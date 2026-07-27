@@ -1,0 +1,16 @@
+<resources>
+    <!-- Launch/splash theme; hands off to the Compose UI after start. -->
+    <style name="Theme.Calistapp.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/ic_launcher_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.Calistapp</item>
+    </style>
+
+    <style name="Theme.Calistapp" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/window_background</item>
+        <!-- Dark-only theme, so system bar icons are always light. -->
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
