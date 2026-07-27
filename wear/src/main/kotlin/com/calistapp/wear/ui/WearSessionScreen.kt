@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.ScalingLazyListScope
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.Button
 import androidx.wear.compose.material.ButtonDefaults
@@ -40,6 +41,7 @@ import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
 import com.calistapp.core.model.ExerciseMeasure
 import com.calistapp.core.model.ExerciseType
+import com.calistapp.updater.UpdateState
 import com.calistapp.wear.session.WearSessionState
 import com.calistapp.wear.session.WearSessionViewModel
 import java.util.concurrent.TimeUnit
@@ -72,10 +74,15 @@ fun WearApp(viewModel: WearSessionViewModel) {
                     onReconnect = { viewModel.reconnect() },
                 )
             } else {
+                val update by viewModel.updateState.collectAsStateWithLifecycle()
                 StartScreen(
                     state = state,
+                    update = update,
                     onStart = { viewModel.start(it) },
                     onReconnect = { viewModel.reconnect() },
+                    onCheckUpdate = { viewModel.checkForUpdate() },
+                    onInstallUpdate = { viewModel.installUpdate() },
+                    onDismissUpdate = { viewModel.dismissUpdate() },
                 )
             }
         }
@@ -111,8 +118,12 @@ private fun PhoneLinkRow(state: WearSessionState, onReconnect: () -> Unit) {
 @Composable
 private fun StartScreen(
     state: WearSessionState,
+    update: UpdateState,
     onStart: (ExerciseType) -> Unit,
     onReconnect: () -> Unit,
+    onCheckUpdate: () -> Unit,
+    onInstallUpdate: () -> Unit,
+    onDismissUpdate: () -> Unit,
 ) {
     val context = LocalContext.current
     var typeIndex by remember { mutableStateOf(0) }
@@ -210,6 +221,80 @@ private fun StartScreen(
                 label = { Text("Start") },
                 onClick = { onStart(type) },
                 colors = ChipDefaults.primaryChipColors(),
+            )
+        }
+
+        // App updates. The watch installs its own — the phone can only ask it to, so this has to
+        // be reachable here too rather than existing only as a remote trigger.
+        updateItems(update, onCheckUpdate, onInstallUpdate, onDismissUpdate)
+    }
+}
+
+/**
+ * The update row(s) on the start screen.
+ *
+ * Written as a [ScalingLazyListScope] extension rather than a composable so each state contributes
+ * its own list item — a nested column inside one item would break the list's scaling effect.
+ */
+private fun ScalingLazyListScope.updateItems(
+    update: UpdateState,
+    onCheck: () -> Unit,
+    onInstall: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    when (update) {
+        is UpdateState.Idle, is UpdateState.UpToDate -> item {
+            Chip(
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Check for update") },
+                secondaryLabel = if (update is UpdateState.UpToDate) {
+                    { Text("On ${update.current.name}") }
+                } else {
+                    null
+                },
+                onClick = onCheck,
+                colors = ChipDefaults.secondaryChipColors(),
+            )
+        }
+
+        is UpdateState.Checking -> item {
+            Text("Checking for update…", style = MaterialTheme.typography.caption2, textAlign = TextAlign.Center)
+        }
+
+        is UpdateState.Available -> item {
+            Chip(
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Download ${update.update.version.name}") },
+                onClick = onCheck,
+                colors = ChipDefaults.secondaryChipColors(),
+            )
+        }
+
+        is UpdateState.Downloading -> item {
+            Text(
+                "Downloading ${update.version.name}… ${update.progress?.let { "${(it * 100).toInt()}%" } ?: ""}",
+                style = MaterialTheme.typography.caption2,
+                textAlign = TextAlign.Center,
+            )
+        }
+
+        is UpdateState.ReadyToInstall -> item {
+            Chip(
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Install ${update.version.name}") },
+                secondaryLabel = { Text("Confirm on watch") },
+                onClick = onInstall,
+                colors = ChipDefaults.primaryChipColors(),
+            )
+        }
+
+        is UpdateState.Failed -> item {
+            Chip(
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Update failed") },
+                secondaryLabel = { Text(update.message, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                onClick = onDismiss,
+                colors = ChipDefaults.secondaryChipColors(),
             )
         }
     }

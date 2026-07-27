@@ -8,6 +8,8 @@ import com.calistapp.core.model.UserProfile
 import com.calistapp.core.sync.WearJson
 import com.calistapp.core.sync.WearSync
 import com.calistapp.wear.sync.WearProfileHolder
+import com.calistapp.wear.update.WearUpdateHolder
+import com.calistapp.updater.UpdateState
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -24,9 +26,14 @@ class WearSessionViewModel(app: Application) : AndroidViewModel(app) {
 
     val state: StateFlow<WearSessionState>
 
+    /** Update progress, so the watch can show what the phone asked it to do. */
+    val updateState: StateFlow<UpdateState>
+
     init {
         WearSessionManager.attach(app)
+        WearUpdateHolder.attach(app)
         state = WearSessionManager.state
+        updateState = WearUpdateHolder.state
 
         // The profile may have synced down before this app was ever opened; DataClient keeps the
         // last value, so read it once rather than waiting for the next change event.
@@ -59,4 +66,8 @@ class WearSessionViewModel(app: Application) : AndroidViewModel(app) {
     fun adjustReps(delta: Int) = WearSessionManager.adjustReps(delta)
     fun nextExercise() = WearSessionManager.advanceToNextLocal()
     fun reconnect() = WearSessionManager.reconnectPhone()
+
+    fun checkForUpdate() = WearUpdateHolder.checkAndDownload()
+    fun installUpdate() = WearUpdateHolder.install()
+    fun dismissUpdate() = WearUpdateHolder.reset()
 }

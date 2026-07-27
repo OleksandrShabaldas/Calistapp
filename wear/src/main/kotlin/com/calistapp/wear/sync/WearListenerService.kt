@@ -7,6 +7,7 @@ import com.calistapp.core.sync.WearJson
 import com.calistapp.core.sync.WearSync
 import com.calistapp.wear.session.WearSessionManager
 import com.calistapp.wear.session.WearSessionService
+import com.calistapp.wear.update.WearUpdateHolder
 import com.google.android.gms.wearable.DataEvent
 import com.google.android.gms.wearable.DataEventBuffer
 import com.google.android.gms.wearable.MessageEvent
@@ -29,6 +30,14 @@ class WearListenerService : WearableListenerService() {
         }.getOrNull() ?: return
 
         WearSessionManager.attach(this)
+
+        // An update check is about the app, not the workout, so it's handled here and never
+        // reaches the session state machine.
+        if (payload.command == ControlCommand.CHECK_UPDATE) {
+            WearUpdateHolder.attach(this)
+            WearUpdateHolder.checkAndDownload()
+            return
+        }
 
         // Keep the process alive for the workout the phone just started, and let it go on stop.
         // PING deliberately doesn't touch the service — a liveness check shouldn't spin one up.

@@ -1,9 +1,13 @@
 package com.calistapp.app.di
 
+import android.content.Context
 import com.calistapp.core.calorie.CalorieEngine
+import com.calistapp.core.update.UpdateTarget
+import com.calistapp.updater.AppUpdater
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +39,14 @@ object AppModule {
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
+
+    /** Singleton so a download survives navigating away from the settings screen. */
+    @Provides
+    @Singleton
+    fun provideAppUpdater(
+        @ApplicationContext context: Context,
+        okHttp: OkHttpClient,
+    ): AppUpdater = AppUpdater(context, UpdateTarget.PHONE, okHttp)
 
     @Provides
     @IoDispatcher

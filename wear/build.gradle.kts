@@ -26,8 +26,8 @@ android {
         targetSdk = 34
         // Kept in lockstep with :app's versionName/versionCode — see the comment there for the
         // versioning scheme. The two always ship together as one release.
-        versionCode = 1
-        versionName = "0.0.1"
+        versionCode = 10
+        versionName = "0.1.0"
     }
 
     signingConfigs {
@@ -61,6 +61,7 @@ android {
 
 dependencies {
     implementation(project(":core"))
+    implementation(project(":updater"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

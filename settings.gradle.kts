@@ -25,3 +25,4 @@ rootProject.name = "Calistapp"
 include(":app")
 include(":wear")
 include(":core")
+include(":updater")

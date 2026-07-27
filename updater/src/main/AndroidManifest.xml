@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!--
+      Lets the app hand an APK to the system installer. It does NOT let the app install anything
+      silently: the system still shows its own confirmation, and the user must additionally have
+      granted "install unknown apps" for Calistapp.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <application>
+        <!--
+          Grants the system installer read access to exactly one downloaded file at a time, via a
+          temporary URI permission. A file:// URI would crash on Android 7+ (FileUriExposedException)
+          and sharing the whole cache directory would be needlessly broad.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/calistapp_update_paths" />
+        </provider>
+    </application>
+</manifest>

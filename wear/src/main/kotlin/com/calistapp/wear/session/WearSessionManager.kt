@@ -233,6 +233,8 @@ object WearSessionManager {
             }
             ControlCommand.PAUSE -> _state.update { it.copy(status = SessionStatus.PAUSED) }
             ControlCommand.RESUME -> _state.update { it.copy(status = SessionStatus.ACTIVE) }
+            // Handled by WearListenerService before it reaches the session — see there.
+            ControlCommand.CHECK_UPDATE -> Unit
         }
     }
 

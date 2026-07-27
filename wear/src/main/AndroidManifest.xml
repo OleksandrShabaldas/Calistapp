@@ -4,6 +4,9 @@
     <uses-feature android:name="android.hardware.type.watch" />
 
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Downloading the watch's own update. INTERNET is also declared by :updater; kept here so
+         the watch module's network use is visible in its own manifest. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- Required by Health Services to read heart rate. -->
     <uses-permission android:name="android.permission.BODY_SENSORS" />
     <!--

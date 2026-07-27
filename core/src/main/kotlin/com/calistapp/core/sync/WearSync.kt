@@ -98,6 +98,16 @@ enum class ControlCommand {
 
     /** Reply to [PING]: this device's app is installed, running and reachable. */
     HELLO,
+
+    /**
+     * Phone → watch: "go and check for a new version of yourself."
+     *
+     * A phone app cannot install a package onto a watch — Play Services carries messages, not APKs
+     * — so the watch has to download and install its own update. This command is what lets the
+     * phone's "update watch too" button start that, rather than the user having to open the watch
+     * app and look for it.
+     */
+    CHECK_UPDATE,
 }
 
 /** A command originating from either device (e.g. phone taps "start", watch toggles rest). */

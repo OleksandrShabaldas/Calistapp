@@ -6,7 +6,37 @@ You build your workout up front — the exercises, the sets, the reps. During th
 
 > Status: working foundation. Phone + watch + AI + local storage all build and run. Architecture is deliberately modular so the many planned features slot in cleanly.
 
-**Get it:** signed APKs for the phone and watch are attached to each [release](../../releases).
+**Get it:** signed APKs for the phone and watch are attached to each [release](../../releases). Once
+installed, the app updates itself — see [In-app updates](#in-app-updates).
+
+---
+
+## In-app updates
+
+Calistapp is sideloaded, so nothing updates it automatically. **Profile → App version** checks
+[GitHub Releases](../../releases), downloads the newer APK and hands it to Android's installer.
+
+Every install still goes through the system's own confirmation dialog, and "install unknown apps"
+has to be granted to Calistapp once — [`AppUpdater`](updater/src/main/kotlin/com/calistapp/updater/AppUpdater.kt)
+does not try to work around either. Downloading a file and running it is exactly the operation worth
+being careful about, so before the install prompt is ever shown it checks that:
+
+- the download URL is HTTPS;
+- the file really is an APK Android can parse;
+- it declares the same package name as the running app;
+- it is **signed by the same certificate** as the running app;
+- on a watch, it declares `android.hardware.type.watch`.
+
+The signature check is the important one. Android would reject a mismatched signer anyway — but only
+after the user had already accepted a prompt for a package that isn't ours.
+
+**The watch updates itself.** A phone app cannot install a package onto a paired watch; Play Services
+carries messages, not APKs. So "Update watch app" sends a `CHECK_UPDATE` command over the Data Layer
+and the watch downloads and installs its own build, confirming on the wrist. The phone-vs-watch APK
+is chosen by [`ReleaseCheck.assetFor`](core/src/main/kotlin/com/calistapp/core/update/ReleaseCheck.kt),
+which refuses to hand the watch a phone build rather than falling back to it — both modules share an
+`applicationId`, so nothing downstream would catch that mistake. All of it is
+[unit-tested](core/src/test/kotlin/com/calistapp/core/update/ReleaseCheckTest.kt).
 
 ---
 

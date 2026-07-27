@@ -209,6 +209,8 @@ class SessionController @Inject constructor(
             ControlCommand.RESUME -> _live.update { it?.copy(status = SessionStatus.ACTIVE) }
             // Liveness handshake — owned by WatchConnectionMonitor, nothing to do to the session.
             ControlCommand.PING, ControlCommand.HELLO -> Unit
+            // Phone→watch only; the phone updates itself from the settings screen.
+            ControlCommand.CHECK_UPDATE -> Unit
         }
     }
 

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!--
+      Downloaded APKs only. Scoped to one subdirectory of the cache, so the provider cannot be
+      used to hand out anything else the app has stored.
+    -->
+    <cache-path name="calistapp_updates" path="updates/" />
+</paths>

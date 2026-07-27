@@ -3,8 +3,10 @@ package com.calistapp.app.ui.profile
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -27,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.calistapp.app.ui.common.SectionCard
+import com.calistapp.app.ui.update.UpdateCard
 import com.calistapp.core.model.Sex
 import com.calistapp.core.model.UserProfile
 
@@ -131,6 +134,11 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
         ) {
             Text(if (saved) "Saved ✓" else "Save profile")
         }
+
+        UpdateCard()
+
+        // Clear of the floating nav bar.
+        Spacer(Modifier.height(96.dp))
     }
 }
 
