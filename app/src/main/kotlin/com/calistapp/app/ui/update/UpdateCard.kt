@@ -36,6 +36,7 @@ import com.calistapp.app.ui.theme.Coral
 import com.calistapp.app.ui.theme.Cream
 import com.calistapp.app.ui.theme.CreamMuted
 import com.calistapp.app.ui.theme.Emerald
+import com.calistapp.core.update.ReleaseNotes
 import com.calistapp.updater.UpdateState
 
 /**
@@ -93,12 +94,9 @@ fun UpdateCard(viewModel: UpdateViewModel = hiltViewModel()) {
                     color = Emerald,
                     fontWeight = FontWeight.Bold,
                 )
-                if (s.update.notes.isNotBlank()) {
-                    Text(
-                        s.update.notes.lineSequence().take(6).joinToString("\n"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = CreamMuted,
-                    )
+                val notes = ReleaseNotes.toPlainText(s.update.notes)
+                if (notes.isNotBlank()) {
+                    Text(notes, style = MaterialTheme.typography.bodySmall, color = CreamMuted)
                 }
                 // Sideloaded installs need this granted once; without it the installer silently
                 // refuses, which looks like the update simply not working.
