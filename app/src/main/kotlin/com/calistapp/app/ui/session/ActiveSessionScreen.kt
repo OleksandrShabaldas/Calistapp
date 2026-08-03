@@ -86,6 +86,7 @@ fun ActiveSessionScreen(
             onReconnect = viewModel::reconnectWatch,
             plan = plan,
             plannedName = planned?.name,
+            hasRequestedExercise = viewModel.hasRequestedExercise,
             defaultType = planned?.let(::exerciseTypeFor) ?: ExerciseType.CALISTHENICS,
             onBuildWorkout = onBuildWorkout,
             onStart = viewModel::start,
@@ -116,11 +117,17 @@ private fun StartControls(
     onReconnect: () -> Unit,
     plan: WorkoutPlan,
     plannedName: String?,
+    hasRequestedExercise: Boolean,
     defaultType: ExerciseType,
     onBuildWorkout: () -> Unit,
     onStart: (ExerciseType) -> Unit,
 ) {
     var type by remember(defaultType) { mutableStateOf(defaultType) }
+
+    // Nothing to run means nothing to score: every set is measured against the movement being
+    // performed, and a session with no exercises can't advance, can't log a set, and gives the
+    // calorie engine nothing but heart rate. Building the workout is the step, not an optional one.
+    val hasWorkout = !plan.isEmpty || plannedName != null || hasRequestedExercise
 
     Column(
         Modifier
@@ -165,14 +172,39 @@ private fun StartControls(
                 SectionHeading("Single exercise")
                 Text(plannedName, style = MaterialTheme.typography.displaySmall, color = Cream)
             }
+
+            // Held back while a requested exercise is still being looked up, so the screen doesn't
+            // flash "nothing planned" at someone who arrived from a gallery entry.
+            !hasWorkout -> GlassCard {
+                SectionHeading("Nothing planned yet")
+                Text(
+                    "Pick the movements first — the tracker scores every set against the exercise " +
+                        "you're doing, so a workout needs at least one.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = CreamMuted,
+                )
+            }
         }
 
-        OutlinedButton(
-            onClick = onBuildWorkout,
-            modifier = Modifier.fillMaxWidth(),
-            shape = Capsule,
-        ) {
-            Text(if (plan.isEmpty) "Build a workout" else "Edit workout")
+        // Promoted to the primary action while there's nothing to run, demoted to an edit once
+        // there is — the screen should point at the one thing left to do.
+        if (hasWorkout) {
+            OutlinedButton(
+                onClick = onBuildWorkout,
+                modifier = Modifier.fillMaxWidth(),
+                shape = Capsule,
+            ) {
+                Text(if (plan.isEmpty) "Build a workout" else "Edit workout")
+            }
+        } else {
+            Button(
+                onClick = onBuildWorkout,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = Capsule,
+                colors = ButtonDefaults.buttonColors(containerColor = Emerald),
+            ) {
+                Text("Build a workout", fontWeight = FontWeight.Bold)
+            }
         }
 
         SectionHeading("Type")
@@ -186,11 +218,21 @@ private fun StartControls(
 
         Button(
             onClick = { onStart(type) },
+            enabled = hasWorkout,
             modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = Capsule,
             colors = ButtonDefaults.buttonColors(containerColor = Emerald),
         ) {
             Text("Start", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        }
+        if (!hasWorkout) {
+            Text(
+                "Add at least one exercise to start.",
+                style = MaterialTheme.typography.labelMedium,
+                color = CreamMuted,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
 
         Box(Modifier.height(8.dp))

@@ -50,6 +50,13 @@ class ActiveSessionViewModel @Inject constructor(
 
     private val exerciseId: String? = savedStateHandle[Routes.ACTIVE_ARG]
 
+    /**
+     * Whether this screen was opened for a specific gallery exercise. Known immediately, unlike
+     * [plannedExercise], which the screen would otherwise read as "nothing planned" for the frames
+     * it takes the lookup to resolve.
+     */
+    val hasRequestedExercise: Boolean = exerciseId != null
+
     /** The exercise this screen was opened for (via the gallery), or null for a planned workout. */
     val plannedExercise: StateFlow<Exercise?> =
         (exerciseId?.let { exerciseRepository.observe(it) } ?: flowOf(null))
@@ -58,6 +65,10 @@ class ActiveSessionViewModel @Inject constructor(
     /**
      * Start whatever's queued up: the built plan, or — when launched straight from a gallery entry —
      * a one-exercise plan around that movement, so even the quick path gets exercise-aware scoring.
+     *
+     * With neither, there is nothing to start: a session with no exercises can't advance or bank a
+     * set, so it would only ever record heart rate. The screen disables the button; this is the
+     * backstop that keeps the rule true however the call arrives.
      */
     fun start(type: ExerciseType) {
         viewModelScope.launch {
@@ -68,6 +79,7 @@ class ActiveSessionViewModel @Inject constructor(
                     current = drafts.draft.first()
                 }
             }
+            if (current.isEmpty) return@launch
             controller.start(type, current)
             drafts.clear()
         }

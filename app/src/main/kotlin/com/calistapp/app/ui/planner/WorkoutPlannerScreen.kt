@@ -1,5 +1,6 @@
 package com.calistapp.app.ui.planner
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +23,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
@@ -39,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,7 +83,10 @@ fun WorkoutPlannerScreen(
 ) {
     val plan by viewModel.plan.collectAsStateWithLifecycle()
     val thumbnails by viewModel.thumbnails.collectAsStateWithLifecycle()
-    var picking by remember { mutableStateOf(false) }
+    // Saveable rather than remembered: opening an exercise's detail screen takes this whole
+    // composable out of composition, and a plain remember would drop you back on the plan instead of
+    // the picker you were browsing when you come back.
+    var picking by rememberSaveable { mutableStateOf(false) }
 
     if (picking) {
         ExercisePicker(
@@ -235,11 +242,21 @@ private fun PlannedExerciseCard(
     onRemove: () -> Unit,
 ) {
     // Collapsed by default: a plan is a list you scan, and eight cards of steppers is unreadable.
-    // Tapping the row opens the controls for that one exercise.
-    var expanded by remember { mutableStateOf(false) }
+    // Tapping the row opens the controls for that one exercise. Saveable so the card stays as you
+    // left it when the list is rebuilt — scrolled out of view, or returned to from the picker.
+    var expanded by rememberSaveable { mutableStateOf(false) }
 
     GlassCard(accent = if (slot.isWeighted) Amber else null, contentPadding = 12) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // The whole header toggles, not just the name — the chevron says which way it goes. A card
+        // you can open but can't obviously close is the worse half of a disclosure control.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClickLabel = if (expanded) "Collapse" else "Expand") {
+                    expanded = !expanded
+                },
+        ) {
             // Tapping the thumbnail opens the movement's detail screen — that's where you go to
             // check form, which is a different intent from editing the set.
             ExerciseImage(
@@ -254,8 +271,7 @@ private fun PlannedExerciseCard(
             Column(
                 Modifier
                     .weight(1f)
-                    .padding(horizontal = 10.dp)
-                    .clickable { expanded = !expanded },
+                    .padding(horizontal = 10.dp),
             ) {
                 Text(
                     slot.displayName,
@@ -272,6 +288,12 @@ private fun PlannedExerciseCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            Icon(
+                if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = null,
+                tint = CreamMuted,
+                modifier = Modifier.size(20.dp),
+            )
             IconButton(onClick = { onMove(-1) }, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Filled.ArrowUpward, "Move up", modifier = Modifier.size(18.dp))
             }
@@ -366,6 +388,10 @@ private fun ExercisePicker(
     val results by viewModel.searchResults.collectAsStateWithLifecycle()
     val plan by viewModel.plan.collectAsStateWithLifecycle()
     var showFilters by remember { mutableStateOf(false) }
+
+    // The picker is a step *inside* the planner, not a destination of its own, so back closes it and
+    // returns to the plan rather than popping the planner off the stack entirely.
+    BackHandler(onBack = onDone)
 
     if (showFilters) {
         ExerciseFilterSheet(
