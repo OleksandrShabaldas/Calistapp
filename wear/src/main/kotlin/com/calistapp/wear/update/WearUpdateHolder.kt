@@ -28,6 +28,7 @@ object WearUpdateHolder {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var updater: AppUpdater? = null
+    private var appContext: Context? = null
     private var job: Job? = null
 
     private val _state = MutableStateFlow<UpdateState>(UpdateState.Idle)
@@ -35,6 +36,7 @@ object WearUpdateHolder {
 
     fun attach(context: Context) {
         if (updater != null) return
+        appContext = context.applicationContext
         val instance = AppUpdater(context.applicationContext, UpdateTarget.WATCH)
         updater = instance
         scope.launch { instance.state.collect { _state.value = it } }
@@ -58,20 +60,45 @@ object WearUpdateHolder {
         if (job?.isActive == true) return
         job = scope.launch {
             val result = instance.check()
-            if (result is UpdateState.Available) instance.download(result.update)
+            if (result is UpdateState.Available) downloadKeepingAwake(instance, result.update)
         }
     }
 
     fun download(update: UpdateStatus.Available) {
         val instance = updater ?: return
         if (job?.isActive == true) return
-        job = scope.launch { instance.download(update) }
+        job = scope.launch { downloadKeepingAwake(instance, update) }
+    }
+
+    /**
+     * Run the download behind [WearUpdateService], so the screen is free to turn off, and say so
+     * when it lands.
+     *
+     * The service is best-effort — see its `start` — so this never depends on it having started.
+     */
+    private suspend fun downloadKeepingAwake(instance: AppUpdater, update: UpdateStatus.Available) {
+        val context = appContext
+        context?.let { WearUpdateService.start(it) }
+        try {
+            val result = instance.download(update)
+            if (result is UpdateState.ReadyToInstall && context != null) {
+                WearUpdateService.notifyReadyToInstall(context, result.version.name)
+            }
+        } finally {
+            context?.let { WearUpdateService.stop(it) }
+        }
     }
 
     fun install() {
         val instance = updater ?: return
-        (state.value as? UpdateState.ReadyToInstall)?.let { instance.install(it.file) }
+        (state.value as? UpdateState.ReadyToInstall)?.let {
+            appContext?.let { context -> WearUpdateService.clearReadyNotice(context) }
+            instance.install(it.file)
+        }
     }
 
-    fun reset() = updater?.reset()
+    fun reset() {
+        appContext?.let { WearUpdateService.clearReadyNotice(it) }
+        updater?.reset()
+    }
 }

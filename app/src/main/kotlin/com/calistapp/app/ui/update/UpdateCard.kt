@@ -127,7 +127,9 @@ fun UpdateCard(viewModel: UpdateViewModel = hiltViewModel()) {
 
             is UpdateState.Downloading -> {
                 Text(
-                    "Downloading ${s.version.name}…",
+                    // Interrupted downloads resume rather than restart, so a blip is reported as
+                    // what it is instead of throwing the whole update away.
+                    if (s.reconnecting) "Reconnecting…" else "Downloading ${s.version.name}…",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Cream,
                 )

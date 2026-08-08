@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
@@ -59,11 +61,42 @@ private fun hasBackgroundSensors(context: Context): Boolean =
     !needsBackgroundSensors() ||
         ContextCompat.checkSelfPermission(context, BACKGROUND_SENSORS) == PackageManager.PERMISSION_GRANTED
 
+/** Same story: a literal, because the constant arrived with API 33. */
+private const val POST_NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS"
+
+private fun hasNotifications(context: Context): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        ContextCompat.checkSelfPermission(context, POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+
+/**
+ * Hold the display on while [active].
+ *
+ * A window flag rather than a wake lock, deliberately: it applies only while this window is in
+ * front and the platform clears it when the window goes away, so there is nothing here that can be
+ * left holding the screen on after the app is gone.
+ */
+@Composable
+private fun KeepScreenOn(active: Boolean) {
+    val view = LocalView.current
+    DisposableEffect(active) {
+        view.keepScreenOn = active
+        onDispose { view.keepScreenOn = false }
+    }
+}
+
 @Composable
 fun WearApp(viewModel: WearSessionViewModel) {
     MaterialTheme {
         Scaffold(timeText = { TimeText() }) {
             val state by viewModel.state.collectAsStateWithLifecycle()
+            val update by viewModel.updateState.collectAsStateWithLifecycle()
+
+            // Watching an update run and having the watch blank halfway through reads as the app
+            // falling over, even though the download now survives it. Held only for the states
+            // where something is actually happening: ReadyToInstall waits on a tap that may never
+            // come, and letting the screen sleep through that is the point of the notification.
+            KeepScreenOn(update is UpdateState.Checking || update is UpdateState.Downloading)
+
             if (state.running) {
                 RunningScreen(
                     state = state,
@@ -74,7 +107,6 @@ fun WearApp(viewModel: WearSessionViewModel) {
                     onReconnect = { viewModel.reconnect() },
                 )
             } else {
-                val update by viewModel.updateState.collectAsStateWithLifecycle()
                 StartScreen(
                     state = state,
                     update = update,
@@ -154,6 +186,17 @@ private fun StartScreen(
         }
     }
 
+    // An update downloads behind a foreground service so the screen can sleep through it, and the
+    // notice that it finished is a notification too — neither shows without this on Android 13+.
+    // Asked for here, when it starts to matter, rather than at launch alongside the sensor prompts.
+    val notificationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { }
+    val checkUpdate = {
+        if (!hasNotifications(context)) notificationLauncher.launch(POST_NOTIFICATIONS)
+        onCheckUpdate()
+    }
+
     val listState = rememberScalingLazyListState()
     ScalingLazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -226,7 +269,7 @@ private fun StartScreen(
 
         // App updates. The watch installs its own — the phone can only ask it to, so this has to
         // be reachable here too rather than existing only as a remote trigger.
-        updateItems(update, onCheckUpdate, onInstallUpdate, onDismissUpdate)
+        updateItems(update, checkUpdate, onInstallUpdate, onDismissUpdate)
     }
 }
 
@@ -271,8 +314,15 @@ private fun ScalingLazyListScope.updateItems(
         }
 
         is UpdateState.Downloading -> item {
+            val percent = update.progress?.let { " ${(it * 100).toInt()}%" }.orEmpty()
             Text(
-                "Downloading ${update.version.name}… ${update.progress?.let { "${(it * 100).toInt()}%" } ?: ""}",
+                // A dropped connection is picked back up from where it stopped, so this says so
+                // rather than showing an error — and the screen can be left to sleep through it.
+                if (update.reconnecting) {
+                    "Reconnecting…$percent"
+                } else {
+                    "Downloading ${update.version.name}…$percent"
+                },
                 style = MaterialTheme.typography.caption2,
                 textAlign = TextAlign.Center,
             )
