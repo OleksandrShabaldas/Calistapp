@@ -73,13 +73,38 @@ object ExerciseIntensity {
     private const val JOULES_PER_KCAL = 4184.0
 
     /**
+     * The three factors behind [correctionFactor], kept so the session screen can show its working
+     * rather than a bare multiplier. Produced by the same code the engine scores with — there is no
+     * second derivation that could drift from it.
+     */
+    data class Correction(
+        val muscleMassFraction: Double,
+        val referenceMuscleMassFraction: Double,
+        val recruitment: Double,
+        val blockSeconds: Double,
+        val hrLag: Double,
+        val isometric: Boolean,
+        val isometricUplift: Double,
+        /** Product of the three, before clamping to [MIN_CORRECTION]..[MAX_CORRECTION]. */
+        val product: Double,
+        /** What actually gets applied. */
+        val factor: Double,
+    ) {
+        val clamped: Boolean get() = factor != product
+    }
+
+    /**
      * The bounded multiplier applied to the Keytel estimate for one ACTIVE block.
      *
      * @param metabolics the movement's physical profile; null (free work) yields 1.0 — no correction.
      * @param durationMs how long this block of work lasted, for the HR-lag term.
      */
-    fun correctionFactor(metabolics: ExerciseMetabolics?, durationMs: Long): Double {
-        if (metabolics == null) return 1.0
+    fun correctionFactor(metabolics: ExerciseMetabolics?, durationMs: Long): Double =
+        correction(metabolics, durationMs)?.factor ?: 1.0
+
+    /** [correctionFactor] with its terms exposed. Null when there's no exercise context to correct. */
+    fun correction(metabolics: ExerciseMetabolics?, durationMs: Long): Correction? {
+        if (metabolics == null) return null
 
         val recruitment = (
             1.0 + RECRUITMENT_GAIN * (metabolics.muscleMassFraction - REFERENCE_MUSCLE_FRACTION)
@@ -90,8 +115,39 @@ object ExerciseIntensity {
 
         val isometric = if (metabolics.isometric) ISOMETRIC_UPLIFT else 1.0
 
-        return (recruitment * hrLag * isometric).coerceIn(MIN_CORRECTION, MAX_CORRECTION)
+        val product = recruitment * hrLag * isometric
+        return Correction(
+            muscleMassFraction = metabolics.muscleMassFraction,
+            referenceMuscleMassFraction = REFERENCE_MUSCLE_FRACTION,
+            recruitment = recruitment,
+            blockSeconds = durationSec,
+            hrLag = hrLag,
+            isometric = metabolics.isometric,
+            isometricUplift = isometric,
+            product = product,
+            factor = product.coerceIn(MIN_CORRECTION, MAX_CORRECTION),
+        )
     }
+
+    /**
+     * Every term of the force × distance ÷ efficiency calculation behind [mechanicalKcal], so the
+     * rep-work floor can be checked by hand instead of taken on faith.
+     */
+    data class MechanicalWork(
+        val reps: Int,
+        val bodyweightKg: Double,
+        val loadFraction: Double,
+        val externalLoadKg: Double,
+        /** Mass actually lifted per rep: [loadFraction] of bodyweight, plus any added load. */
+        val movedKg: Double,
+        val romMetres: Double,
+        val eccentricFactor: Double,
+        val efficiency: Double,
+        val kcalPerRep: Double,
+        val kcal: Double,
+        /** A static hold displaces nothing, so there is no external work to count. */
+        val isometric: Boolean,
+    )
 
     /**
      * Energy from mechanical work for [reps] repetitions — force × distance ÷ muscular efficiency,
@@ -105,15 +161,36 @@ object ExerciseIntensity {
      * Returns 0 for isometric holds: a static hold produces no displacement, so there is no external
      * work to compute. Its cost is entirely internal and is handled by HR plus [ISOMETRIC_UPLIFT].
      */
-    fun mechanicalKcal(metabolics: ExerciseMetabolics?, reps: Int, profile: UserProfile): Double {
-        if (metabolics == null || reps <= 0 || metabolics.isometric) return 0.0
+    fun mechanicalKcal(metabolics: ExerciseMetabolics?, reps: Int, profile: UserProfile): Double =
+        mechanicalWork(metabolics, reps, profile)?.kcal ?: 0.0
+
+    /** [mechanicalKcal] with its terms exposed. Null when the movement has no physical profile. */
+    fun mechanicalWork(
+        metabolics: ExerciseMetabolics?,
+        reps: Int,
+        profile: UserProfile,
+    ): MechanicalWork? {
+        if (metabolics == null) return null
 
         val movedKg = metabolics.loadFraction * profile.weightKg + metabolics.externalLoadKg
-        if (movedKg <= 0.0 || metabolics.romMetres <= 0.0) return 0.0
+        val computable = !metabolics.isometric && movedKg > 0.0 && metabolics.romMetres > 0.0
+        val grossJoules = if (!computable) 0.0 else {
+            movedKg * GRAVITY * metabolics.romMetres * (1.0 + ECCENTRIC_FACTOR) / MUSCULAR_EFFICIENCY
+        }
 
-        val concentricJoules = movedKg * GRAVITY * metabolics.romMetres
-        val grossJoules = concentricJoules * (1.0 + ECCENTRIC_FACTOR) / MUSCULAR_EFFICIENCY
-        return grossJoules * reps / JOULES_PER_KCAL
+        return MechanicalWork(
+            reps = reps,
+            bodyweightKg = profile.weightKg,
+            loadFraction = metabolics.loadFraction,
+            externalLoadKg = metabolics.externalLoadKg,
+            movedKg = movedKg,
+            romMetres = metabolics.romMetres,
+            eccentricFactor = ECCENTRIC_FACTOR,
+            efficiency = MUSCULAR_EFFICIENCY,
+            kcalPerRep = grossJoules / JOULES_PER_KCAL,
+            kcal = if (reps <= 0) 0.0 else grossJoules * reps / JOULES_PER_KCAL,
+            isometric = metabolics.isometric,
+        )
     }
 
     // ---- Deriving a profile from a gallery entry ----------------------------------------------

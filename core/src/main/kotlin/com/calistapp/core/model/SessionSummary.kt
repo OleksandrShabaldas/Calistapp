@@ -17,6 +17,22 @@ data class ExerciseBreakdown(
 )
 
 /**
+ * How fast heart rate fell in the minute after sets ended — a marker of aerobic fitness that the
+ * work/rest segmentation makes measurable without asking the user for anything.
+ *
+ * Under about 12 bpm is the threshold clinical work treats as blunted; trained people usually see
+ * 20–40. Averaged across the session's rests, because a single one might just be a trip to the
+ * water fountain.
+ */
+@Serializable
+data class HrRecovery(
+    val meanDropBpm: Int,
+    val bestDropBpm: Int,
+    /** How many rest blocks were long enough and well-sampled enough to measure. */
+    val measuredRests: Int,
+)
+
+/**
  * The computed result of running a [WorkoutSession] through the CalorieEngine.
  * This is what the UI shows and what the AI layer reasons over.
  */
@@ -37,6 +53,8 @@ data class SessionSummary(
     val perExercise: List<ExerciseBreakdown> = emptyList(),
     /** Total reps logged across the session. */
     val totalReps: Int = 0,
+    /** Null when no rest block was long enough to measure one. Absent from older stored summaries. */
+    val hrRecovery: HrRecovery? = null,
 ) {
     val totalDurationMs: Long get() = activeDurationMs + restDurationMs
 

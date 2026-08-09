@@ -67,6 +67,16 @@ class PlanDraftRepository @Inject constructor() {
 
     fun rename(name: String) = _draft.update { it.copy(name = name) }
 
+    /**
+     * Replace the draft wholesale — loading a saved workout.
+     *
+     * Given a fresh id so the loaded copy is a new plan rather than the stored one: editing what you
+     * loaded must not write back to the saved workout unless you deliberately save again.
+     */
+    fun replaceWith(plan: WorkoutPlan) {
+        _draft.value = plan.copy(id = UUID.randomUUID().toString())
+    }
+
     /** Start a fresh draft — called once a workout has been handed to the session controller. */
     fun clear() {
         _draft.value = WorkoutPlan(id = UUID.randomUUID().toString())

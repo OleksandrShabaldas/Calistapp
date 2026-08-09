@@ -1,5 +1,6 @@
 package com.calistapp.app.session
 
+import android.content.Context
 import com.calistapp.app.data.profile.ProfileRepository
 import com.calistapp.app.data.session.SessionRepository
 import com.calistapp.app.data.sync.LiveSessionBus
@@ -8,6 +9,8 @@ import com.calistapp.app.data.sync.WatchCommandSender
 import com.calistapp.app.di.ApplicationScope
 import com.calistapp.core.calorie.CalorieEngine
 import com.calistapp.core.calorie.LiveCalorieAccumulator
+import com.calistapp.core.calorie.rebuildAccumulator
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.HeartRateSample
 import com.calistapp.core.model.Segment
@@ -54,6 +57,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class SessionController @Inject constructor(
+    @ApplicationContext private val context: Context,
     @ApplicationScope private val scope: CoroutineScope,
     private val engine: CalorieEngine,
     private val sessionRepository: SessionRepository,
@@ -76,11 +80,14 @@ class SessionController @Inject constructor(
     private val segments = mutableListOf<Segment>()
     private val setLogs = mutableListOf<SetLog>()
     private var lastSampleAtMs = 0L
+    private var lastCheckpointMs = 0L
 
     val isRunning: Boolean
         get() = _live.value?.status.let { it == SessionStatus.ACTIVE || it == SessionStatus.PAUSED }
 
     init {
+        // Before anything else: a workout the process died in the middle of is still on disk.
+        scope.launch { recoverUnfinished() }
         // Always listening: a workout started on the watch must create one here too.
         scope.launch { bus.commands.collect { applyRemote(it) } }
         scope.launch { profileRepository.profile.collect { updated ->
@@ -159,11 +166,13 @@ class SessionController @Inject constructor(
     fun pause() = scope.launch {
         _live.update { it?.copy(status = SessionStatus.PAUSED) }
         broadcast(ControlCommand.PAUSE)
+        checkpoint(force = true)
     }
 
     fun resume() = scope.launch {
         _live.update { it?.copy(status = SessionStatus.ACTIVE) }
         broadcast(ControlCommand.RESUME)
+        checkpoint(force = true)
     }
 
     /** Finish, compute the definitive summary, and persist. Returns the new session id. */
@@ -177,6 +186,8 @@ class SessionController @Inject constructor(
         broadcast(ControlCommand.STOP)
         loopJob?.cancel()
         countdownJob?.cancel()
+        // Drop the checkpoint too, or the workout you just threw away comes back on next launch.
+        _live.value?.id?.let { id -> runCatching { sessionRepository.deleteSession(id) } }
         clearBuffers()
         _live.value = null
     }
@@ -212,6 +223,145 @@ class SessionController @Inject constructor(
             // Phone→watch only; the phone updates itself from the settings screen.
             ControlCommand.CHECK_UPDATE -> Unit
         }
+    }
+
+    // ---- Crash recovery --------------------------------------------------------------------------
+
+    /**
+     * Pick up a workout the app didn't get to finish.
+     *
+     * A recent one is resumed outright — the usual cause is the process being killed mid-session
+     * while the watch kept streaming, and the right answer is to carry on as if nothing happened. An
+     * old one is banked as a finished session instead of resumed: an hour-old checkpoint means the
+     * workout ended without a Finish tap, and reviving it would show an elapsed clock counting the
+     * time the phone spent in someone's pocket. Either way the training is kept.
+     */
+    private suspend fun recoverUnfinished() {
+        val saved = runCatching { sessionRepository.findUnfinished() }.getOrNull() ?: return
+        if (isRunning) return
+
+        profile = profileRepository.profile.first()
+        val now = System.currentTimeMillis()
+        val lastActivityMs = saved.samples.lastOrNull()?.timestampMs
+            ?: saved.segments.lastOrNull()?.startMs
+            ?: saved.startMs
+
+        if (now - lastActivityMs <= RESUME_WINDOW_MS) {
+            resumeSession(saved, now)
+        } else {
+            bankAbandonedSession(saved, lastActivityMs)
+        }
+    }
+
+    private fun resumeSession(saved: WorkoutSession, now: Long) {
+        clearBuffers()
+        samples += saved.samples
+        segments += saved.segments
+        setLogs += saved.setLogs
+
+        val open = segments.lastOrNull()
+        // The in-flight rep count rides on the open segment — see [checkpoint], which stamps it
+        // there precisely so it survives this round trip.
+        val openReps = if (open?.type == SegmentType.ACTIVE) open.reps else 0
+
+        accumulator = rebuildAccumulator(
+            profile = profile,
+            segments = segments,
+            samples = samples,
+            currentReps = openReps,
+        )
+        lastSampleAtMs = 0L
+
+        val completed = completedSetsFrom(segments)
+        val slotId = open?.slotId
+        _live.value = LiveSession(
+            id = saved.id,
+            exerciseType = saved.exerciseType,
+            startMs = saved.startMs,
+            status = saved.status,
+            currentSegment = open?.type ?: SegmentType.REST,
+            plan = saved.plan,
+            currentSlotId = slotId,
+            currentReps = openReps,
+            setIndex = (completed[slotId] ?: 0) + 1,
+            completedSets = completed,
+            summary = accumulator?.snapshot(now) ?: SessionSummary.EMPTY,
+            lastBpm = saved.samples.lastOrNull()?.bpm ?: 0,
+            nowMs = now,
+            segmentStartMs = open?.startMs ?: saved.startMs,
+            receivingHr = false,
+        )
+
+        WorkoutSessionService.start(context)
+        startTicking()
+    }
+
+    /** Score what was recorded and file it, using the last real activity as the end. */
+    private suspend fun bankAbandonedSession(saved: WorkoutSession, endMs: Long) {
+        val summary = engine.compute(saved.samples, saved.segments, profile, endMs = endMs)
+        runCatching {
+            sessionRepository.saveSession(
+                saved.copy(endMs = endMs, status = SessionStatus.COMPLETED, summary = summary),
+            )
+        }
+    }
+
+    /**
+     * Replay the rule [changeSegmentLocked] applies live — a set is banked when an ACTIVE block
+     * gives way to a different kind of block — so a resumed session's progress matches what the
+     * screen showed before the interruption.
+     */
+    private fun completedSetsFrom(segments: List<Segment>): Map<String, Int> {
+        val completed = mutableMapOf<String, Int>()
+        segments.zipWithNext { a, b ->
+            if (a.type == SegmentType.ACTIVE && b.type != a.type) {
+                a.slotId?.let { completed[it] = (completed[it] ?: 0) + 1 }
+            }
+        }
+        return completed
+    }
+
+    // ---- Checkpointing ---------------------------------------------------------------------------
+
+    /**
+     * Write the session as it stands to the database, so an interruption costs seconds rather than
+     * the whole workout.
+     *
+     * Throttled, because re-encoding a growing sample list on every reading is wasted work; forced
+     * at every structural event, because those are the points where losing state actually hurts.
+     * The row carries status ACTIVE/PAUSED, which is what keeps it out of history and what
+     * [recoverUnfinished] looks for.
+     */
+    private suspend fun checkpoint(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        val snapshot = mutex.withLock {
+            val cur = _live.value ?: return
+            if (!force && now - lastCheckpointMs < CHECKPOINT_INTERVAL_MS) return
+            lastCheckpointMs = now
+
+            // Stamp the reps of the block in progress onto the open segment. Nothing else persists
+            // them, and a resumed set that forgot its reps would under-count the workout.
+            val openSegments = segments.toMutableList()
+            openSegments.lastOrNull()
+                ?.takeIf { it.endMs == null && it.type == SegmentType.ACTIVE }
+                ?.let { openSegments[openSegments.lastIndex] = it.copy(reps = cur.currentReps) }
+
+            WorkoutSession(
+                id = cur.id,
+                exerciseType = cur.exerciseType,
+                startMs = cur.startMs,
+                endMs = null,
+                status = cur.status,
+                samples = samples.toList(),
+                segments = openSegments,
+                plan = cur.plan,
+                setLogs = setLogs.toList(),
+                exerciseName = cur.plan.exercises.firstOrNull()?.name,
+                summary = cur.summary,
+            )
+        }
+        // Outside the lock: a database write must never stall the incoming heart-rate stream.
+        runCatching { sessionRepository.saveSession(snapshot) }
     }
 
     // ---- Lifecycle -----------------------------------------------------------------------------
@@ -253,6 +403,7 @@ class SessionController @Inject constructor(
             summary = SessionSummary.EMPTY,
             lastBpm = 0,
             nowMs = now,
+            segmentStartMs = now,
             receivingHr = false,
         )
         accumulator?.setCurrentExercise(firstSlot?.slotId, firstSlot?.name, firstSlot?.metabolics)
@@ -272,7 +423,10 @@ class SessionController @Inject constructor(
             // the watch actually *show* the workout instead of sitting on the watch face.
             scope.launch { watchLauncher.launch() }
         }
+        // The service holds the process; the checkpoint makes the workout survive losing it anyway.
+        WorkoutSessionService.start(context)
         startTicking()
+        checkpoint(force = true)
     }
 
     private suspend fun finishSession(cur: LiveSession, persist: Boolean): String? {
@@ -315,6 +469,8 @@ class SessionController @Inject constructor(
         val outbound = mutex.withLock { changeSegmentLocked(type, broadcast) }
         outbound.forEach { watch.send(it) }
         refresh()
+        // A banked set is exactly the state worth not losing.
+        checkpoint(force = true)
     }
 
     private fun changeSegmentLocked(type: SegmentType, broadcast: Boolean): List<ControlPayload> {
@@ -356,6 +512,7 @@ class SessionController @Inject constructor(
                 currentSlotId = slotId,
                 setIndex = setIndex,
                 currentReps = 0,
+                segmentStartMs = now,
             )
         }
 
@@ -392,6 +549,7 @@ class SessionController @Inject constructor(
         val outbound = mutex.withLock { selectSlotLocked(slotId, broadcast) }
         outbound?.let { watch.send(it) }
         refresh()
+        checkpoint(force = true)
     }
 
     private fun selectSlotLocked(slotId: String, broadcast: Boolean): ControlPayload? {
@@ -415,6 +573,7 @@ class SessionController @Inject constructor(
                 currentSlotId = slotId,
                 setIndex = (it.completedSets[slotId] ?: 0) + 1,
                 currentReps = 0,
+                segmentStartMs = now,
             )
         }
 
@@ -462,6 +621,7 @@ class SessionController @Inject constructor(
             _live.update { it?.copy(lastBpm = sample.bpm, receivingHr = true) }
         }
         refresh()
+        checkpoint()
     }
 
     private fun startTicking() {
@@ -508,6 +668,7 @@ class SessionController @Inject constructor(
         segments.clear()
         setLogs.clear()
         lastSampleAtMs = 0L
+        lastCheckpointMs = 0L
         accumulator = null
     }
 
@@ -517,5 +678,18 @@ class SessionController @Inject constructor(
 
         /** Lead-in before a work block actually starts. */
         const val COUNTDOWN_MS = 3_000L
+
+        /**
+         * How often the in-progress session is written to disk between structural events. Short
+         * enough that an interruption costs a few readings, long enough that re-encoding the sample
+         * list isn't constant background work.
+         */
+        const val CHECKPOINT_INTERVAL_MS = 15_000L
+
+        /**
+         * How stale a checkpoint may be and still be resumed as a live workout. Beyond this it's
+         * treated as a session that ended without a Finish tap and banked as-is.
+         */
+        const val RESUME_WINDOW_MS = 30 * 60_000L
     }
 }

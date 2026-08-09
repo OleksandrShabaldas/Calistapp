@@ -30,9 +30,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -44,11 +46,16 @@ import com.calistapp.app.ui.common.AmbientOverride
 import com.calistapp.app.ui.common.GlassCard
 import com.calistapp.app.ui.common.MetricBlock
 import com.calistapp.app.ui.common.MiniRing
+import com.calistapp.app.ui.common.NoHeartRateDialog
 import com.calistapp.app.ui.common.PillChip
+import com.calistapp.app.ui.common.RepeatingIconButton
+import com.calistapp.app.ui.common.RestAlert
 import com.calistapp.app.ui.common.SectionHeading
 import com.calistapp.app.ui.common.WatchStatusCard
 import com.calistapp.app.ui.common.WatchStatusStrip
 import com.calistapp.app.ui.common.formatClock
+import com.calistapp.app.ui.common.rememberHaptics
+import kotlin.math.abs
 import com.calistapp.app.ui.exercises.ExerciseImage
 import com.calistapp.app.ui.theme.Amber
 import com.calistapp.app.ui.theme.Capsule
@@ -80,6 +87,10 @@ fun ActiveSessionScreen(
     val thumbnails by viewModel.thumbnails.collectAsStateWithLifecycle()
 
     val session = live
+    // Mid-set you glance at the phone, you don't tap it. A screen that blanks every 30 seconds makes
+    // the rep counter unusable exactly when it's needed.
+    KeepScreenOn(enabled = session != null)
+
     if (session == null) {
         StartControls(
             watchLink = watchLink,
@@ -111,6 +122,16 @@ fun ActiveSessionScreen(
     }
 }
 
+/** Holds the display awake for as long as [enabled], and gives it back on the way out. */
+@Composable
+private fun KeepScreenOn(enabled: Boolean) {
+    val view = LocalView.current
+    DisposableEffect(view, enabled) {
+        view.keepScreenOn = enabled
+        onDispose { view.keepScreenOn = false }
+    }
+}
+
 @Composable
 private fun StartControls(
     watchLink: WatchLinkState,
@@ -123,6 +144,18 @@ private fun StartControls(
     onStart: (ExerciseType) -> Unit,
 ) {
     var type by remember(defaultType) { mutableStateOf(defaultType) }
+    // Heart rate only ever comes from the watch. Without it a session records no samples at all, the
+    // engine has nothing to integrate, and the workout is filed at zero calories — so this asks
+    // first rather than letting someone find out afterwards.
+    var confirmNoWatch by remember { mutableStateOf(false) }
+
+    if (confirmNoWatch) {
+        NoHeartRateDialog(
+            onDismiss = { confirmNoWatch = false },
+            onStartAnyway = { onStart(type) },
+            onReconnect = onReconnect,
+        )
+    }
 
     // Nothing to run means nothing to score: every set is measured against the movement being
     // performed, and a session with no exercises can't advance, can't log a set, and gives the
@@ -217,7 +250,7 @@ private fun StartControls(
         WatchStatusCard(state = watchLink, onReconnect = onReconnect)
 
         Button(
-            onClick = { onStart(type) },
+            onClick = { if (watchLink.isUsable) onStart(type) else confirmNoWatch = true },
             enabled = hasWorkout,
             modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = Capsule,
@@ -260,6 +293,15 @@ private fun LiveControls(
     val s = live.summary
     val exercise = live.currentExercise
     val countdown = live.countdownSeconds
+    val restRemaining = live.restRemainingSeconds
+
+    // Keyed on the block, so each rest gets exactly one alert however long you overrun it.
+    val haptics = rememberHaptics()
+    RestAlert(
+        remainingSeconds = restRemaining,
+        resetKey = live.segmentStartMs,
+        onElapsed = haptics::restOver,
+    )
 
     // Guards against banking an empty set. Reps are the one input the app can't infer, so a zero is
     // ambiguous — it might be a genuine skipped set or a forgotten tap, and the two need different
@@ -369,24 +411,60 @@ private fun LiveControls(
                     TextButton(onClick = onStartNow) { Text("Start now", color = segColor) }
                 }
             }
+        } else if (!isActive && restRemaining != null) {
+            // Rest is the half of a workout nothing was tracking. Counting it down turns dead time
+            // into something with a shape, and the buzz means you don't have to watch it.
+            val over = restRemaining < 0
+            val restAccent = if (over) Amber else segColor
+            GlassCard(accent = restAccent) {
+                Column(
+                    Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(formatClock(abs(restRemaining) * 1000L), style = NumericLarge, color = restAccent)
+                    Text(
+                        if (over) "over the ${exercise?.restLabel} rest" else "rest remaining",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = CreamMuted,
+                    )
+                }
+            }
         } else if (isActive && exercise != null) {
             // Rep logging — the signal heart rate can't see.
+            val isHold = exercise.measure == ExerciseMeasure.SECONDS
+            val target = if (isHold) exercise.targetSeconds else exercise.targetReps
+            val bulk = if (isHold) 10 else 5
+
             GlassCard(accent = segColor) {
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    RepButton(Icons.Filled.Remove, "One fewer rep") { onReps(-1) }
+                    BulkRepButton("−$bulk", enabled = live.currentReps > 0) { onReps(-bulk) }
+                    RepButton(Icons.Filled.Remove, "One fewer", enabled = live.currentReps > 0) { onReps(-1) }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("${live.currentReps}", style = NumericLarge, color = segColor)
                         Text(
-                            if (exercise.measure == ExerciseMeasure.SECONDS) "seconds held" else "reps this set",
+                            if (isHold) "seconds held" else "reps this set",
                             style = MaterialTheme.typography.labelMedium,
                             color = CreamMuted,
                         )
                     }
-                    RepButton(Icons.Filled.Add, "One more rep") { onReps(1) }
+                    RepButton(Icons.Filled.Add, "One more") { onReps(1) }
+                    BulkRepButton("+$bulk") { onReps(bulk) }
+                }
+
+                // The overwhelmingly common outcome is "I did exactly what I planned". Making that
+                // one tap instead of thirty is the difference between logging reps and not bothering.
+                if (target > 0 && live.currentReps != target) {
+                    OutlinedButton(
+                        onClick = { onReps(target - live.currentReps) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = Capsule,
+                    ) {
+                        Text(if (isHold) "Hit the target — ${target}s" else "Hit the target — $target reps")
+                    }
                 }
             }
         }
@@ -500,14 +578,34 @@ private fun LiveControls(
 /** An action held back by the zero-rep confirmation, with the wording for its confirm button. */
 private class PendingAction(val label: String, val run: () -> Unit)
 
+/** Single step, and keeps stepping while held. */
 @Composable
 private fun RepButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     description: String,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    IconButton(onClick = onClick, modifier = Modifier.size(52.dp)) {
-        Icon(icon, contentDescription = description, tint = Cream, modifier = Modifier.size(26.dp))
+    RepeatingIconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(52.dp)) {
+        Icon(
+            icon,
+            contentDescription = "$description — hold to repeat",
+            tint = if (enabled) Cream else CreamMuted,
+            modifier = Modifier.size(26.dp),
+        )
+    }
+}
+
+/** The five-at-a-time jump, for sets you count in handfuls rather than one by one. */
+@Composable
+private fun BulkRepButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
+    RepeatingIconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(44.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (enabled) CreamMuted else CreamMuted.copy(alpha = 0.4f),
+        )
     }
 }
 

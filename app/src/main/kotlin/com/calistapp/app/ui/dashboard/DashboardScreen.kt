@@ -45,9 +45,6 @@ import com.calistapp.app.ui.theme.CreamMuted
 import com.calistapp.app.ui.theme.Emerald
 import com.calistapp.app.ui.theme.Sky
 
-/** Weekly calorie target used purely to scale the hero ring — progress needs a denominator. */
-private const val WEEKLY_KCAL_GOAL = 3500f
-
 @Composable
 fun DashboardScreen(
     onStartWorkout: () -> Unit,
@@ -61,6 +58,7 @@ fun DashboardScreen(
     val week by viewModel.week.collectAsStateWithLifecycle()
     val live by viewModel.live.collectAsStateWithLifecycle()
     val watchLink by viewModel.watchLink.collectAsStateWithLifecycle()
+    val goals by viewModel.goals.collectAsStateWithLifecycle()
 
     Column(
         Modifier
@@ -75,13 +73,13 @@ fun DashboardScreen(
         GlassCard(contentPadding = 22) {
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 ProgressRing(
-                    progress = week.totalKcal / WEEKLY_KCAL_GOAL,
+                    progress = week.totalKcal / goals.weeklyKcal.toFloat(),
                     accent = Emerald,
                 ) {
                     RingContent(
                         value = "${week.totalKcal}",
-                        caption = "kcal this week",
-                        sub = "${week.sessions} ${if (week.sessions == 1) "session" else "sessions"}",
+                        caption = "of ${goals.weeklyKcal} kcal",
+                        sub = "${week.sessions} of ${goals.weeklySessions} sessions",
                         accent = Cream,
                     )
                 }

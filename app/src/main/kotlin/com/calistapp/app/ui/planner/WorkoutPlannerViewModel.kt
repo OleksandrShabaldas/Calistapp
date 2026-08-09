@@ -2,8 +2,12 @@ package com.calistapp.app.ui.planner
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.calistapp.app.data.exercise.ExercisePrefsRepository
 import com.calistapp.app.data.exercise.ExerciseRepository
 import com.calistapp.app.data.session.PlanDraftRepository
+import com.calistapp.app.data.session.SavedWorkoutRepository
+import com.calistapp.app.data.sync.WatchConnectionMonitor
+import com.calistapp.app.data.sync.WatchLinkState
 import com.calistapp.app.session.SessionController
 import com.calistapp.app.ui.exercises.ExerciseFilterActions
 import com.calistapp.app.ui.exercises.ExerciseFilters
@@ -16,6 +20,7 @@ import com.calistapp.core.model.Exercise
 import com.calistapp.core.model.ExerciseMeasure
 import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.PlannedExercise
+import com.calistapp.core.model.SavedWorkout
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.WorkoutStyle
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -27,16 +32,26 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import java.util.UUID
 import javax.inject.Inject
 
 @HiltViewModel
 class WorkoutPlannerViewModel @Inject constructor(
     private val drafts: PlanDraftRepository,
     private val controller: SessionController,
+    private val savedWorkouts0: SavedWorkoutRepository,
+    private val watchConnection: WatchConnectionMonitor,
+    private val prefs: ExercisePrefsRepository,
     exerciseRepository: ExerciseRepository,
 ) : ViewModel(), ExerciseFilterActions {
 
     val plan: StateFlow<WorkoutPlan> = drafts.draft
+
+    /** The planner starts sessions now, so it has to be able to warn about a silent watch. */
+    val watchLink: StateFlow<WatchLinkState> = watchConnection.state
+
+    fun reconnectWatch() = watchConnection.reconnect()
 
     private val _filters = MutableStateFlow(ExerciseFilters())
     val filters: StateFlow<ExerciseFilters> = _filters.asStateFlow()
@@ -64,9 +79,17 @@ class WorkoutPlannerViewModel @Inject constructor(
      * Uncapped, because a result limit silently hid matches that a filter combination had already
      * narrowed to a handful.
      */
+    val favourites: StateFlow<Set<String>> = prefs.favourites
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    fun toggleFavourite(exerciseId: String) {
+        viewModelScope.launch { prefs.toggleFavourite(exerciseId) }
+    }
+
     val searchResults: StateFlow<List<Exercise>> =
-        combine(all, _filters) { list, f -> list.applyQuery(f) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        combine(all, _filters, prefs.favourites) { list, f, starred ->
+            list.applyQuery(f).sortedByDescending { it.id in starred }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // ---- Search and filters ----------------------------------------------------------------------
 
@@ -99,6 +122,26 @@ class WorkoutPlannerViewModel @Inject constructor(
 
     // ---- Plan structure ---------------------------------------------------------------------------
 
+    /** Workouts kept for reuse, most recently used first. */
+    val savedWorkouts: StateFlow<List<SavedWorkout>> = savedWorkouts0.saved
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun saveCurrentWorkout(name: String) {
+        val plan = drafts.draft.value
+        if (plan.isEmpty) return
+        viewModelScope.launch { savedWorkouts0.save(name, plan) }
+    }
+
+    /** Load a saved workout into the draft, and remember that it was used. */
+    fun loadWorkout(saved: SavedWorkout) {
+        drafts.replaceWith(saved.plan)
+        viewModelScope.launch { savedWorkouts0.markUsed(saved.id) }
+    }
+
+    fun deleteWorkout(id: String) {
+        viewModelScope.launch { savedWorkouts0.delete(id) }
+    }
+
     fun add(exercise: Exercise) = drafts.add(exercise)
     fun remove(slotId: String) = drafts.remove(slotId)
     fun move(slotId: String, delta: Int) = drafts.move(slotId, delta)
@@ -116,6 +159,44 @@ class WorkoutPlannerViewModel @Inject constructor(
             ExerciseMeasure.REPS -> it.copy(targetReps = value.coerceIn(1, 200))
             ExerciseMeasure.SECONDS -> it.copy(targetSeconds = value.coerceIn(5, 600))
         }
+    }
+
+    /** Rest after a set of this movement. Zero turns the timer off for it. */
+    fun setRest(slotId: String, seconds: Int) =
+        drafts.update(slotId) { it.copy(restSeconds = seconds.coerceIn(0, 600)) }
+
+    /** How many of this exercise's sets are warm-ups. They score calories but not volume. */
+    fun setWarmupSets(slotId: String, sets: Int) =
+        drafts.update(slotId) { it.copy(warmupSets = sets.coerceIn(0, it.targetSets)) }
+
+    /**
+     * Pair this exercise with the one above it into a superset, or split it back out.
+     *
+     * Grouping with the neighbour rather than offering free-form group management: a superset is
+     * almost always adjacent movements, and a plan screen that asks you to name groups is a worse
+     * trade than one that assumes the obvious.
+     */
+    fun toggleSupersetWithPrevious(slotId: String) {
+        val plan = drafts.draft.value
+        val index = plan.exercises.indexOfFirst { it.slotId == slotId }
+        if (index <= 0) return
+        val previous = plan.exercises[index - 1]
+        val current = plan.exercises[index]
+
+        if (current.groupId != null && current.groupId == previous.groupId) {
+            drafts.update(slotId) { it.copy(groupId = null) }
+            // A group of one isn't a superset; release the partner too.
+            val stillGrouped = plan.exercises.count { it.groupId == current.groupId } - 1
+            if (stillGrouped <= 1) {
+                plan.exercises.filter { it.groupId == current.groupId && it.slotId != slotId }
+                    .forEach { orphan -> drafts.update(orphan.slotId) { it.copy(groupId = null) } }
+            }
+            return
+        }
+
+        val group = previous.groupId ?: UUID.randomUUID().toString()
+        if (previous.groupId == null) drafts.update(previous.slotId) { it.copy(groupId = group) }
+        drafts.update(slotId) { it.copy(groupId = group) }
     }
 
     fun toggleMeasure(slotId: String) = drafts.update(slotId) {

@@ -13,6 +13,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -88,7 +90,14 @@ fun RingContent(
     sub: String? = null,
     accent: Color = MaterialTheme.colorScheme.primary,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    // Merged so a screen reader announces "1240 of 3500 kcal, 2 of 4 sessions" as one figure rather
+    // than three disconnected fragments in whatever order it walks them.
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.semantics(mergeDescendants = true) {
+            contentDescription = listOfNotNull(value, caption, sub).joinToString(", ")
+        },
+    ) {
         Text(value, style = NumericLarge, color = accent)
         Text(caption, style = MaterialTheme.typography.bodyMedium, color = CreamMuted)
         if (sub != null) {
@@ -111,7 +120,9 @@ fun MiniRing(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier,
+        modifier.semantics(mergeDescendants = true) {
+            contentDescription = "$label: $value $sub"
+        },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -140,7 +151,10 @@ fun MetricBlock(
     accent: Color,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier.semantics(mergeDescendants = true) { contentDescription = "$label: $value" },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         Text(value, style = NumericMedium, color = accent)
         Text(label, style = MaterialTheme.typography.labelMedium, color = CreamMuted)
     }

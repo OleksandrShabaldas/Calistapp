@@ -4,6 +4,19 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The rest timer's alert. Mid-set you aren't looking at the screen. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!--
+      Keeps the phone process alive for the length of a workout. Without it the session lived only
+      in memory and a backgrounded app killed under pressure lost it outright, while the watch went
+      on streaming heart rate to nothing.
+
+      Typed dataSync rather than health: the phone reads no sensors of its own, it maintains the
+      data-layer session with the watch. That type carries a daily cap on Android 15, which
+      WorkoutSessionService.onTimeout handles by banking the workout rather than dropping it.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:name=".CalistApplication"
@@ -23,6 +36,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Holds the process open for the duration of a workout. -->
+        <service
+            android:name=".session.WorkoutSessionService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- Receives real-time HR + session state from the watch over the Wearable Data Layer. -->
         <service

@@ -4,12 +4,68 @@ import com.calistapp.core.model.ExerciseBreakdown
 import com.calistapp.core.model.ExerciseMetabolics
 import com.calistapp.core.model.HeartRateSample
 import com.calistapp.core.model.HrZone
+import com.calistapp.core.model.Segment
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionSummary
 import com.calistapp.core.model.UserProfile
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+
+/**
+ * Rebuild an accumulator from a session's recorded history — the state it would be in had it
+ * processed that history live.
+ *
+ * Needed to resume a workout that was interrupted. The accumulator is a streaming structure with no
+ * persisted form, so a session read back from disk has to be fed its own history in the order it
+ * originally happened. Replaying is exact by construction: it makes the same calls in the same order
+ * the live path made, rather than trying to reconstitute internal totals from a finished summary.
+ *
+ * @param currentReps reps already logged against the still-open final segment.
+ */
+fun rebuildAccumulator(
+    profile: UserProfile,
+    segments: List<Segment>,
+    samples: List<HeartRateSample>,
+    currentReps: Int = 0,
+    config: CalorieEngine.Config = CalorieEngine.Config(),
+): LiveCalorieAccumulator {
+    val accumulator = LiveCalorieAccumulator(profile, config)
+    val ordered = samples.sortedBy { it.timestampMs }
+    val first = segments.firstOrNull()
+
+    if (first == null) {
+        // No segments recorded yet — anchor on the first reading and take the samples as they came.
+        accumulator.begin(ordered.firstOrNull()?.timestampMs ?: 0L)
+        ordered.forEach(accumulator::addSample)
+        accumulator.setCurrentReps(currentReps)
+        return accumulator
+    }
+
+    accumulator.begin(first.startMs, first.type)
+    accumulator.setCurrentExercise(first.slotId, first.exerciseName, first.metabolics)
+
+    var next = 0
+    segments.forEachIndexed { index, segment ->
+        if (index == 0) return@forEachIndexed
+        // Everything sampled inside the block that's ending, before the boundary is crossed.
+        while (next < ordered.size && ordered[next].timestampMs < segment.startMs) {
+            accumulator.addSample(ordered[next++])
+        }
+        // The closing block banks the reps it was sealed with, exactly as it did live.
+        accumulator.setCurrentReps(segments[index - 1].reps)
+        accumulator.startSegment(
+            type = segment.type,
+            nowMs = segment.startMs,
+            slotId = segment.slotId,
+            exerciseName = segment.exerciseName,
+            metabolics = segment.metabolics,
+        )
+    }
+    while (next < ordered.size) accumulator.addSample(ordered[next++])
+    accumulator.setCurrentReps(currentReps)
+    return accumulator
+}
 
 /**
  * Running calorie total for an **in-progress** session.

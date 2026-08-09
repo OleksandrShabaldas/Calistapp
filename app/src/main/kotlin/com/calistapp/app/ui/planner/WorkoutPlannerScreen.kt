@@ -14,20 +14,26 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -54,7 +60,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.calistapp.app.ui.common.GlassCard
+import com.calistapp.app.ui.common.NoHeartRateDialog
 import com.calistapp.app.ui.common.PillChip
+import com.calistapp.app.ui.common.WatchStatusStrip
 import com.calistapp.app.ui.exercises.ExerciseFilterSheet
 import com.calistapp.app.ui.exercises.ExerciseImage
 import com.calistapp.app.ui.exercises.SortMenu
@@ -68,6 +76,7 @@ import com.calistapp.app.ui.theme.Violet
 import com.calistapp.core.model.Exercise
 import com.calistapp.core.model.ExerciseMeasure
 import com.calistapp.core.model.PlannedExercise
+import com.calistapp.core.model.SavedWorkout
 import com.calistapp.core.model.WorkoutStyle
 
 /**
@@ -87,6 +96,31 @@ fun WorkoutPlannerScreen(
     // composable out of composition, and a plain remember would drop you back on the plan instead of
     // the picker you were browsing when you come back.
     var picking by rememberSaveable { mutableStateOf(false) }
+    var saving by rememberSaveable { mutableStateOf(false) }
+    var confirmNoWatch by rememberSaveable { mutableStateOf(false) }
+    val saved by viewModel.savedWorkouts.collectAsStateWithLifecycle()
+    val watchLink by viewModel.watchLink.collectAsStateWithLifecycle()
+
+    fun start() {
+        viewModel.startWorkout()
+        onStarted()
+    }
+
+    if (confirmNoWatch) {
+        NoHeartRateDialog(
+            onDismiss = { confirmNoWatch = false },
+            onStartAnyway = ::start,
+            onReconnect = viewModel::reconnectWatch,
+        )
+    }
+
+    if (saving) {
+        SaveWorkoutDialog(
+            initialName = plan.name,
+            onDismiss = { saving = false },
+            onSave = { name -> viewModel.saveCurrentWorkout(name); saving = false },
+        )
+    }
 
     if (picking) {
         ExercisePicker(
@@ -127,14 +161,41 @@ fun WorkoutPlannerScreen(
         )
 
         if (plan.isEmpty) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("No exercises yet", style = MaterialTheme.typography.titleMedium, color = Cream)
-                    Text(
-                        "Add the movements you plan to do — the tracker uses them to score each set.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = CreamMuted,
-                    )
+            // An empty plan is exactly when a saved workout is worth offering — it's the moment you'd
+            // otherwise start rebuilding one from 834 exercises.
+            LazyColumn(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item {
+                    Column(
+                        Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text("No exercises yet", style = MaterialTheme.typography.titleMedium, color = Cream)
+                        Text(
+                            "Add the movements you plan to do — the tracker uses them to score each set.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = CreamMuted,
+                        )
+                    }
+                }
+                if (saved.isNotEmpty()) {
+                    item {
+                        Text(
+                            "Your workouts",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = Cream,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                    items(saved, key = { it.id }) { workout ->
+                        SavedWorkoutRow(
+                            workout = workout,
+                            onLoad = { viewModel.loadWorkout(workout) },
+                            onDelete = { viewModel.deleteWorkout(workout.id) },
+                        )
+                    }
                 }
             }
         } else {
@@ -151,15 +212,21 @@ fun WorkoutPlannerScreen(
                 Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(plan.exercises, key = { it.slotId }) { slot ->
+                itemsIndexed(plan.exercises, key = { _, it -> it.slotId }) { index, slot ->
+                    val previous = plan.exercises.getOrNull(index - 1)
                     PlannedExerciseCard(
                         slot = slot,
                         target = viewModel.targetOf(slot),
                         showSets = !plan.isCircuit,
+                        canSuperset = index > 0 && !plan.isCircuit,
+                        inSuperset = slot.groupId != null && slot.groupId == previous?.groupId,
+                        onToggleSuperset = { viewModel.toggleSupersetWithPrevious(slot.slotId) },
+                        onWarmupSets = { viewModel.setWarmupSets(slot.slotId, it) },
                         imageUrls = thumbnails[slot.exerciseId].orEmpty(),
                         onOpen = { onOpenExercise(slot.exerciseId) },
                         onSets = { viewModel.setSets(slot.slotId, it) },
                         onTarget = { viewModel.setTarget(slot.slotId, it) },
+                        onRest = { viewModel.setRest(slot.slotId, it) },
                         onToggleMeasure = { viewModel.toggleMeasure(slot.slotId) },
                         onToggleWeighted = { viewModel.toggleWeighted(slot.slotId) },
                         onWeight = { viewModel.setAddedWeight(slot.slotId, it) },
@@ -170,16 +237,28 @@ fun WorkoutPlannerScreen(
             }
         }
 
-        OutlinedButton(
-            onClick = { picking = true },
-            modifier = Modifier.fillMaxWidth(),
-            shape = Capsule,
-        ) {
-            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text("  Add exercise")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { picking = true },
+                modifier = Modifier.weight(1f),
+                shape = Capsule,
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text("  Add exercise")
+            }
+            if (!plan.isEmpty) {
+                OutlinedButton(onClick = { saving = true }, shape = Capsule) {
+                    Icon(Icons.Filled.BookmarkBorder, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text("  Save")
+                }
+            }
         }
+        WatchStatusStrip(state = watchLink, onReconnect = viewModel::reconnectWatch)
+
         Button(
-            onClick = { viewModel.startWorkout(); onStarted() },
+            onClick = {
+                if (watchLink.isUsable) start() else confirmNoWatch = true
+            },
             enabled = !plan.isEmpty,
             modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = Capsule,
@@ -189,6 +268,87 @@ fun WorkoutPlannerScreen(
         }
         Box(Modifier.height(8.dp))
     }
+}
+
+/** One reusable workout: tap to load it into the planner, or drop it. */
+@Composable
+private fun SavedWorkoutRow(workout: SavedWorkout, onLoad: () -> Unit, onDelete: () -> Unit) {
+    var confirmDelete by rememberSaveable { mutableStateOf(false) }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete \"${workout.name}\"?") },
+            text = { Text("The saved workout goes; sessions you've already done with it stay.") },
+            confirmButton = {
+                TextButton(onClick = { confirmDelete = false; onDelete() }) {
+                    Text("Delete", color = Coral)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep it") } },
+        )
+    }
+
+    GlassCard(contentPadding = 12) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(
+                Modifier.weight(1f).clickable(onClick = onLoad),
+            ) {
+                Text(
+                    workout.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Cream,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    workout.summaryLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = CreamMuted,
+                )
+            }
+            TextButton(onClick = onLoad) { Text("Load", color = Emerald) }
+            IconButton(onClick = { confirmDelete = true }, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Filled.Close, "Delete ${workout.name}", tint = Coral, modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SaveWorkoutDialog(
+    initialName: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var name by rememberSaveable { mutableStateOf(initialName) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Save this workout") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "It'll be waiting on this screen next time, so you don't rebuild it from scratch.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = CreamMuted,
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(name.trim()) }, enabled = name.isNotBlank()) {
+                Text("Save", color = Emerald)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /**
@@ -226,6 +386,7 @@ private fun StyleSelector(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PlannedExerciseCard(
     slot: PlannedExercise,
@@ -235,6 +396,12 @@ private fun PlannedExerciseCard(
     onOpen: () -> Unit,
     onSets: (Int) -> Unit,
     onTarget: (Int) -> Unit,
+    onRest: (Int) -> Unit,
+    onWarmupSets: (Int) -> Unit,
+    /** False for the first exercise and inside a circuit, where a superset means nothing. */
+    canSuperset: Boolean,
+    inSuperset: Boolean,
+    onToggleSuperset: () -> Unit,
     onToggleMeasure: () -> Unit,
     onToggleWeighted: () -> Unit,
     onWeight: (Double) -> Unit,
@@ -315,9 +482,34 @@ private fun PlannedExerciseCard(
                         onChange = onTarget,
                         step = if (slot.measure == ExerciseMeasure.SECONDS) 5 else 1,
                     )
+                    // Rest belongs to the movement: heavy pulling wants minutes, a finisher wants
+                    // seconds. Stepping to zero turns the timer off for this exercise.
+                    Stepper(
+                        label = "Rest",
+                        value = slot.restSeconds,
+                        onChange = onRest,
+                        step = 15,
+                        format = { if (it <= 0) "off" else "${it / 60}:${(it % 60).toString().padStart(2, '0')}" },
+                    )
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (showSets && slot.targetSets > 1) {
+                    Stepper(
+                        label = "Warm-up sets",
+                        value = slot.warmupSets,
+                        onChange = onWarmupSets,
+                        format = { if (it == 0) "none" else "$it" },
+                    )
+                    if (slot.warmupSets > 0) {
+                        Text(
+                            "The first ${slot.warmupSets} count for calories but not for volume or records.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = CreamMuted,
+                        )
+                    }
+                }
+
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PillChip(
                         label = "Added weight",
                         selected = slot.isWeighted,
@@ -331,6 +523,16 @@ private fun PlannedExerciseCard(
                         },
                         onClick = onToggleWeighted,
                     )
+                    // Only offered where it means something — a superset needs a movement above it
+                    // to pair with, and a circuit already rotates everything.
+                    if (canSuperset) {
+                        PillChip(
+                            label = if (inSuperset) "Superset ✓" else "Superset with above",
+                            selected = inSuperset,
+                            accent = Violet,
+                            onClick = onToggleSuperset,
+                        )
+                    }
                 }
                 if (slot.isWeighted) {
                     Stepper(
@@ -357,14 +559,25 @@ private fun PlannedExerciseCard(
 }
 
 @Composable
-private fun Stepper(label: String, value: Int, onChange: (Int) -> Unit, step: Int = 1) {
+private fun Stepper(
+    label: String,
+    value: Int,
+    onChange: (Int) -> Unit,
+    step: Int = 1,
+    format: (Int) -> String = { it.toString() },
+) {
     Column {
         Text(label, style = MaterialTheme.typography.labelSmall, color = CreamMuted)
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { onChange(value - step) }) {
                 Icon(Icons.Filled.Remove, "Decrease $label")
             }
-            Text("$value", style = MaterialTheme.typography.titleMedium, color = Cream, fontWeight = FontWeight.Bold)
+            Text(
+                format(value),
+                style = MaterialTheme.typography.titleMedium,
+                color = Cream,
+                fontWeight = FontWeight.Bold,
+            )
             IconButton(onClick = { onChange(value + step) }) {
                 Icon(Icons.Filled.Add, "Increase $label")
             }
@@ -387,6 +600,7 @@ private fun ExercisePicker(
     val facets by viewModel.facets.collectAsStateWithLifecycle()
     val results by viewModel.searchResults.collectAsStateWithLifecycle()
     val plan by viewModel.plan.collectAsStateWithLifecycle()
+    val favourites by viewModel.favourites.collectAsStateWithLifecycle()
     var showFilters by remember { mutableStateOf(false) }
 
     // The picker is a step *inside* the planner, not a destination of its own, so back closes it and
@@ -447,9 +661,14 @@ private fun ExercisePicker(
             items(results, key = { it.id }) { exercise ->
                 PickerRow(
                     exercise = exercise,
-                    // Adding closes the picker: you came here to add one thing, and being returned
-                    // to the plan confirms it landed. Reopening is one tap.
-                    onAdd = { viewModel.add(exercise); onDone() },
+                    // How many times it's already in the plan. This is what closing the picker after
+                    // every add used to communicate — a workout is usually six or eight movements,
+                    // and confirming each one by throwing you out of the list cost six or eight
+                    // round trips to save a moment's doubt.
+                    timesAdded = plan.exercises.count { it.exerciseId == exercise.id },
+                    isFavourite = exercise.id in favourites,
+                    onToggleFavourite = { viewModel.toggleFavourite(exercise.id) },
+                    onAdd = { viewModel.add(exercise) },
                     onOpen = { onOpenExercise(exercise.id) },
                 )
             }
@@ -466,7 +685,14 @@ private fun ExercisePicker(
 }
 
 @Composable
-private fun PickerRow(exercise: Exercise, onAdd: () -> Unit, onOpen: () -> Unit) {
+private fun PickerRow(
+    exercise: Exercise,
+    timesAdded: Int,
+    isFavourite: Boolean,
+    onToggleFavourite: () -> Unit,
+    onAdd: () -> Unit,
+    onOpen: () -> Unit,
+) {
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surface,
@@ -500,8 +726,35 @@ private fun PickerRow(exercise: Exercise, onAdd: () -> Unit, onOpen: () -> Unit)
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            IconButton(onClick = onToggleFavourite, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    if (isFavourite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                    contentDescription = if (isFavourite) {
+                        "Remove ${exercise.name} from favourites"
+                    } else {
+                        "Add ${exercise.name} to favourites"
+                    },
+                    tint = if (isFavourite) Amber else CreamMuted,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            if (timesAdded > 0) {
+                Text(
+                    if (timesAdded == 1) "in plan" else "×$timesAdded",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Emerald,
+                )
+            }
             IconButton(onClick = onAdd) {
-                Icon(Icons.Filled.Add, contentDescription = "Add ${exercise.name}", tint = Emerald)
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = if (timesAdded > 0) {
+                        "Add another ${exercise.name} — $timesAdded already in the plan"
+                    } else {
+                        "Add ${exercise.name}"
+                    },
+                    tint = Emerald,
+                )
             }
         }
     }

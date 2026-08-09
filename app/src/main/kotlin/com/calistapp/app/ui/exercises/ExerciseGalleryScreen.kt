@@ -21,6 +21,8 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -28,6 +30,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -54,6 +57,7 @@ import com.calistapp.app.ui.theme.Amber
 import com.calistapp.app.ui.theme.Capsule
 import com.calistapp.app.ui.theme.Coral
 import com.calistapp.app.ui.theme.Cream
+import com.calistapp.app.ui.theme.CreamFaint
 import com.calistapp.app.ui.theme.CreamMuted
 import com.calistapp.app.ui.theme.Emerald
 import com.calistapp.app.ui.theme.InkElevated
@@ -75,6 +79,7 @@ fun ExerciseGalleryScreen(
     val total by viewModel.totalCount.collectAsStateWithLifecycle()
     val enrichment by viewModel.enrichmentProgress.collectAsStateWithLifecycle()
     val facets by viewModel.facets.collectAsStateWithLifecycle()
+    val favourites by viewModel.favourites.collectAsStateWithLifecycle()
     var showFilters by remember { mutableStateOf(false) }
 
     if (showFilters) {
@@ -141,7 +146,12 @@ fun ExerciseGalleryScreen(
             )
         }
         items(exercises, key = { it.id }) { exercise ->
-            ExerciseCard(exercise = exercise, onClick = { onOpenExercise(exercise.id) })
+            ExerciseCard(
+                exercise = exercise,
+                isFavourite = exercise.id in favourites,
+                onToggleFavourite = { viewModel.toggleFavourite(exercise.id) },
+                onClick = { onOpenExercise(exercise.id) },
+            )
         }
         if (exercises.isEmpty()) {
             item {
@@ -217,7 +227,12 @@ private fun EnrichAllCard(
 }
 
 @Composable
-private fun ExerciseCard(exercise: Exercise, onClick: () -> Unit) {
+private fun ExerciseCard(
+    exercise: Exercise,
+    isFavourite: Boolean,
+    onToggleFavourite: () -> Unit,
+    onClick: () -> Unit,
+) {
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(16.dp),
@@ -257,6 +272,19 @@ private fun ExerciseCard(exercise: Exercise, onClick: () -> Unit) {
             }
             if (exercise.efficiency > 0) {
                 EfficiencyBadge(exercise.efficiency)
+            }
+            // Eight hundred exercises, and you use fifteen. Starring pins those to the top of both
+            // this list and the workout picker.
+            IconButton(onClick = onToggleFavourite) {
+                Icon(
+                    if (isFavourite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                    contentDescription = if (isFavourite) {
+                        "Remove ${exercise.name} from favourites"
+                    } else {
+                        "Add ${exercise.name} to favourites"
+                    },
+                    tint = if (isFavourite) Amber else CreamFaint,
+                )
             }
         }
     }

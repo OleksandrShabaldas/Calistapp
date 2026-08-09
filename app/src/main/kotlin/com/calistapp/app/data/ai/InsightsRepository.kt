@@ -22,12 +22,6 @@ class InsightsRepository @Inject constructor(
         profile: UserProfile,
     ): AiResult = gemini.generate(buildSessionPrompt(session, summary, profile))
 
-    /** Cross-session progress analysis — the scaffold for the "track my progress" feature. */
-    suspend fun analyzeProgress(
-        recent: List<WorkoutSession>,
-        profile: UserProfile,
-    ): AiResult = gemini.generate(buildProgressPrompt(recent, profile))
-
     private fun buildSessionPrompt(
         session: WorkoutSession,
         s: SessionSummary,
@@ -75,6 +69,9 @@ class InsightsRepository @Inject constructor(
                 )
             }
         }
+        // The subjective side. Where RPE and heart rate disagree is the interesting part — a hard
+        // session that read easy, or an easy one that didn't.
+        session.rpe?.let { appendLine("- Rated perceived exertion: $it/10 (Borg CR10)") }
         if (session.notes.isNotBlank()) appendLine("- Athlete notes: ${session.notes}")
         appendLine()
         appendLine("Respond in this exact structure using short paragraphs and bullet points:")
@@ -83,19 +80,6 @@ class InsightsRepository @Inject constructor(
         appendLine("3. What to improve")
         appendLine("4. Two concrete recommendations for next session")
         appendLine("Keep it under 220 words. Do not invent data you weren't given.")
-    }
-
-    private fun buildProgressPrompt(recent: List<WorkoutSession>, p: UserProfile): String = buildString {
-        appendLine("You are a coach analyzing an athlete's recent training trend.")
-        appendLine("Athlete: ${p.sex}, age ${p.ageYears}, ${p.weightKg} kg, max HR ${p.effectiveMaxHr}.")
-        appendLine("Recent sessions (most recent first):")
-        recent.take(10).forEach { ws ->
-            val sm = ws.summary ?: SessionSummary.EMPTY
-            appendLine("- ${ws.exerciseType.displayName}: ${sm.totalKcal.toInt()} kcal, " +
-                "avg HR ${sm.avgHr}, active ${fmt(sm.activeDurationMs)}")
-        }
-        appendLine()
-        appendLine("Identify trends in volume, intensity, and consistency. Give 3 actionable takeaways. Under 200 words.")
     }
 
     private fun fmt(ms: Long): String {

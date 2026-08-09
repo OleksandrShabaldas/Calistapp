@@ -15,6 +15,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -61,12 +63,24 @@ private fun tintFor(route: String?): Color = when (route) {
 /** Room for the floating nav bar so content never slides underneath it. */
 private val NavBarInset = 104.dp
 
+/**
+ * Where the primary action goes.
+ *
+ * A workout now begins by building one, so the planner *is* the start of a session and the action
+ * button leads straight there — it used to land on a staging screen whose only real job was to offer
+ * a "Build a workout" button, which put the app's core activity three taps away. With a session
+ * already running there is nothing to build, so it reopens that instead.
+ */
+private fun startDestination(sessionRunning: Boolean): String =
+    if (sessionRunning) Routes.active() else Routes.PLANNER
+
 @Composable
-fun CalistApp() {
+fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
     val showBar = currentRoute in Routes.bottomBarRoutes
+    val sessionRunning by viewModel.sessionRunning.collectAsStateWithLifecycle()
 
     AmbientHost(routeTint = tintFor(currentRoute)) {
         NavHost(
@@ -78,7 +92,7 @@ fun CalistApp() {
         ) {
             composable(Routes.DASHBOARD) {
                 DashboardScreen(
-                    onStartWorkout = { navController.navigate(Routes.active()) },
+                    onStartWorkout = { navController.navigate(startDestination(sessionRunning)) },
                     onOpenSession = { id -> navController.navigate(Routes.detail(id)) },
                     onOpenProfile = { navController.navigate(Routes.PROFILE) },
                 )
@@ -120,7 +134,10 @@ fun CalistApp() {
                 )
             }
             composable(Routes.HISTORY) {
-                HistoryScreen(onOpenSession = { id -> navController.navigate(Routes.detail(id)) })
+                HistoryScreen(
+                    onOpenSession = { id -> navController.navigate(Routes.detail(id)) },
+                    onStartWorkout = { navController.navigate(startDestination(sessionRunning)) },
+                )
             }
             composable(Routes.PROFILE) {
                 ProfileScreen()
@@ -173,7 +190,8 @@ fun CalistApp() {
                         restoreState = true
                     }
                 },
-                onAction = { navController.navigate(Routes.active()) },
+                onAction = { navController.navigate(startDestination(sessionRunning)) },
+                actionDescription = if (sessionRunning) "Open running workout" else "Build a workout",
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding(),

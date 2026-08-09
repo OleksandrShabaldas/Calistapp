@@ -18,6 +18,8 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.calistapp.app.ui.theme.Coral
 import com.calistapp.app.ui.theme.Sky
@@ -54,11 +56,24 @@ fun HeartRateChart(
     val maxBpm = (samples.maxOf { it.bpm } + 5)
     val gridColor = MaterialTheme.colorScheme.outline
 
+    // A bare Canvas is invisible to a screen reader — it isn't text and it isn't an image, so
+    // TalkBack simply skips past the most information-dense element on the screen. Summarising it
+    // costs nothing and is the difference between the chart existing and not.
+    val spokenMinutes = ((samples.last().timestampMs - samples.first().timestampMs) / 60_000).toInt()
+    val restCount = segments.count { it.type == SegmentType.REST }
+    val chartDescription = buildString {
+        append("Heart rate over $spokenMinutes minutes. ")
+        append("Ranged from ${samples.minOf { it.bpm }} to ${samples.maxOf { it.bpm }} beats per ")
+        append("minute, averaging $avgHr. ")
+        if (restCount > 0) append("$restCount rest periods are shaded.")
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = modifier.fillMaxWidth()) {
         Canvas(
             Modifier
                 .fillMaxWidth()
-                .height(160.dp),
+                .height(160.dp)
+                .semantics { contentDescription = chartDescription },
         ) {
             val startT = samples.first().timestampMs
             val endT = samples.last().timestampMs

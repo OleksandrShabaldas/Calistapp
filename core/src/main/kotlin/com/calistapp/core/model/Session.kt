@@ -66,6 +66,14 @@ data class WorkoutSession(
     /** The specific exercise this session was launched for, if started from the gallery. */
     val exerciseName: String? = null,
     val notes: String = "",
+    /**
+     * Borg CR10 rating of perceived exertion, 1–10, or null when not rated.
+     *
+     * The one input no sensor can supply. Heart rate says what your circulation did; RPE says what
+     * it cost you, and the two come apart exactly where the estimate is hardest — heat, fatigue,
+     * poor sleep, heavy grip work. Fed to the coach alongside the numbers.
+     */
+    val rpe: Int? = null,
     /** Cached engine output, filled in when the session is summarized. */
     val summary: SessionSummary? = null,
     /** Latest AI feedback for this session, if generated. */

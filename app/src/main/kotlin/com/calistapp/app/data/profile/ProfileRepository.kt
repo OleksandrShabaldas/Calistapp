@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.calistapp.core.model.Sex
+import com.calistapp.core.model.TrainingGoals
 import com.calistapp.core.model.UserProfile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -35,6 +36,8 @@ class ProfileRepository @Inject constructor(
         val maxHr = intPreferencesKey("max_hr")
         val vo2Max = doublePreferencesKey("vo2max")
         val onboarded = booleanPreferencesKey("onboarded")
+        val weeklyKcal = intPreferencesKey("goal_weekly_kcal")
+        val weeklySessions = intPreferencesKey("goal_weekly_sessions")
     }
 
     val profile: Flow<UserProfile> = context.dataStore.data.map { p ->
@@ -51,6 +54,21 @@ class ProfileRepository @Inject constructor(
     }
 
     val isOnboarded: Flow<Boolean> = context.dataStore.data.map { it[Keys.onboarded] ?: false }
+
+    /** What the week is measured against. Stored alongside the profile; unset means the defaults. */
+    val goals: Flow<TrainingGoals> = context.dataStore.data.map { p ->
+        TrainingGoals(
+            weeklyKcal = p[Keys.weeklyKcal] ?: TrainingGoals.DEFAULT_WEEKLY_KCAL,
+            weeklySessions = p[Keys.weeklySessions] ?: TrainingGoals.DEFAULT_WEEKLY_SESSIONS,
+        )
+    }
+
+    suspend fun saveGoals(goals: TrainingGoals) {
+        context.dataStore.edit { p ->
+            p[Keys.weeklyKcal] = goals.weeklyKcal
+            p[Keys.weeklySessions] = goals.weeklySessions
+        }
+    }
 
     suspend fun save(profile: UserProfile) {
         context.dataStore.edit { p ->

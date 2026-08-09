@@ -1,5 +1,6 @@
 package com.calistapp.core.calorie
 
+import com.calistapp.core.analysis.HeartRateRecovery
 import com.calistapp.core.model.ExerciseBreakdown
 import com.calistapp.core.model.HeartRateSample
 import com.calistapp.core.model.HrZone
@@ -83,8 +84,34 @@ class CalorieEngine(
         segments: List<Segment>,
         profile: UserProfile,
         endMs: Long? = null,
-    ): SessionSummary {
-        if (samples.isEmpty()) return SessionSummary.EMPTY
+    ): SessionSummary = run(samples, segments, profile, endMs).summary
+
+    /**
+     * The same computation as [compute], with the full derivation attached.
+     *
+     * Deliberately not a separate re-derivation: the audit is assembled by the scoring pass itself,
+     * so what it shows is by construction what produced the number. Returns null when there is
+     * nothing to explain.
+     */
+    fun explain(
+        samples: List<HeartRateSample>,
+        segments: List<Segment>,
+        profile: UserProfile,
+        endMs: Long? = null,
+    ): CalorieAudit? = run(samples, segments, profile, endMs).audit
+
+    fun explain(session: WorkoutSession, profile: UserProfile): CalorieAudit? =
+        explain(session.samples, session.segments, profile, endMs = session.endMs)
+
+    private class Outcome(val summary: SessionSummary, val audit: CalorieAudit?)
+
+    private fun run(
+        samples: List<HeartRateSample>,
+        segments: List<Segment>,
+        profile: UserProfile,
+        endMs: Long? = null,
+    ): Outcome {
+        if (samples.isEmpty()) return Outcome(SessionSummary.EMPTY, null)
 
         val sorted = samples.sortedBy { it.timestampMs }
         val rmrPerMin = Formulas.restingKcalPerMin(profile)
@@ -102,6 +129,16 @@ class CalorieEngine(
         val segMs = LongArray(segments.size)
         var looseKcal = 0.0
         var looseMs = 0L
+
+        // Audit-only tallies. Time-weighted so a block's reported average HR reflects the curve the
+        // energy was actually integrated over, not an unweighted mean of whichever samples landed.
+        val segHrMs = DoubleArray(segments.size)
+        val segSlices = IntArray(segments.size)
+        val segCeilingSlices = IntArray(segments.size)
+        val segFloorSlices = IntArray(segments.size)
+        var sliceCount = 0
+        var gapSliceCount = 0
+        var uncreditedGapMs = 0L
 
         var sumHr = 0.0
         var peakHr = Int.MIN_VALUE
@@ -122,6 +159,11 @@ class CalorieEngine(
 
             val dtMs = min(rawDt, config.maxIntervalMs)
             val dtMin = dtMs / 60_000.0
+            sliceCount++
+            if (rawDt > config.maxIntervalMs) {
+                gapSliceCount++
+                uncreditedGapMs += rawDt - config.maxIntervalMs
+            }
 
             // Instantaneous HR for this slice: average of the endpoints (trapezoidal).
             val hr = ((a.bpm + b.bpm) / 2.0).roundToInt()
@@ -138,6 +180,10 @@ class CalorieEngine(
             if (segIndex >= 0) {
                 segKcal[segIndex] += kcal
                 segMs[segIndex] += dtMs
+                segHrMs[segIndex] += hr.toDouble() * dtMs
+                segSlices[segIndex]++
+                if (keytel > gross) segCeilingSlices[segIndex]++
+                if (keytel < gross) segFloorSlices[segIndex]++
             } else {
                 looseKcal += kcal
                 looseMs += dtMs
@@ -158,6 +204,25 @@ class CalorieEngine(
         var restMs = 0L
         var totalReps = 0
         val breakdown = linkedMapOf<String, ExerciseBreakdown>()
+        val auditBlocks = mutableListOf<CalorieAudit.Block>()
+        val setCounter = mutableMapOf<String, Int>()
+
+        /** The HR term for a block, shared by both branches so the audit can't describe it wrongly. */
+        fun hrTermFor(i: Int): CalorieAudit.HeartRateTerm {
+            val coveredMs = segMs[i]
+            val avgBpm = if (coveredMs <= 0L) 0 else (segHrMs[i] / coveredMs).roundToInt()
+            return CalorieAudit.HeartRateTerm(
+                avgBpm = avgBpm,
+                keytelAtAvgKcalPerMin = if (avgBpm <= 0) 0.0 else Formulas.keytelKcalPerMin(avgBpm, profile),
+                restingKcalPerMin = rmrPerMin,
+                calibration = config.hrCalibration,
+                kcal = segKcal[i],
+                coveredDurationMs = coveredMs,
+                ceilingSlices = segCeilingSlices[i],
+                floorSlices = segFloorSlices[i],
+                sliceCount = segSlices[i],
+            )
+        }
 
         for (i in segments.indices) {
             val seg = segments[i]
@@ -165,20 +230,67 @@ class CalorieEngine(
             if (seg.type == SegmentType.REST) {
                 restKcal += segKcal[i]
                 restMs += coveredMs
+                auditBlocks += CalorieAudit.Block(
+                    ordinal = i + 1,
+                    type = SegmentType.REST,
+                    exerciseName = null,
+                    setIndex = null,
+                    startMs = seg.startMs,
+                    wallDurationMs = seg.durationMs(nowRef).coerceAtLeast(0),
+                    coveredDurationMs = coveredMs,
+                    reps = 0,
+                    heartRate = hrTermFor(i),
+                    correction = null,
+                    correctedKcal = segKcal[i],
+                    mechanical = null,
+                    restingFloorKcal = 0.0,
+                    kcal = segKcal[i],
+                    basis = CalorieAudit.Basis.REST,
+                )
                 continue
             }
 
             // Wall-clock length drives the cardiac-lag term: how long the effort lasted, not how
             // much of it the sensor happened to cover.
             val wallMs = seg.durationMs(nowRef).coerceAtLeast(0)
-            val corrected = segKcal[i] * ExerciseIntensity.correctionFactor(seg.metabolics, wallMs)
-            val mechanical = ExerciseIntensity.mechanicalKcal(seg.metabolics, seg.reps, profile)
+            val correction = ExerciseIntensity.correction(seg.metabolics, wallMs)
+            val corrected = segKcal[i] * (correction?.factor ?: 1.0)
+            val work = ExerciseIntensity.mechanicalWork(seg.metabolics, seg.reps, profile)
+            val mechanical = work?.kcal ?: 0.0
             val restingFloor = (rmrPerMin - restingOffset) * coveredMs / 60_000.0
             val blockKcal = max(max(corrected, mechanical), restingFloor)
 
             activeKcal += blockKcal
             activeMs += coveredMs
             totalReps += seg.reps
+
+            val setKey = seg.slotId ?: seg.exerciseName
+            val setIndex = setKey?.let { key ->
+                val n = (setCounter[key] ?: 0) + 1
+                setCounter[key] = n
+                n
+            }
+            auditBlocks += CalorieAudit.Block(
+                ordinal = i + 1,
+                type = SegmentType.ACTIVE,
+                exerciseName = seg.exerciseName,
+                setIndex = setIndex,
+                startMs = seg.startMs,
+                wallDurationMs = wallMs,
+                coveredDurationMs = coveredMs,
+                reps = seg.reps,
+                heartRate = hrTermFor(i),
+                correction = correction,
+                correctedKcal = corrected,
+                mechanical = work,
+                restingFloorKcal = restingFloor,
+                kcal = blockKcal,
+                basis = when (blockKcal) {
+                    corrected -> CalorieAudit.Basis.HEART_RATE
+                    mechanical -> CalorieAudit.Basis.REP_WORK
+                    else -> CalorieAudit.Basis.RESTING_FLOOR
+                },
+            )
 
             if (seg.exerciseName != null) {
                 val key = seg.slotId ?: seg.exerciseName
@@ -212,7 +324,7 @@ class CalorieEngine(
             minHr = min(minHr, s.bpm)
         }
 
-        return SessionSummary(
+        val summary = SessionSummary(
             totalKcal = activeKcal + restKcal,
             activeKcal = activeKcal,
             restKcal = restKcal,
@@ -225,7 +337,38 @@ class CalorieEngine(
             timeInZonesMs = zoneMs,
             perExercise = breakdown.values.sortedByDescending { it.kcal },
             totalReps = totalReps,
+            // Not a calorie term — but this is the one pass that has the samples and the work/rest
+            // boundaries lined up, and recovering them separately would mean walking both again.
+            hrRecovery = HeartRateRecovery.analyze(sorted, segments),
         )
+
+        val audit = CalorieAudit(
+            summary = summary,
+            profile = profile,
+            resting = Formulas.resting(profile),
+            keytel = Formulas.keytelVariant(profile),
+            settings = CalorieAudit.Settings(
+                hrCalibration = config.hrCalibration,
+                netOfResting = config.netOfResting,
+                restCeilingMultiplier = config.restCeilingMultiplier,
+                maxIntervalMs = config.maxIntervalMs,
+                minCorrection = ExerciseIntensity.MIN_CORRECTION,
+                maxCorrection = ExerciseIntensity.MAX_CORRECTION,
+            ),
+            sampling = CalorieAudit.Sampling(
+                sampleCount = sorted.size,
+                firstSampleMs = sorted.first().timestampMs,
+                lastSampleMs = sorted.last().timestampMs,
+                sliceCount = sliceCount,
+                gapSliceCount = gapSliceCount,
+                uncreditedGapMs = uncreditedGapMs,
+            ),
+            blocks = auditBlocks,
+            unsegmentedKcal = looseKcal,
+            unsegmentedMs = looseMs,
+        )
+
+        return Outcome(summary, audit)
     }
 
     /** A time point with an interpolated bpm; used as an integration boundary. */

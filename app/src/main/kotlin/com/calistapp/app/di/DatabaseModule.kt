@@ -5,7 +5,12 @@ import androidx.room.Room
 import com.calistapp.app.data.local.CalistDatabase
 import com.calistapp.app.data.local.ExerciseDao
 import com.calistapp.app.data.local.MIGRATION_3_4
+import com.calistapp.app.data.local.MIGRATION_4_5
+import com.calistapp.app.data.local.MIGRATION_5_6
+import com.calistapp.app.data.local.MIGRATION_6_7
 import com.calistapp.app.data.local.SessionDao
+import com.calistapp.app.data.local.WeightDao
+import com.calistapp.app.data.local.WorkoutTemplateDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -21,7 +26,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): CalistDatabase =
         Room.databaseBuilder(context, CalistDatabase::class.java, "calistapp.db")
-            .addMigrations(MIGRATION_3_4)
+            .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
             // Still a backstop for the older dev-only schema jumps that never had migrations.
             .fallbackToDestructiveMigration()
             .build()
@@ -31,4 +36,10 @@ object DatabaseModule {
 
     @Provides
     fun provideExerciseDao(db: CalistDatabase): ExerciseDao = db.exerciseDao()
+
+    @Provides
+    fun provideWorkoutTemplateDao(db: CalistDatabase): WorkoutTemplateDao = db.workoutTemplateDao()
+
+    @Provides
+    fun provideWeightDao(db: CalistDatabase): WeightDao = db.weightDao()
 }

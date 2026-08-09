@@ -15,6 +15,40 @@ object Formulas {
     private const val KJ_PER_KCAL = 4.184
 
     /**
+     * Which of the four Keytel regressions a profile selects, and the equation it evaluates.
+     *
+     * The text lives next to the implementation so the two can't drift: [keytelKcalPerMin] is the
+     * only place these coefficients appear, and this is the only place they're written out for
+     * display.
+     */
+    enum class KeytelVariant(val label: String, val equation: String) {
+        MALE_VO2(
+            "Male, VO₂max known",
+            "kJ/min = −59.3954 + 0.634×HR + 0.404×VO₂max + 0.394×weight + 0.271×age",
+        ),
+        FEMALE_VO2(
+            "Female, VO₂max known",
+            "kJ/min = −59.3954 + 0.450×HR + 0.380×VO₂max + 0.103×weight + 0.274×age",
+        ),
+        MALE_BASIC(
+            "Male",
+            "kJ/min = −55.0969 + 0.6309×HR + 0.1988×weight + 0.2017×age",
+        ),
+        FEMALE_BASIC(
+            "Female",
+            "kJ/min = −20.4022 + 0.4472×HR − 0.1263×weight + 0.0740×age",
+        ),
+    }
+
+    /** The regression [keytelKcalPerMin] will use for this profile. */
+    fun keytelVariant(profile: UserProfile): KeytelVariant = when {
+        profile.vo2Max != null && profile.sex == Sex.MALE -> KeytelVariant.MALE_VO2
+        profile.vo2Max != null -> KeytelVariant.FEMALE_VO2
+        profile.sex == Sex.MALE -> KeytelVariant.MALE_BASIC
+        else -> KeytelVariant.FEMALE_BASIC
+    }
+
+    /**
      * Keytel et al. (2005) heart-rate → energy-expenditure regression.
      * Returns kcal per minute at the given instantaneous heart rate.
      *
@@ -66,14 +100,37 @@ object Formulas {
      * Mifflin–St Jeor basal metabolic rate in kcal/day. Used to derive a per-minute
      * resting floor so calorie counts never fall below true resting metabolism.
      */
-    fun mifflinBmrKcalPerDay(profile: UserProfile): Double {
-        val base = 10 * profile.weightKg + 6.25 * profile.heightCm - 5 * profile.ageYears
-        return when (profile.sex) {
-            Sex.MALE -> base + 5
-            Sex.FEMALE -> base - 161
-        }
-    }
+    fun mifflinBmrKcalPerDay(profile: UserProfile): Double = resting(profile).kcalPerDay
 
     /** Resting metabolic rate expressed per minute (kcal/min). */
-    fun restingKcalPerMin(profile: UserProfile): Double = mifflinBmrKcalPerDay(profile) / 1440.0
+    fun restingKcalPerMin(profile: UserProfile): Double = resting(profile).kcalPerMin
+
+    /** Every term of the Mifflin–St Jeor substitution, so the resting figure can be checked by hand. */
+    data class Resting(
+        val weightTerm: Double,
+        val heightTerm: Double,
+        val ageTerm: Double,
+        val sexOffset: Double,
+        val kcalPerDay: Double,
+    ) {
+        val kcalPerMin: Double get() = kcalPerDay / 1440.0
+    }
+
+    /** [mifflinBmrKcalPerDay] with its terms exposed. */
+    fun resting(profile: UserProfile): Resting {
+        val weightTerm = 10 * profile.weightKg
+        val heightTerm = 6.25 * profile.heightCm
+        val ageTerm = -5.0 * profile.ageYears
+        val sexOffset = when (profile.sex) {
+            Sex.MALE -> 5.0
+            Sex.FEMALE -> -161.0
+        }
+        return Resting(
+            weightTerm = weightTerm,
+            heightTerm = heightTerm,
+            ageTerm = ageTerm,
+            sexOffset = sexOffset,
+            kcalPerDay = weightTerm + heightTerm + ageTerm + sexOffset,
+        )
+    }
 }

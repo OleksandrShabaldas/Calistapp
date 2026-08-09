@@ -16,15 +16,14 @@ import com.calistapp.app.ui.theme.Cream
 import com.calistapp.app.ui.theme.CreamFaint
 import com.calistapp.app.ui.theme.CreamMuted
 import com.calistapp.app.ui.theme.Emerald
-import com.calistapp.core.model.WorkoutSession
+import com.calistapp.core.model.SessionOverview
 
 @Composable
-fun SessionRow(session: WorkoutSession, onClick: () -> Unit) {
-    val summary = session.summary
+fun SessionRow(session: SessionOverview, onClick: () -> Unit) {
     GlassRow(onClick = onClick) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
-                session.exerciseName ?: session.exerciseType.displayName,
+                session.title,
                 style = MaterialTheme.typography.titleMedium,
                 color = Cream,
             )
@@ -36,14 +35,17 @@ fun SessionRow(session: WorkoutSession, onClick: () -> Unit) {
         }
         Column(horizontalAlignment = Alignment.End) {
             Text(
-                "${summary?.totalKcal?.toInt() ?: 0} kcal",
+                "${session.totalKcal} kcal",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = Emerald,
             )
-            val reps = summary?.totalReps ?: 0
             Text(
-                if (reps > 0) "$reps reps · ${summary?.avgHr ?: 0} bpm" else "avg ${summary?.avgHr ?: 0} bpm",
+                if (session.totalReps > 0) {
+                    "${session.totalReps} reps · ${session.avgHr} bpm"
+                } else {
+                    "avg ${session.avgHr} bpm"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = CreamMuted,
             )

@@ -3,6 +3,7 @@ package com.calistapp.app.ui.exercises
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.calistapp.app.data.exercise.ExerciseEnrichmentManager
+import com.calistapp.app.data.exercise.ExercisePrefsRepository
 import com.calistapp.app.data.exercise.ExerciseRepository
 import com.calistapp.core.model.BodyPart
 import com.calistapp.core.model.Difficulty
@@ -16,12 +17,14 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class ExercisesViewModel @Inject constructor(
     repository: ExerciseRepository,
     private val enrichmentManager: ExerciseEnrichmentManager,
+    private val prefs: ExercisePrefsRepository,
 ) : ViewModel(), ExerciseFilterActions {
 
     private val _filters = MutableStateFlow(ExerciseFilters())
@@ -43,8 +46,23 @@ class ExercisesViewModel @Inject constructor(
         .map(FilterFacets::of)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FilterFacets())
 
-    val exercises: StateFlow<List<Exercise>> = combine(all, _filters) { list, f -> list.applyQuery(f) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val favourites: StateFlow<Set<String>> = prefs.favourites
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    /**
+     * Search and filters as before, with starred movements lifted to the top.
+     *
+     * A stable sort, so within each group the chosen ordering is untouched — starring something
+     * pulls it up the list without scrambling everything below it.
+     */
+    val exercises: StateFlow<List<Exercise>> =
+        combine(all, _filters, prefs.favourites) { list, f, starred ->
+            list.applyQuery(f).sortedByDescending { it.id in starred }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun toggleFavourite(exerciseId: String) {
+        viewModelScope.launch { prefs.toggleFavourite(exerciseId) }
+    }
 
     // ---- Mutations -------------------------------------------------------------------------------
 

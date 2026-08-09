@@ -56,6 +56,27 @@ data class PlannedExercise(
     /** Target hold in seconds when [measure] is SECONDS. */
     val targetSeconds: Int = 45,
     val measure: ExerciseMeasure = ExerciseMeasure.REPS,
+    /**
+     * How long to rest after a set of this movement, in seconds.
+     *
+     * Per-exercise rather than per-workout because the right rest is a property of the movement and
+     * the intent: heavy pull-ups want three minutes, a core finisher wants thirty seconds. Zero
+     * means untimed — rest as long as you like, nothing will prompt you.
+     */
+    val restSeconds: Int = 90,
+    /**
+     * How many of this exercise's sets are warm-ups.
+     *
+     * The first [warmupSets] sets are treated as preparation: they cost energy like anything else —
+     * heart rate is heart rate — but they don't count toward volume or personal bests, because a
+     * record set with an empty bar isn't one.
+     */
+    val warmupSets: Int = 0,
+    /**
+     * Exercises sharing a group id are a superset: you rotate through the group, one set each,
+     * before resting properly. Null means the movement stands alone.
+     */
+    val groupId: String? = null,
     val metabolics: ExerciseMetabolics = ExerciseMetabolics.DEFAULT,
 ) {
     /**
@@ -79,6 +100,15 @@ data class PlannedExercise(
             }
             return if (isWeighted) "$base · +${formatKg(addedWeightKg)} kg" else base
         }
+
+    val isRestTimed: Boolean get() = restSeconds > 0
+
+    /** Whether the [setIndex]-th set (1-based) of this exercise is a warm-up. */
+    fun isWarmup(setIndex: Int): Boolean = setIndex <= warmupSets
+
+    /** "1:30" — the rest target, or null when this movement's rest is untimed. */
+    val restLabel: String?
+        get() = if (!isRestTimed) null else "${restSeconds / 60}:${(restSeconds % 60).toString().padStart(2, '0')}"
 }
 
 /** Trim the trailing ".0" so whole numbers read as "20 kg" rather than "20.0 kg". */
@@ -181,11 +211,25 @@ data class WorkoutPlan(
             return null
         }
 
-        // Split: finish the current exercise before moving on.
         val current = slot(currentSlotId)
-        if (current != null && remaining(current) > 0) {
+
+        // A superset is a circuit of two or three: rotate through the group, one set each, and only
+        // move on once the whole group is done. Checked before the split rule, which would otherwise
+        // finish all sets of the first movement and never rotate at all.
+        val group = current?.groupId
+        if (group != null) {
+            val members = exercises.filter { it.groupId == group }
+            val position = members.indexOfFirst { it.slotId == currentSlotId }
+            for (step in 1..members.size) {
+                val e = members[(position + step).mod(members.size)]
+                if (remaining(e) > 0) return NextUp(e.slotId, done(e.slotId) + 1)
+            }
+            // Group exhausted — fall through and leave it behind.
+        } else if (current != null && remaining(current) > 0) {
+            // Split: finish the current exercise before moving on.
             return NextUp(current.slotId, done(current.slotId) + 1)
         }
+
         val start = exercises.indexOfFirst { it.slotId == currentSlotId }
         for (step in 1..exercises.size) {
             val e = exercises[(start + step).mod(exercises.size)]
