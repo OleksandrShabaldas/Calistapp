@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
@@ -48,9 +47,13 @@ import com.calistapp.app.ui.theme.OnyxBorder
 import com.calistapp.app.ui.theme.OnyxFillStrong
 
 /**
- * The paused takeover: a big frozen clock, the four live-workout toggles, and the way out — resume,
- * end (score and save), or discard. Fills the whole screen opaquely so the workout behind it is put
- * aside rather than peeking through.
+ * The paused takeover: a big frozen clock, the live-workout toggles, and the way out — resume, end
+ * (score and save), or discard. Fills the whole screen opaquely so the workout behind it is put aside
+ * rather than peeking through.
+ *
+ * Sound, vibration and autoplay are the toggles with something behind them today. Hands-free (spoken
+ * cues) is deliberately left off this screen until a TTS engine actually drives it — a switch with no
+ * effect is worse than no switch.
  */
 @Composable
 fun PauseScreen(
@@ -59,7 +62,6 @@ fun PauseScreen(
     onSound: (Boolean) -> Unit,
     onVibration: (Boolean) -> Unit,
     onAutoplay: (Boolean) -> Unit,
-    onHandsFree: (Boolean) -> Unit,
     onResume: () -> Unit,
     onEnd: () -> Unit,
     onDiscard: () -> Unit,
@@ -94,11 +96,7 @@ fun PauseScreen(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ToggleCard("Sound", Icons.AutoMirrored.Filled.VolumeUp, prefs.sound, Modifier.weight(1f)) { onSound(!prefs.sound) }
             ToggleCard("Vibration", Icons.Filled.Vibration, prefs.vibration, Modifier.weight(1f)) { onVibration(!prefs.vibration) }
-        }
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ToggleCard("Autoplay", Icons.Filled.Videocam, prefs.autoplayVideo, Modifier.weight(1f)) { onAutoplay(!prefs.autoplayVideo) }
-            ToggleCard("Hands-free", Icons.Filled.RecordVoiceOver, prefs.handsFree, Modifier.weight(1f)) { onHandsFree(!prefs.handsFree) }
         }
 
         Spacer(Modifier.height(24.dp))

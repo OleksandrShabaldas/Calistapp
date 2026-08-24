@@ -407,7 +407,6 @@ private fun LiveControls(
                 onSound = vm::setSound,
                 onVibration = vm::setVibration,
                 onAutoplay = vm::setAutoplay,
-                onHandsFree = vm::setHandsFree,
                 onResume = { vm.resume() },
                 onEnd = { vm.finish(onFinished) },
                 onDiscard = { vm.discard(); onDiscarded() },
