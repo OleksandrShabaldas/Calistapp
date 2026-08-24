@@ -1,6 +1,7 @@
 package com.calistapp.app.ui.session
 
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,22 +11,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,6 +37,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -42,33 +47,30 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.calistapp.app.data.sync.WatchLinkState
 import com.calistapp.app.session.LiveSession
-import com.calistapp.app.ui.common.AmbientOverride
 import com.calistapp.app.ui.common.GlassCard
-import com.calistapp.app.ui.common.MetricBlock
-import com.calistapp.app.ui.common.MiniRing
 import com.calistapp.app.ui.common.NoHeartRateDialog
 import com.calistapp.app.ui.common.PillChip
-import com.calistapp.app.ui.common.RepeatingIconButton
 import com.calistapp.app.ui.common.RestAlert
 import com.calistapp.app.ui.common.SectionHeading
 import com.calistapp.app.ui.common.WatchStatusCard
-import com.calistapp.app.ui.common.WatchStatusStrip
 import com.calistapp.app.ui.common.formatClock
 import com.calistapp.app.ui.common.rememberHaptics
-import kotlin.math.abs
-import com.calistapp.app.ui.exercises.ExerciseImage
-import com.calistapp.app.ui.theme.Amber
+import com.calistapp.app.ui.common.rememberSoundEffects
+import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.Capsule
-import com.calistapp.app.ui.theme.CardShape
+import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Coral
 import com.calistapp.app.ui.theme.Cream
 import com.calistapp.app.ui.theme.CreamMuted
 import com.calistapp.app.ui.theme.Emerald
+import com.calistapp.app.ui.theme.Flame
 import com.calistapp.app.ui.theme.NumericLarge
-import com.calistapp.app.ui.theme.Sky
-import com.calistapp.app.ui.theme.Violet
+import com.calistapp.app.ui.theme.Onyx
+import com.calistapp.app.ui.theme.TitleSans
+import com.calistapp.core.model.Exercise
 import com.calistapp.core.model.ExerciseMeasure
 import com.calistapp.core.model.ExerciseType
+import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionStatus
 import com.calistapp.core.model.WorkoutPlan
@@ -78,17 +80,20 @@ fun ActiveSessionScreen(
     onFinished: (String) -> Unit,
     onDiscarded: () -> Unit,
     onBuildWorkout: () -> Unit,
+    onCollapse: () -> Unit,
+    onOpenExercise: (String) -> Unit,
     viewModel: ActiveSessionViewModel = hiltViewModel(),
 ) {
     val live by viewModel.live.collectAsStateWithLifecycle()
     val planned by viewModel.plannedExercise.collectAsStateWithLifecycle()
     val plan by viewModel.plan.collectAsStateWithLifecycle()
     val watchLink by viewModel.watchLink.collectAsStateWithLifecycle()
+    val heroExercise by viewModel.heroExercise.collectAsStateWithLifecycle()
+    val heroHistory by viewModel.heroHistory.collectAsStateWithLifecycle()
+    val prefs by viewModel.prefs.collectAsStateWithLifecycle()
     val thumbnails by viewModel.thumbnails.collectAsStateWithLifecycle()
 
     val session = live
-    // Mid-set you glance at the phone, you don't tap it. A screen that blanks every 30 seconds makes
-    // the rep counter unusable exactly when it's needed.
     KeepScreenOn(enabled = session != null)
 
     if (session == null) {
@@ -104,20 +109,17 @@ fun ActiveSessionScreen(
         )
     } else {
         LiveControls(
+            vm = viewModel,
             live = session,
+            heroExercise = heroExercise,
+            heroHistory = heroHistory,
+            prefs = prefs,
             watchLink = watchLink,
-            imageUrls = session.currentExercise
-                ?.let { thumbnails[it.exerciseId] }
-                .orEmpty(),
-            onReconnect = viewModel::reconnectWatch,
-            onToggle = viewModel::toggleSegment,
-            onStartNow = viewModel::startWorkNow,
-            onReps = viewModel::adjustReps,
-            onNext = viewModel::advanceToNext,
-            onPause = viewModel::pause,
-            onResume = viewModel::resume,
-            onFinish = { viewModel.finish(onFinished) },
-            onDiscard = { viewModel.discard(); onDiscarded() },
+            imageUrlsFor = { id -> thumbnails[id].orEmpty() },
+            onFinished = onFinished,
+            onDiscarded = onDiscarded,
+            onCollapse = onCollapse,
+            onOpenExercise = onOpenExercise,
         )
     }
 }
@@ -129,6 +131,368 @@ private fun KeepScreenOn(enabled: Boolean) {
     DisposableEffect(view, enabled) {
         view.keepScreenOn = enabled
         onDispose { view.keepScreenOn = false }
+    }
+}
+
+/** An action held back by the zero-rep confirmation, with the wording for its confirm button. */
+private class PendingAction(val label: String, val run: () -> Unit)
+
+@Composable
+private fun LiveControls(
+    vm: ActiveSessionViewModel,
+    live: LiveSession,
+    heroExercise: Exercise?,
+    heroHistory: ExerciseHistoryStat?,
+    prefs: com.calistapp.app.data.session.SessionPrefs,
+    watchLink: WatchLinkState,
+    imageUrlsFor: (String) -> List<String>,
+    onFinished: (String) -> Unit,
+    onDiscarded: () -> Unit,
+    onCollapse: () -> Unit,
+    onOpenExercise: (String) -> Unit,
+) {
+    val isActive = live.currentSegment == SegmentType.ACTIVE
+    val exercise = live.currentExercise
+    val heroPlanned = live.heroExercise
+    val countdown = live.countdownSeconds
+    val s = live.summary
+    val isHold = exercise?.measure == ExerciseMeasure.SECONDS
+
+    // Cue tones and haptics, each gated by the pause-screen toggle.
+    val haptics = rememberHaptics()
+    val fx = rememberSoundEffects()
+    RestAlert(
+        remainingSeconds = if (live.isOpeningWarmup) null else live.restRemainingSeconds,
+        resetKey = live.segmentStartMs,
+        onElapsed = { if (prefs.vibration) haptics.restOver() },
+    )
+    LaunchedEffect(countdown) { countdown?.let { if (it in 1..3 && prefs.sound) fx.tick() } }
+    val wasActive = remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(isActive) {
+        val prev = wasActive.value
+        wasActive.value = isActive
+        if (prev == false && isActive && prefs.sound) fx.go()
+    }
+    if (exercise != null && isHold && isActive) {
+        val heldSeconds = (live.segmentElapsedMs / 1000).toInt()
+        LaunchedEffect(heldSeconds) {
+            when (exercise.targetSeconds - heldSeconds) {
+                in 1..3 -> if (prefs.sound) fx.tick()
+                0 -> if (prefs.sound) fx.go()
+            }
+        }
+    }
+
+    // The rep counter opens on the plan's target as a faint ghost; the first tap makes it solid.
+    val counterKey = "${live.currentSlotId}|${live.setIndex}|${live.currentSegment}"
+    var counterTouched by remember(counterKey) { mutableStateOf(false) }
+
+    // Guards against banking an empty set.
+    var confirming by remember { mutableStateOf<PendingAction?>(null) }
+    fun guard(action: PendingAction, run: () -> Unit) {
+        if (isActive && exercise != null && live.currentReps == 0) confirming = action else run()
+    }
+
+    var showJournal by remember { mutableStateOf(false) }
+    var showThisExercise by remember { mutableStateOf(false) }
+    var hudExpanded by remember { mutableStateOf(false) }
+    var repsNumpad by remember { mutableStateOf(false) }
+    var weightNumpad by remember { mutableStateOf(false) }
+
+    if (confirming != null) {
+        val pending = confirming!!
+        AlertDialog(
+            onDismissRequest = { confirming = null },
+            title = { Text("No reps logged") },
+            text = {
+                Text(
+                    "This set is recorded as 0 ${if (isHold) "seconds" else "reps"}. Log them first if " +
+                        "you forgot — they feed the calorie estimate.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirming = null; pending.run() }) { Text(pending.label, color = Coral) }
+            },
+            dismissButton = { TextButton(onClick = { confirming = null }) { Text("Go back") } },
+        )
+    }
+
+    // Primary action — label and behaviour follow the phase.
+    val startLabel = when {
+        live.isOpeningWarmup -> "Start first set"
+        live.nextIsNewExercise -> "Start ${live.upNextExercise?.name ?: "next exercise"}"
+        else -> "Start set ${live.upNext?.setIndex ?: live.setIndex}"
+    }
+    val primaryLabel: String
+    val primaryClick: () -> Unit
+    when {
+        countdown != null -> {
+            primaryLabel = "Start now"; primaryClick = { vm.startWorkNow() }
+        }
+        isActive -> {
+            primaryLabel = if (live.bankingEndsWorkout) "Done — log last set" else "Done — log & rest"
+            primaryClick = { guard(PendingAction("Bank it anyway") { vm.toggleSegment() }) { vm.toggleSegment() } }
+        }
+        live.allSetsDone -> {
+            primaryLabel = "Finish & save workout"; primaryClick = { vm.finish(onFinished) }
+        }
+        else -> {
+            primaryLabel = startLabel; primaryClick = { vm.toggleSegment() }
+        }
+    }
+
+    val canSkip = live.nextExercise != null && !live.allSetsDone && !live.isOpeningWarmup &&
+        (isActive || !live.nextIsNewExercise)
+    val kcalInt = s.totalKcal.toInt()
+    val elapsedMin = live.elapsedMs / 60_000.0
+    val kcalPerMin = if (elapsedMin > 0.1) s.totalKcal / elapsedMin else 0.0
+
+    Box(Modifier.fillMaxSize().background(Onyx)) {
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            LiveTopBar(
+                roundLabel = if (live.plan.isCircuit) "Round ${live.currentRound} / ${live.plan.rounds}" else "",
+                onCollapse = onCollapse,
+                onPause = { vm.pause() },
+            )
+
+            SegmentBar(
+                states = segmentStates(live),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                LiveExerciseHero(heroExercise, autoplay = prefs.autoplayVideo, modifier = Modifier.fillMaxSize())
+
+                // Legibility scrim so overlaid text reads over any frame.
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(0.45f to Color.Transparent, 1f to Onyx.copy(alpha = 0.9f)),
+                    ),
+                )
+
+                Text(
+                    formatClock(live.elapsedMs),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Chalk,
+                    modifier = Modifier.align(Alignment.TopStart).padding(16.dp),
+                )
+
+                LiveHudChip(
+                    bpm = live.lastBpm,
+                    kcal = kcalInt,
+                    onClick = { hudExpanded = true },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+                )
+
+                Column(
+                    Modifier.align(Alignment.BottomStart).padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    heroPlanned?.let { Text(heroTargetLabel(it), style = MaterialTheme.typography.titleMedium, color = Flame, fontWeight = FontWeight.Bold) }
+                    Text(heroPlanned?.displayName ?: exercise?.displayName ?: "", style = TitleSans, color = Chalk)
+                    heroPlanned?.exerciseId?.let { exId ->
+                        Row(
+                            Modifier.clip(Capsule).clickable { onOpenExercise(exId) }.padding(vertical = 3.dp, horizontal = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(Icons.Filled.Info, null, tint = Flame, modifier = Modifier.size(15.dp))
+                            Text("Exercise info", style = MaterialTheme.typography.labelLarge, color = Flame)
+                        }
+                    }
+                }
+
+                if (countdown != null) {
+                    Column(
+                        Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("GET READY", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Chalk)
+                        Text("$countdown", style = NumericLarge, color = Flame)
+                    }
+                }
+
+                if (hudExpanded) {
+                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)).clickable { hudExpanded = false })
+                    LiveHudPanel(
+                        bpm = live.lastBpm,
+                        avgHr = s.avgHr,
+                        peakHr = s.peakHr,
+                        maxHr = live.maxHr,
+                        recentBpm = live.recentBpm,
+                        kcal = kcalInt,
+                        kcalPerMin = kcalPerMin,
+                        elapsedMs = live.elapsedMs,
+                        watchLabel = if (live.receivingHr) "Watch streaming" else if (watchLink.isUsable) "Watch connected" else "Watch offline",
+                        showReconnect = !live.receivingHr,
+                        onReconnect = vm::reconnectWatch,
+                        onClose = { hudExpanded = false },
+                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+                    )
+                }
+            }
+
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                when {
+                    countdown != null -> Unit
+                    isActive && exercise != null -> RepCounterDock(
+                        reps = live.currentReps,
+                        target = if (isHold) exercise.targetSeconds else exercise.targetReps,
+                        isHold = isHold,
+                        touched = counterTouched,
+                        onDelta = { counterTouched = true; vm.adjustReps(it) },
+                        onOpenNumpad = { repsNumpad = true },
+                        weightKg = exercise.addedWeightKg,
+                        onOpenWeight = { weightNumpad = true },
+                        onSwipeUp = { showThisExercise = true },
+                    )
+                    live.allSetsDone -> AllDoneDock()
+                    else -> {
+                        val restElapsed = live.restElapsedSeconds ?: 0
+                        val restTarget = exercise?.takeIf { it.isRestTimed }?.restSeconds
+                        val reached = restTarget != null && restElapsed >= restTarget
+                        RestDock(
+                            elapsedSeconds = restElapsed,
+                            statusText = when {
+                                live.isOpeningWarmup -> "warm-up — start the first set when ready"
+                                reached -> "rested ${exercise?.restLabel} — back to it"
+                                restTarget != null -> "resting · target ${exercise?.restLabel}"
+                                else -> "resting"
+                            },
+                            upNextText = live.upNextExercise?.let { "Up next: ${it.displayName}" },
+                            reached = reached,
+                        )
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    if (isActive) TextButton(onClick = { vm.restartCurrentSet(); counterTouched = false }) { Text("Restart set", color = Ash) }
+                    if (countdown != null) TextButton(onClick = { vm.toggleSegment() }) { Text("Cancel", color = Ash) }
+                    if (canSkip) live.nextExercise?.let { next ->
+                        TextButton(onClick = { guard(PendingAction("Skip anyway") { vm.advanceToNext() }) { vm.advanceToNext() } }) {
+                            Text("Skip to ${next.name}", color = Ash)
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = primaryClick,
+                    modifier = Modifier.fillMaxWidth().height(60.dp),
+                    shape = Capsule,
+                    colors = ButtonDefaults.buttonColors(containerColor = Flame, contentColor = Onyx),
+                ) {
+                    Text(primaryLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+
+                Row(
+                    Modifier.fillMaxWidth().clip(Capsule).clickable { showJournal = true }.padding(vertical = 10.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Journal", style = MaterialTheme.typography.labelLarge, color = Ash)
+                }
+                Box(Modifier.navigationBarsPadding())
+            }
+        }
+
+        if (live.status == SessionStatus.PAUSED) {
+            PauseScreen(
+                elapsedMs = live.elapsedMs,
+                prefs = prefs,
+                onSound = vm::setSound,
+                onVibration = vm::setVibration,
+                onAutoplay = vm::setAutoplay,
+                onHandsFree = vm::setHandsFree,
+                onResume = { vm.resume() },
+                onEnd = { vm.finish(onFinished) },
+                onDiscard = { vm.discard(); onDiscarded() },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+
+    if (showJournal) {
+        JournalSheet(
+            live = live,
+            imageUrlsFor = imageUrlsFor,
+            onSetReps = vm::setSetReps,
+            onSetWeight = vm::setSetWeight,
+            onSetEffort = { slot, idx, scale, value -> vm.setSetEffort(slot, idx, scale, value.toDouble()) },
+            onSetNote = vm::setSetNote,
+            onDismiss = { showJournal = false },
+        )
+    }
+    if (showThisExercise) {
+        ThisExercisePanel(
+            exercise = heroExercise,
+            planned = heroPlanned,
+            history = heroHistory,
+            nowMs = live.nowMs,
+            onDismiss = { showThisExercise = false },
+        )
+    }
+    if (repsNumpad && exercise != null) {
+        com.calistapp.app.ui.common.NumberPadSheet(
+            title = if (isHold) "Seconds" else "Reps",
+            initial = live.currentReps,
+            onConfirm = { counterTouched = true; vm.setReps(it); repsNumpad = false },
+            onDismiss = { repsNumpad = false },
+        )
+    }
+    if (weightNumpad && exercise != null) {
+        com.calistapp.app.ui.common.NumberPadSheet(
+            title = "Added weight",
+            initial = exercise.addedWeightKg.toInt(),
+            unit = "kg",
+            onConfirm = { vm.setAddedWeight(it.toDouble()); weightNumpad = false },
+            onDismiss = { weightNumpad = false },
+        )
+    }
+}
+
+@Composable
+private fun LiveTopBar(roundLabel: String, onCollapse: () -> Unit, onPause: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Filled.KeyboardArrowDown,
+            "Minimise",
+            tint = Ash,
+            modifier = Modifier.size(28.dp).clip(Capsule).clickable(onClick = onCollapse).padding(2.dp),
+        )
+        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            if (roundLabel.isNotEmpty()) {
+                Text(roundLabel, style = MaterialTheme.typography.titleSmall, color = Chalk)
+            }
+        }
+        Icon(
+            Icons.Filled.Pause,
+            "Pause",
+            tint = Chalk,
+            modifier = Modifier.size(28.dp).clip(Capsule).clickable(onClick = onPause).padding(2.dp),
+        )
+    }
+}
+
+/** "8 reps" / "45s" for the hero label. */
+private fun heroTargetLabel(p: PlannedExercise): String =
+    if (p.measure == ExerciseMeasure.SECONDS) "${p.targetSeconds}s" else "${p.targetReps} reps"
+
+/** One segment per plan exercise: done, the current one, or still to come. */
+private fun segmentStates(live: LiveSession): List<SegState> = live.plan.exercises.map { slot ->
+    val done = live.completedSets[slot.slotId] ?: 0
+    val total = live.plan.targetSetsFor(slot.slotId)
+    when {
+        slot.slotId == live.currentSlotId && !live.allSetsDone -> SegState.CURRENT
+        done >= total && total > 0 -> SegState.DONE
+        else -> SegState.UPCOMING
     }
 }
 
@@ -144,9 +508,6 @@ private fun StartControls(
     onStart: (ExerciseType) -> Unit,
 ) {
     var type by remember(defaultType) { mutableStateOf(defaultType) }
-    // Heart rate only ever comes from the watch. Without it a session records no samples at all, the
-    // engine has nothing to integrate, and the workout is filed at zero calories — so this asks
-    // first rather than letting someone find out afterwards.
     var confirmNoWatch by remember { mutableStateOf(false) }
 
     if (confirmNoWatch) {
@@ -157,9 +518,6 @@ private fun StartControls(
         )
     }
 
-    // Nothing to run means nothing to score: every set is measured against the movement being
-    // performed, and a session with no exercises can't advance, can't log a set, and gives the
-    // calorie engine nothing but heart rate. Building the workout is the step, not an optional one.
     val hasWorkout = !plan.isEmpty || plannedName != null || hasRequestedExercise
 
     Column(
@@ -179,24 +537,11 @@ private fun StartControls(
         when {
             !plan.isEmpty -> GlassCard(accent = Emerald) {
                 SectionHeading(plan.name.ifBlank { "Workout ready" }, count = plan.exercises.size)
-                Text(
-                    "${plan.totalSets} sets planned",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Emerald,
-                )
+                Text("${plan.totalSets} sets planned", style = MaterialTheme.typography.labelMedium, color = Emerald)
                 plan.exercises.forEach { slot ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(
-                            slot.name,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Cream,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            slot.targetLabel,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = CreamMuted,
-                        )
+                        Text(slot.name, style = MaterialTheme.typography.bodyMedium, color = Cream, modifier = Modifier.weight(1f))
+                        Text(slot.targetLabel, style = MaterialTheme.typography.bodySmall, color = CreamMuted)
                     }
                 }
             }
@@ -206,8 +551,6 @@ private fun StartControls(
                 Text(plannedName, style = MaterialTheme.typography.displaySmall, color = Cream)
             }
 
-            // Held back while a requested exercise is still being looked up, so the screen doesn't
-            // flash "nothing planned" at someone who arrived from a gallery entry.
             !hasWorkout -> GlassCard {
                 SectionHeading("Nothing planned yet")
                 Text(
@@ -219,14 +562,8 @@ private fun StartControls(
             }
         }
 
-        // Promoted to the primary action while there's nothing to run, demoted to an edit once
-        // there is — the screen should point at the one thing left to do.
         if (hasWorkout) {
-            OutlinedButton(
-                onClick = onBuildWorkout,
-                modifier = Modifier.fillMaxWidth(),
-                shape = Capsule,
-            ) {
+            OutlinedButton(onClick = onBuildWorkout, modifier = Modifier.fillMaxWidth(), shape = Capsule) {
                 Text(if (plan.isEmpty) "Build a workout" else "Edit workout")
             }
         } else {
@@ -272,350 +609,6 @@ private fun StartControls(
     }
 }
 
-@Composable
-private fun LiveControls(
-    live: LiveSession,
-    watchLink: WatchLinkState,
-    imageUrls: List<String>,
-    onReconnect: () -> Unit,
-    onToggle: () -> Unit,
-    onStartNow: () -> Unit,
-    onReps: (Int) -> Unit,
-    onNext: () -> Unit,
-    onPause: () -> Unit,
-    onResume: () -> Unit,
-    onFinish: () -> Unit,
-    onDiscard: () -> Unit,
-) {
-    val isActive = live.currentSegment == SegmentType.ACTIVE
-    val accent = if (isActive) Emerald else Sky
-    val segColor by animateColorAsState(accent, label = "seg")
-    val s = live.summary
-    val exercise = live.currentExercise
-    val countdown = live.countdownSeconds
-    val restRemaining = live.restRemainingSeconds
-
-    // Keyed on the block, so each rest gets exactly one alert however long you overrun it.
-    val haptics = rememberHaptics()
-    RestAlert(
-        remainingSeconds = restRemaining,
-        resetKey = live.segmentStartMs,
-        onElapsed = haptics::restOver,
-    )
-
-    // Guards against banking an empty set. Reps are the one input the app can't infer, so a zero is
-    // ambiguous — it might be a genuine skipped set or a forgotten tap, and the two need different
-    // handling. Asking costs a second; silently recording nothing loses the set's calories.
-    var confirming by remember { mutableStateOf<PendingAction?>(null) }
-    fun guard(action: PendingAction, run: () -> Unit) {
-        if (isActive && exercise != null && live.currentReps == 0) confirming = action else run()
-    }
-
-    // The whole screen shifts colour with the work/rest state — an ambient cue you can read from
-    // across the room, without focusing on any single number.
-    AmbientOverride(accent)
-
-    if (confirming != null) {
-        val pending = confirming!!
-        AlertDialog(
-            onDismissRequest = { confirming = null },
-            title = { Text("No reps logged") },
-            text = {
-                Text(
-                    "This set is recorded as 0 ${
-                        if (exercise?.measure == ExerciseMeasure.SECONDS) "seconds" else "reps"
-                    }. Log them first if you forgot — they feed the calorie estimate.",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { confirming = null; pending.run() }) {
-                    Text(pending.label, color = Coral)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirming = null }) { Text("Go back") }
-            },
-        )
-    }
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(Modifier.height(4.dp))
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            PillChip(
-                label = when {
-                    countdown != null -> "● GET READY"
-                    isActive -> "● WORKING"
-                    else -> "● RESTING"
-                },
-                selected = true,
-                accent = segColor,
-            )
-            if (live.plan.isCircuit) {
-                PillChip(
-                    label = "Round ${live.currentRound} of ${live.plan.rounds}",
-                    accent = Violet,
-                )
-            }
-        }
-
-        // The hero is the movement you're doing. Calories are the reason the app exists, but they
-        // are not what you need to see mid-set — the exercise, the set number and the target are.
-        if (exercise != null) {
-            ExerciseImage(
-                urls = imageUrls,
-                contentDescription = exercise.name,
-                animate = isActive,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(190.dp)
-                    .clip(CardShape),
-            )
-            Text(
-                exercise.displayName,
-                style = MaterialTheme.typography.displaySmall,
-                color = Cream,
-                textAlign = TextAlign.Center,
-            )
-            Text(
-                "Set ${live.setIndex} of ${live.plan.targetSetsFor(exercise.slotId)} · target ${
-                    if (exercise.measure == ExerciseMeasure.SECONDS) "${exercise.targetSeconds}s"
-                    else "${exercise.targetReps} reps"
-                }",
-                style = MaterialTheme.typography.titleMedium,
-                color = segColor,
-                textAlign = TextAlign.Center,
-            )
-        }
-
-        // The lead-in, in place of the rep counter — the one number that matters right now.
-        if (countdown != null) {
-            GlassCard(accent = segColor) {
-                Column(
-                    Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text("$countdown", style = NumericLarge, color = segColor)
-                    Text(
-                        "Starting — get into position",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = CreamMuted,
-                    )
-                    TextButton(onClick = onStartNow) { Text("Start now", color = segColor) }
-                }
-            }
-        } else if (!isActive && restRemaining != null) {
-            // Rest is the half of a workout nothing was tracking. Counting it down turns dead time
-            // into something with a shape, and the buzz means you don't have to watch it.
-            val over = restRemaining < 0
-            val restAccent = if (over) Amber else segColor
-            GlassCard(accent = restAccent) {
-                Column(
-                    Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(formatClock(abs(restRemaining) * 1000L), style = NumericLarge, color = restAccent)
-                    Text(
-                        if (over) "over the ${exercise?.restLabel} rest" else "rest remaining",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = CreamMuted,
-                    )
-                }
-            }
-        } else if (isActive && exercise != null) {
-            // Rep logging — the signal heart rate can't see.
-            val isHold = exercise.measure == ExerciseMeasure.SECONDS
-            val target = if (isHold) exercise.targetSeconds else exercise.targetReps
-            val bulk = if (isHold) 10 else 5
-
-            GlassCard(accent = segColor) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    BulkRepButton("−$bulk", enabled = live.currentReps > 0) { onReps(-bulk) }
-                    RepButton(Icons.Filled.Remove, "One fewer", enabled = live.currentReps > 0) { onReps(-1) }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("${live.currentReps}", style = NumericLarge, color = segColor)
-                        Text(
-                            if (isHold) "seconds held" else "reps this set",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = CreamMuted,
-                        )
-                    }
-                    RepButton(Icons.Filled.Add, "One more") { onReps(1) }
-                    BulkRepButton("+$bulk") { onReps(bulk) }
-                }
-
-                // The overwhelmingly common outcome is "I did exactly what I planned". Making that
-                // one tap instead of thirty is the difference between logging reps and not bothering.
-                if (target > 0 && live.currentReps != target) {
-                    OutlinedButton(
-                        onClick = { onReps(target - live.currentReps) },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = Capsule,
-                    ) {
-                        Text(if (isHold) "Hit the target — ${target}s" else "Hit the target — $target reps")
-                    }
-                }
-            }
-        }
-
-        // The core interaction: leaving WORKING banks the set you just did.
-        Button(
-            onClick = { guard(PendingAction("Bank it anyway", onToggle)) { onToggle() } },
-            modifier = Modifier.fillMaxWidth().height(64.dp),
-            shape = Capsule,
-            colors = ButtonDefaults.buttonColors(containerColor = segColor),
-        ) {
-            Text(
-                when {
-                    countdown != null -> "Cancel"
-                    isActive -> "Done — switch to REST"
-                    else -> "Start next set"
-                },
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimary,
-            )
-        }
-
-        // Secondary now: the numbers still matter, they just aren't what you look at mid-set.
-        GlassCard {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                MiniRing(
-                    label = "Plan",
-                    value = "${live.completedSetCount}/${live.plan.totalSets}",
-                    sub = "sets",
-                    progress = planProgress(live),
-                    accent = segColor,
-                )
-                Column(
-                    Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        MetricBlock("kcal", "${s.totalKcal.toInt()}", Emerald)
-                        MetricBlock("BPM", if (live.lastBpm > 0) "${live.lastBpm}" else "—", Coral)
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        MetricBlock("Elapsed", formatClock(live.elapsedMs), Cream)
-                        MetricBlock("Reps", "${s.totalReps}", Amber)
-                    }
-                }
-            }
-        }
-
-        live.nextExercise?.let { next ->
-            OutlinedButton(
-                onClick = { guard(PendingAction("Skip anyway", onNext)) { onNext() } },
-                modifier = Modifier.fillMaxWidth(),
-                shape = Capsule,
-            ) {
-                Text("Skip to ${next.name}")
-            }
-        }
-
-        WatchStatusStrip(state = watchLink, onReconnect = onReconnect)
-
-        // Where the energy actually went.
-        if (s.perExercise.isNotEmpty()) {
-            GlassCard {
-                SectionHeading("By exercise")
-                s.perExercise.forEach { row ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(
-                            row.exerciseName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Cream,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            "${row.sets}× · ${row.reps} reps · ${row.kcal.toInt()} kcal",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = CreamMuted,
-                        )
-                    }
-                }
-            }
-        }
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedButton(
-                onClick = if (live.status == SessionStatus.PAUSED) onResume else onPause,
-                modifier = Modifier.weight(1f),
-                shape = Capsule,
-            ) {
-                Text(if (live.status == SessionStatus.PAUSED) "Resume" else "Pause")
-            }
-            Button(
-                onClick = { guard(PendingAction("Finish anyway", onFinish)) { onFinish() } },
-                modifier = Modifier.weight(1f),
-                shape = Capsule,
-                colors = ButtonDefaults.buttonColors(containerColor = Emerald),
-            ) {
-                Text("Finish", fontWeight = FontWeight.Bold)
-            }
-        }
-
-        TextButton(onClick = onDiscard) { Text("Discard", color = Coral) }
-        Box(Modifier.height(8.dp))
-    }
-}
-
-/** An action held back by the zero-rep confirmation, with the wording for its confirm button. */
-private class PendingAction(val label: String, val run: () -> Unit)
-
-/** Single step, and keeps stepping while held. */
-@Composable
-private fun RepButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    description: String,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    RepeatingIconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(52.dp)) {
-        Icon(
-            icon,
-            contentDescription = "$description — hold to repeat",
-            tint = if (enabled) Cream else CreamMuted,
-            modifier = Modifier.size(26.dp),
-        )
-    }
-}
-
-/** The five-at-a-time jump, for sets you count in handfuls rather than one by one. */
-@Composable
-private fun BulkRepButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
-    RepeatingIconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(44.dp)) {
-        Text(
-            label,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = if (enabled) CreamMuted else CreamMuted.copy(alpha = 0.4f),
-        )
-    }
-}
-
-/** How far through the planned sets we are — drives the hero ring. */
-private fun planProgress(live: LiveSession): Float {
-    val total = live.plan.totalSets
-    return if (total <= 0) 0f else live.completedSetCount.toFloat() / total
-}
-
-/** A simple wrap of selectable chips. */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun <T> FlowChips(
@@ -628,11 +621,7 @@ private fun <T> FlowChips(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         options.forEach { (value, label) ->
-            PillChip(
-                label = label,
-                selected = selected == value,
-                onClick = { onSelect(value) },
-            )
+            PillChip(label = label, selected = selected == value, onClick = { onSelect(value) })
         }
     }
 }

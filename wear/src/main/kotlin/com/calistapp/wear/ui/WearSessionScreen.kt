@@ -91,11 +91,16 @@ fun WearApp(viewModel: WearSessionViewModel) {
             val state by viewModel.state.collectAsStateWithLifecycle()
             val update by viewModel.updateState.collectAsStateWithLifecycle()
 
-            // Watching an update run and having the watch blank halfway through reads as the app
-            // falling over, even though the download now survives it. Held only for the states
-            // where something is actually happening: ReadyToInstall waits on a tap that may never
-            // come, and letting the screen sleep through that is the point of the notification.
-            KeepScreenOn(update is UpdateState.Checking || update is UpdateState.Downloading)
+            // While a workout runs, hold the screen on. Letting the watch doze mid-set suspends the
+            // Activity, and with it the heart-rate collection and the phone sync — so the set you did
+            // with the screen off never reaches the phone. Battery is the trade, and for the length
+            // of a workout it's the right one. Also held through an update download for the same
+            // "don't look like you crashed" reason.
+            KeepScreenOn(
+                state.running ||
+                    update is UpdateState.Checking ||
+                    update is UpdateState.Downloading,
+            )
 
             if (state.running) {
                 RunningScreen(

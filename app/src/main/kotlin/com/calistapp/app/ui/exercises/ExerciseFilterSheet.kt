@@ -148,25 +148,29 @@ fun ExerciseFilterSheet(
                 }
             }
 
-            FilterGroup("Target muscle", subtitle = "Exercises that train this as a primary mover") {
-                facets.muscles.forEach { m ->
-                    PillChip(
-                        label = m,
-                        selected = m in filters.primaryMuscles,
-                        accent = Emerald,
-                        onClick = { actions.togglePrimaryMuscle(m) },
-                    )
+            if (facets.primaryMuscles.isNotEmpty()) {
+                FilterGroup("Target muscle", subtitle = "Exercises that train this as a primary mover") {
+                    facets.primaryMuscles.forEach { m ->
+                        PillChip(
+                            label = m,
+                            selected = m in filters.primaryMuscles,
+                            accent = Emerald,
+                            onClick = { actions.togglePrimaryMuscle(m) },
+                        )
+                    }
                 }
             }
 
-            FilterGroup("Secondary muscle", subtitle = "Worked, but not the main target") {
-                facets.muscles.forEach { m ->
-                    PillChip(
-                        label = m,
-                        selected = m in filters.secondaryMuscles,
-                        accent = Sky,
-                        onClick = { actions.toggleSecondaryMuscle(m) },
-                    )
+            if (facets.secondaryMuscles.isNotEmpty()) {
+                FilterGroup("Secondary muscle", subtitle = "Worked, but not the main target") {
+                    facets.secondaryMuscles.forEach { m ->
+                        PillChip(
+                            label = m,
+                            selected = m in filters.secondaryMuscles,
+                            accent = Sky,
+                            onClick = { actions.toggleSecondaryMuscle(m) },
+                        )
+                    }
                 }
             }
 

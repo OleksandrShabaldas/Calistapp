@@ -24,6 +24,30 @@ enum class Difficulty(val displayName: String) {
     ADVANCED("Advanced"),
 }
 
+/** What kind of asset a piece of [ExerciseMedia] points at, so the UI knows how to render it. */
+@Serializable
+enum class MediaType {
+    /** A still frame or an animated GIF — rendered by Coil (the app's loader decodes GIFs). */
+    IMAGE,
+
+    /** An MP4/WebM clip — rendered by the Media3 video player. */
+    VIDEO,
+}
+
+/**
+ * One swipeable demonstration of an exercise. An exercise can carry several — e.g. an animated GIF
+ * plus real-person video shot from a couple of angles — and the detail screen pages between them.
+ */
+@Serializable
+data class ExerciseMedia(
+    val url: String,
+    val type: MediaType,
+    /** Short label shown on the page (e.g. "Front", "Side", "Animation"); null hides it. */
+    val angle: String? = null,
+    /** Where it came from (e.g. "github", "musclewiki"); informational, for provenance/debugging. */
+    val source: String = "",
+)
+
 /**
  * A single exercise in the gallery. Basic fields (muscles, equipment, images, instructions) come
  * from the open free-exercise-db; the richer coaching fields ([overview], [commonMistakes], [tips],
@@ -47,8 +71,13 @@ data class Exercise(
     val problematicAreas: List<String> = emptyList(),
     /** Strength built vs energy required, 1 (poor) .. 5 (excellent). 0 = unrated. */
     val efficiency: Int = 0,
-    /** Animated GIF or start/finish frames — loaded from a CDN. */
+    /** Animated GIF or start/finish frames — loaded from a CDN. Used for the gallery thumbnail. */
     val imageUrls: List<String> = emptyList(),
+    /**
+     * Richer, swipeable demonstrations for the detail screen — real-person video angles and/or an
+     * animated GIF. Empty for exercises that only have [imageUrls]; the carousel falls back to those.
+     */
+    val media: List<ExerciseMedia> = emptyList(),
     val instructions: List<String> = emptyList(),
     val commonMistakes: List<String> = emptyList(),
     val tips: List<String> = emptyList(),
@@ -60,4 +89,8 @@ data class Exercise(
 ) {
     val isBodyweight: Boolean
         get() = equipment.isEmpty() || equipment.any { it.equals("body only", true) || it.contains("bar", true) }
+
+    /** True when at least one real-person video demonstration is attached. */
+    val hasVideo: Boolean
+        get() = media.any { it.type == MediaType.VIDEO }
 }

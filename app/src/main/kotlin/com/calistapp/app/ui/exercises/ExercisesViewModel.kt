@@ -42,9 +42,11 @@ class ExercisesViewModel @Inject constructor(
         .map { it.size }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
-    val facets: StateFlow<FilterFacets> = all
-        .map(FilterFacets::of)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FilterFacets())
+    // Recomputed as the structural filters change, so the muscle/equipment chips only ever offer
+    // what the chosen body part actually contains.
+    val facets: StateFlow<FilterFacets> =
+        combine(all, _filters) { list, f -> FilterFacets.of(list, f) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FilterFacets())
 
     val favourites: StateFlow<Set<String>> = prefs.favourites
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())

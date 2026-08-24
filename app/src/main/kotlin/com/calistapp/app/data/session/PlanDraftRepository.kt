@@ -65,6 +65,14 @@ class PlanDraftRepository @Inject constructor() {
         plan.copy(exercises = list)
     }
 
+    /** Reorder by absolute position — what the drag-to-reorder handle drives. */
+    fun moveIndex(from: Int, to: Int) = _draft.update { plan ->
+        val list = plan.exercises.toMutableList()
+        if (from !in list.indices || to !in list.indices || from == to) return@update plan
+        list.add(to, list.removeAt(from))
+        plan.copy(exercises = list)
+    }
+
     fun rename(name: String) = _draft.update { it.copy(name = name) }
 
     /**

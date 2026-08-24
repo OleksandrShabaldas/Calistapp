@@ -3,6 +3,7 @@ package com.calistapp.wear.session
 import android.content.Context
 import com.calistapp.core.calorie.ExerciseIntensity
 import com.calistapp.core.calorie.LiveCalorieAccumulator
+import com.calistapp.core.model.ExerciseMeasure
 import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.HeartRateSample
 import com.calistapp.core.model.PlannedExercise
@@ -341,13 +342,16 @@ object WearSessionManager {
         }
 
         accumulator?.startSegment(type, now)
+        // Match the phone: a work block opens on the plan's target rather than zero, so "did the
+        // target" needs no taps and both wrists show the same number.
+        val openingReps = if (type == SegmentType.ACTIVE) defaultRepsFor(cur.plan.slot(slotId)) else 0
         _state.update {
             it.copy(
                 currentSegment = type,
                 completedSets = completed,
                 currentSlotId = slotId,
                 setIndex = setIndex,
-                currentReps = 0,
+                currentReps = openingReps,
             )
         }
         applyCurrentExerciseToAccumulator()
@@ -388,6 +392,11 @@ object WearSessionManager {
         publish()
         sendState(force = true)
     }
+
+    /** The reps a work block opens on: the plan's target for the movement, or 0 when free-form. */
+    private fun defaultRepsFor(slot: PlannedExercise?): Int = slot?.let {
+        if (it.measure == ExerciseMeasure.SECONDS) it.targetSeconds else it.targetReps
+    } ?: 0
 
     /** Push the current exercise's physical profile into the accumulator so scoring reflects it. */
     private fun applyCurrentExerciseToAccumulator() {

@@ -16,6 +16,7 @@ val localProps = Properties().apply {
 }
 val geminiApiKey: String = localProps.getProperty("GEMINI_API_KEY", "")
 val geminiModel: String = localProps.getProperty("GEMINI_MODEL", "gemini-2.0-flash")
+val githubVideoToken: String = localProps.getProperty("GITHUB_VIDEO_TOKEN", "")
 val keystoreStorePassword: String = localProps.getProperty("KEYSTORE_STORE_PASSWORD", "")
 val keystoreKeyAlias: String = localProps.getProperty("KEYSTORE_KEY_ALIAS", "")
 val keystoreKeyPassword: String = localProps.getProperty("KEYSTORE_KEY_PASSWORD", "")
@@ -33,13 +34,14 @@ android {
         // after 0.9.x is 1.0.0, never 0.10.0. Keeps :app and :wear in lockstep since they always
         // ship together. versionCode = major*100 + minor*10 + patch, so it's derived from
         // versionName rather than tracked separately.
-        versionCode = 20
-        versionName = "0.2.0"
+        versionCode = 30
+        versionName = "0.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
         buildConfigField("String", "GEMINI_MODEL", "\"$geminiModel\"")
+        buildConfigField("String", "GITHUB_VIDEO_TOKEN", "\"$githubVideoToken\"")
     }
 
     signingConfigs {
@@ -111,6 +113,9 @@ dependencies {
 
     implementation(libs.coil.compose)
     implementation(libs.coil.gif)
+
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
 
     implementation(libs.play.services.wearable)
     // Lets the phone open the app on the watch when a workout starts.

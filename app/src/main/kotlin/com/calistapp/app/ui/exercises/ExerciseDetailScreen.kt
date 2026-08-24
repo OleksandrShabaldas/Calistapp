@@ -93,9 +93,8 @@ fun ExerciseDetailScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            ExerciseDemo(
-                urls = e.imageUrls,
-                contentDescription = e.name,
+            ExerciseMediaCarousel(
+                exercise = e,
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1.4f)

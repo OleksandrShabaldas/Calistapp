@@ -1,10 +1,12 @@
 package com.calistapp.app.session
 
 import com.calistapp.core.model.ExerciseType
+import com.calistapp.core.model.NextUp
 import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionStatus
 import com.calistapp.core.model.SessionSummary
+import com.calistapp.core.model.SetLog
 import com.calistapp.core.model.WorkoutPlan
 
 /**
@@ -44,6 +46,12 @@ data class LiveSession(
      * correction early, which distorts a short set's score.
      */
     val countdownUntilMs: Long? = null,
+    /** Recent heart-rate readings (oldest first, newest last) for the live HUD sparkline. Bounded. */
+    val recentBpm: List<Int> = emptyList(),
+    /** Sets banked so far this session — what the live journal shows and lets you annotate. */
+    val setLogs: List<SetLog> = emptyList(),
+    /** Effective max heart rate (measured, or estimated from age) — drives the HUD's zone read-out. */
+    val maxHr: Int = 190,
 ) {
     val elapsedMs: Long get() = nowMs - startMs
     val currentExercise: PlannedExercise? get() = plan.slot(currentSlotId)
@@ -78,4 +86,53 @@ data class LiveSession(
 
     /** Round in progress, for a circuit. Always 1 for an exercise-by-exercise split. */
     val currentRound: Int get() = plan.roundOf(completedSets)
+
+    /**
+     * How long the current rest has run, in seconds, counting up — or null while working or during
+     * the lead-in. This is the number the screen shows: a stopwatch of the recovery, not a countdown
+     * from a preset the user never asked for.
+     */
+    val restElapsedSeconds: Int?
+        get() = if (isWorking || countdownUntilMs != null) null else (segmentElapsedMs / 1000).toInt()
+
+    /** What the *next* work block will run, or null once every planned set is banked. */
+    val upNext: NextUp? get() = plan.nextUp(currentSlotId, completedSets)
+
+    /** The movement the next work block will run — the current one again, or a new exercise. */
+    val upNextExercise: PlannedExercise? get() = plan.slot(upNext?.slotId)
+
+    /**
+     * The movement the hero video should show: what you're working now, or — while resting or during
+     * the lead-in — the one you're about to do, so the demo is of what's coming rather than what's done.
+     */
+    val heroExercise: PlannedExercise? get() = if (isWorking) currentExercise else (upNextExercise ?: currentExercise)
+
+    /** True when the next work block moves on to a different exercise rather than another set. */
+    val nextIsNewExercise: Boolean
+        get() = upNext?.let { it.slotId != currentSlotId } ?: false
+
+    /**
+     * Every planned set is done. The signal the workout has actually finished — without it the
+     * "start next set" control looped back onto the last exercise and the session never ended.
+     */
+    val allSetsDone: Boolean get() = !plan.isEmpty && upNext == null
+
+    /** Whether banking the set in progress would complete the plan — nothing left after it. */
+    val bankingEndsWorkout: Boolean
+        get() {
+            if (!isWorking) return false
+            val slot = currentSlotId ?: return false
+            val after = completedSets + (slot to ((completedSets[slot] ?: 0) + 1))
+            return plan.nextUp(slot, after) == null
+        }
+
+    /** Whether the set in progress (or about to start) is a warm-up set of the current exercise. */
+    val isCurrentSetWarmup: Boolean get() = currentExercise?.isWarmup(setIndex) == true
+
+    /**
+     * The opening warm-up: the very first rest, before any set has been worked. Treated as a warm-up
+     * window with a running stopwatch rather than a rest countdown you never asked to sit through.
+     */
+    val isOpeningWarmup: Boolean
+        get() = !isWorking && countdownUntilMs == null && completedSetCount == 0 && currentExercise != null
 }

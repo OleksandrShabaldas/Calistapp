@@ -160,6 +160,9 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
                     },
                     onDiscarded = { navController.popBackStack() },
                     onBuildWorkout = { navController.navigate(Routes.PLANNER) },
+                    // Minimise: leave the screen while the session keeps running in the background.
+                    onCollapse = { navController.popBackStack() },
+                    onOpenExercise = { id -> navController.navigate(Routes.exerciseDetail(id)) },
                 )
             }
             composable(Routes.PLANNER) {

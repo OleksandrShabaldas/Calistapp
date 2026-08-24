@@ -15,17 +15,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FitnessCenter
@@ -53,16 +55,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.calistapp.app.ui.common.EditableStepper
 import com.calistapp.app.ui.common.GlassCard
 import com.calistapp.app.ui.common.NoHeartRateDialog
 import com.calistapp.app.ui.common.PillChip
 import com.calistapp.app.ui.common.WatchStatusStrip
+import com.calistapp.app.ui.common.rememberReorderState
 import com.calistapp.app.ui.exercises.ExerciseFilterSheet
 import com.calistapp.app.ui.exercises.ExerciseImage
 import com.calistapp.app.ui.exercises.SortMenu
@@ -100,6 +107,9 @@ fun WorkoutPlannerScreen(
     var confirmNoWatch by rememberSaveable { mutableStateOf(false) }
     val saved by viewModel.savedWorkouts.collectAsStateWithLifecycle()
     val watchLink by viewModel.watchLink.collectAsStateWithLifecycle()
+    val isSaved by viewModel.isSaved.collectAsStateWithLifecycle()
+    val planListState = rememberLazyListState()
+    val reorder = rememberReorderState(planListState) { from, to -> viewModel.moveTo(from, to) }
 
     fun start() {
         viewModel.startWorkout()
@@ -210,29 +220,49 @@ fun WorkoutPlannerScreen(
             )
             LazyColumn(
                 Modifier.weight(1f),
+                state = planListState,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 itemsIndexed(plan.exercises, key = { _, it -> it.slotId }) { index, slot ->
                     val previous = plan.exercises.getOrNull(index - 1)
-                    PlannedExerciseCard(
-                        slot = slot,
-                        target = viewModel.targetOf(slot),
-                        showSets = !plan.isCircuit,
-                        canSuperset = index > 0 && !plan.isCircuit,
-                        inSuperset = slot.groupId != null && slot.groupId == previous?.groupId,
-                        onToggleSuperset = { viewModel.toggleSupersetWithPrevious(slot.slotId) },
-                        onWarmupSets = { viewModel.setWarmupSets(slot.slotId, it) },
-                        imageUrls = thumbnails[slot.exerciseId].orEmpty(),
-                        onOpen = { onOpenExercise(slot.exerciseId) },
-                        onSets = { viewModel.setSets(slot.slotId, it) },
-                        onTarget = { viewModel.setTarget(slot.slotId, it) },
-                        onRest = { viewModel.setRest(slot.slotId, it) },
-                        onToggleMeasure = { viewModel.toggleMeasure(slot.slotId) },
-                        onToggleWeighted = { viewModel.toggleWeighted(slot.slotId) },
-                        onWeight = { viewModel.setAddedWeight(slot.slotId, it) },
-                        onMove = { viewModel.move(slot.slotId, it) },
-                        onRemove = { viewModel.remove(slot.slotId) },
-                    )
+                    val dragging = reorder.draggingIndex == index
+                    Box(
+                        if (dragging) {
+                            Modifier
+                                .zIndex(1f)
+                                .graphicsLayer { translationY = reorder.draggedTranslationY }
+                        } else {
+                            Modifier
+                        },
+                    ) {
+                        PlannedExerciseCard(
+                            slot = slot,
+                            target = viewModel.targetOf(slot),
+                            showSets = !plan.isCircuit,
+                            canSuperset = index > 0 && !plan.isCircuit,
+                            inSuperset = slot.groupId != null && slot.groupId == previous?.groupId,
+                            onToggleSuperset = { viewModel.toggleSupersetWithPrevious(slot.slotId) },
+                            onWarmupSets = { viewModel.setWarmupSets(slot.slotId, it) },
+                            imageUrls = thumbnails[slot.exerciseId].orEmpty(),
+                            onOpen = { onOpenExercise(slot.exerciseId) },
+                            onSets = { viewModel.setSets(slot.slotId, it) },
+                            onTarget = { viewModel.setTarget(slot.slotId, it) },
+                            onRest = { viewModel.setRest(slot.slotId, it) },
+                            onToggleMeasure = { viewModel.toggleMeasure(slot.slotId) },
+                            onToggleWeighted = { viewModel.toggleWeighted(slot.slotId) },
+                            onWeight = { viewModel.setAddedWeight(slot.slotId, it) },
+                            isDragging = dragging,
+                            dragHandleModifier = Modifier.pointerInput(slot.slotId) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { reorder.onDragStart(index) },
+                                    onDrag = { change, amount -> change.consume(); reorder.onDrag(amount.y) },
+                                    onDragEnd = { reorder.onDragEnd() },
+                                    onDragCancel = { reorder.onDragEnd() },
+                                )
+                            },
+                            onRemove = { viewModel.remove(slot.slotId) },
+                        )
+                    }
                 }
             }
         }
@@ -247,9 +277,17 @@ fun WorkoutPlannerScreen(
                 Text("  Add exercise")
             }
             if (!plan.isEmpty) {
+                // Reflects whether the plan as it stands is already stored: a filled bookmark and
+                // "Saved" once it is, back to "Save" the moment you change anything. Re-saving an
+                // unchanged plan overwrites rather than piling up a duplicate.
                 OutlinedButton(onClick = { saving = true }, shape = Capsule) {
-                    Icon(Icons.Filled.BookmarkBorder, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text("  Save")
+                    Icon(
+                        if (isSaved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                        contentDescription = null,
+                        tint = if (isSaved) Emerald else Cream,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(if (isSaved) "  Saved" else "  Save", color = if (isSaved) Emerald else Cream)
                 }
             }
         }
@@ -405,7 +443,8 @@ private fun PlannedExerciseCard(
     onToggleMeasure: () -> Unit,
     onToggleWeighted: () -> Unit,
     onWeight: (Double) -> Unit,
-    onMove: (Int) -> Unit,
+    isDragging: Boolean = false,
+    dragHandleModifier: Modifier = Modifier,
     onRemove: () -> Unit,
 ) {
     // Collapsed by default: a plan is a list you scan, and eight cards of steppers is unreadable.
@@ -413,7 +452,10 @@ private fun PlannedExerciseCard(
     // left it when the list is rebuilt — scrolled out of view, or returned to from the picker.
     var expanded by rememberSaveable { mutableStateOf(false) }
 
-    GlassCard(accent = if (slot.isWeighted) Amber else null, contentPadding = 12) {
+    GlassCard(
+        accent = if (isDragging) Emerald else if (slot.isWeighted) Amber else null,
+        contentPadding = 12,
+    ) {
         // The whole header toggles, not just the name — the chevron says which way it goes. A card
         // you can open but can't obviously close is the worse half of a disclosure control.
         Row(
@@ -461,11 +503,18 @@ private fun PlannedExerciseCard(
                 tint = CreamMuted,
                 modifier = Modifier.size(20.dp),
             )
-            IconButton(onClick = { onMove(-1) }, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Filled.ArrowUpward, "Move up", modifier = Modifier.size(18.dp))
-            }
-            IconButton(onClick = { onMove(1) }, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Filled.ArrowDownward, "Move down", modifier = Modifier.size(18.dp))
+            // Hold the handle to drag the exercise to a new position — the whole card follows your
+            // finger and drops where you let go, in place of the old up/down arrows.
+            Box(
+                Modifier.size(36.dp).then(dragHandleModifier),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Filled.DragHandle,
+                    contentDescription = "Hold and drag to reorder",
+                    tint = CreamMuted,
+                    modifier = Modifier.size(20.dp),
+                )
             }
             IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Filled.Close, "Remove", tint = Coral, modifier = Modifier.size(18.dp))
@@ -558,6 +607,10 @@ private fun PlannedExerciseCard(
     }
 }
 
+/**
+ * Every planner number is a stepper you can also type into — tap the value to enter it directly
+ * rather than holding ＋ thirty times to get from 10 to 40. Delegates to the shared [EditableStepper].
+ */
 @Composable
 private fun Stepper(
     label: String,
@@ -565,25 +618,7 @@ private fun Stepper(
     onChange: (Int) -> Unit,
     step: Int = 1,
     format: (Int) -> String = { it.toString() },
-) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = CreamMuted)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { onChange(value - step) }) {
-                Icon(Icons.Filled.Remove, "Decrease $label")
-            }
-            Text(
-                format(value),
-                style = MaterialTheme.typography.titleMedium,
-                color = Cream,
-                fontWeight = FontWeight.Bold,
-            )
-            IconButton(onClick = { onChange(value + step) }) {
-                Icon(Icons.Filled.Add, "Increase $label")
-            }
-        }
-    }
-}
+) = EditableStepper(label = label, value = value, onChange = onChange, step = step, format = format)
 
 /**
  * The picker. Same relevance search, filters and sort as the gallery — this is the screen where not

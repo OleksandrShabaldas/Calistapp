@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -172,8 +173,10 @@ fun ExerciseGalleryScreen(
             text = { Text("Add") },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                // Clear of the floating nav bar, which now occupies the bottom edge.
-                .padding(end = 16.dp, bottom = 116.dp),
+                // Sit just above the floating nav bar, tracking the system inset so the gap stays the
+                // same on gesture and three-button navigation rather than floating too high on either.
+                .navigationBarsPadding()
+                .padding(end = 16.dp, bottom = 84.dp),
         )
     }
 }

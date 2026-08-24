@@ -75,6 +75,19 @@ val NumericMedium = TextStyle(
     letterSpacing = (-0.8).sp,
 )
 
+/**
+ * The live-workout screen speaks in bold sans, not the display serif — the reference training app is
+ * all-sans and it reads as athletic rather than editorial. Used for the current exercise's name and
+ * the big phase labels ("GET READY", "PAUSED").
+ */
+val TitleSans = TextStyle(
+    fontFamily = Sans,
+    fontWeight = FontWeight.Bold,
+    fontSize = 24.sp,
+    lineHeight = 28.sp,
+    letterSpacing = (-0.3).sp,
+)
+
 val CalistTypography = Typography(
     // ---- Display serif: page titles and hero headings ----
     displayLarge = TextStyle(

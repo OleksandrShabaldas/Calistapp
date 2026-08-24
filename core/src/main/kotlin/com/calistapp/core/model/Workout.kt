@@ -112,7 +112,7 @@ data class PlannedExercise(
 }
 
 /** Trim the trailing ".0" so whole numbers read as "20 kg" rather than "20.0 kg". */
-internal fun formatKg(kg: Double): String =
+fun formatKg(kg: Double): String =
     if (kg % 1.0 == 0.0) kg.toInt().toString() else ((kg * 10).toInt() / 10.0).toString()
 
 /**
@@ -249,6 +249,23 @@ data class WorkoutPlan(
 }
 
 /**
+ * How a set's effort was rated. All three are standard training scales; the user picks whichever
+ * they think in. Effort is recorded for history and the AI layer only — it deliberately does **not**
+ * enter the calorie estimate, which stays anchored on heart rate and mechanical work.
+ */
+@Serializable
+enum class EffortScale(val label: String, val blurb: String) {
+    /** Reps in reserve: how many more you had left. 0 = to failure, 3–4 = comfortable. */
+    RIR("RIR", "Reps in reserve — how many more reps you could have done. 0 means you went to failure; 3–4 means it felt comfortable."),
+
+    /** Rate of perceived exertion, Borg CR10-style, 1–10. */
+    RPE("RPE", "Rate of perceived exertion, 1–10. 10 is an all-out set with nothing left; 7–8 is a hard working set with a rep or two in the tank."),
+
+    /** Percent of one-rep max — the load relative to your best single. */
+    PERCENT_RM("%RM", "Percent of your one-rep max — the load as a share of the most you can lift once. 80% is heavy; 50% is light/technique work.");
+}
+
+/**
  * A completed set — the record of what was actually performed, as opposed to what was planned.
  * Reps are the one signal heart rate cannot see, so these feed the mechanical-work term of the
  * calorie estimate as well as the history/AI views.
@@ -263,6 +280,23 @@ data class SetLog(
     val seconds: Int = 0,
     val startMs: Long,
     val endMs: Long,
+    /** Load carried on this set, in kg beyond bodyweight. Copied from the plan slot at bank time. */
+    val weightKg: Double = 0.0,
+    /** Which effort scale [effortValue] is on, or null when effort wasn't rated for this set. */
+    val effortScale: EffortScale? = null,
+    /** The effort rating, meaning [effortScale]. Null when unrated. */
+    val effortValue: Double? = null,
+    /** A free-text note the user added to this set. */
+    val note: String = "",
 ) {
     val durationMs: Long get() = (endMs - startMs).coerceAtLeast(0)
+
+    /** "2 RIR", "8 RPE", "80 %RM", or null when unrated — for compact display in the journal. */
+    val effortLabel: String?
+        get() {
+            val scale = effortScale ?: return null
+            val v = effortValue ?: return null
+            val n = if (v % 1.0 == 0.0) v.toInt().toString() else v.toString()
+            return if (scale == EffortScale.PERCENT_RM) "$n %RM" else "$n ${scale.label}"
+        }
 }

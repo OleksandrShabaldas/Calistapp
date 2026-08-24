@@ -52,3 +52,32 @@ val GlassFillStrong = Color(0x14FFFFFF)
 
 /** Hairline border that gives glass its edge. */
 val GlassBorder = Color(0x1FFFFFFF)
+
+// ---- Live-workout skin -----------------------------------------------------------------------
+
+/**
+ * The ongoing-workout screen wears its own skin — a neutral near-black with a single hot-orange
+ * accent, taken from the reference training app. It deliberately drops the app-wide emerald/serif
+ * "cyber" look for something more athletic; the rest of the app migrates onto this later. These
+ * tokens are used locally on the live screen and its sheets, so nothing else is disturbed.
+ */
+
+/** Live-screen page base — neutral near-black (no blue tint, unlike [Ink]). */
+val Onyx = Color(0xFF0B0B0C)
+
+/** Slightly raised near-black, for the control dock and sheets. */
+val OnyxRaised = Color(0xFF141416)
+
+/** Primary accent: work, progress, primary actions, calories. */
+val Flame = Color(0xFFEE6C2B)
+val FlameDeep = Color(0xFFC0521C)
+val FlameSoft = Color(0x26EE6C2B)
+
+/** Near-white text on the live screen — neutral, athletic (vs. the warm [Cream]). */
+val Chalk = Color(0xFFF4F4F5)
+val Ash = Color(0xFF8A8A8E)
+
+/** Flat card fill + border for the live skin — less translucent than the glass tokens. */
+val OnyxFill = Color(0x0DFFFFFF)
+val OnyxFillStrong = Color(0x14FFFFFF)
+val OnyxBorder = Color(0x1AFFFFFF)

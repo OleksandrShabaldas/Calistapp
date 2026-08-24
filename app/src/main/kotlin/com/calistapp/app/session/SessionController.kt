@@ -11,8 +11,11 @@ import com.calistapp.core.calorie.CalorieEngine
 import com.calistapp.core.calorie.LiveCalorieAccumulator
 import com.calistapp.core.calorie.rebuildAccumulator
 import dagger.hilt.android.qualifiers.ApplicationContext
+import com.calistapp.core.model.EffortScale
+import com.calistapp.core.model.ExerciseMeasure
 import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.HeartRateSample
+import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.Segment
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionStatus
@@ -79,6 +82,8 @@ class SessionController @Inject constructor(
     private val samples = mutableListOf<HeartRateSample>()
     private val segments = mutableListOf<Segment>()
     private val setLogs = mutableListOf<SetLog>()
+    // A short tail of recent readings, mirrored into [LiveSession.recentBpm] for the HUD sparkline.
+    private val recentBpm = ArrayDeque<Int>()
     private var lastSampleAtMs = 0L
     private var lastCheckpointMs = 0L
 
@@ -93,6 +98,7 @@ class SessionController @Inject constructor(
         scope.launch { profileRepository.profile.collect { updated ->
             profile = updated
             accumulator?.updateProfile(updated)
+            _live.update { it?.copy(maxHr = updated.effectiveMaxHr) }
         } }
         scope.launch {
             bus.hrSamples.collect { sample ->
@@ -161,6 +167,88 @@ class SessionController @Inject constructor(
             _live.update { it?.copy(currentReps = updated) }
         }
         refresh()
+    }
+
+    /**
+     * Change the load on the exercise in progress — you added a plate, or forgot to set it when
+     * building the plan. Rewrites the live plan slot and the open segment so both the running score
+     * and the stored record reflect the weight actually lifted, and syncs the plan to the watch.
+     */
+    fun setAddedWeight(kg: Double) = scope.launch {
+        val updatedPlan = mutex.withLock {
+            val cur = _live.value ?: return@withLock null
+            val slotId = cur.currentSlotId ?: return@withLock null
+            val clamped = kg.coerceIn(0.0, 300.0)
+            val plan = cur.plan.copy(
+                exercises = cur.plan.exercises.map {
+                    if (it.slotId == slotId) {
+                        it.copy(metabolics = it.metabolics.copy(externalLoadKg = clamped))
+                    } else {
+                        it
+                    }
+                },
+            )
+            val metabolics = plan.slot(slotId)?.metabolics
+            // Re-tag the open segment, so the load counts toward the block being performed now.
+            segments.lastOrNull()?.takeIf { it.endMs == null }?.let {
+                segments[segments.lastIndex] = it.copy(metabolics = metabolics)
+            }
+            accumulator?.setCurrentExercise(slotId, plan.slot(slotId)?.name, metabolics)
+            _live.update { it?.copy(plan = plan) }
+            plan
+        } ?: return@launch
+        refresh()
+        checkpoint(force = true)
+        // Keep the watch's copy of the plan (and the weight it shows) in step.
+        watch.send(
+            ControlPayload(
+                command = ControlCommand.SYNC_PLAN,
+                timestampMs = System.currentTimeMillis(),
+                origin = DeviceOrigin.PHONE,
+                sessionId = _live.value?.id,
+                plan = updatedPlan,
+            ),
+        )
+    }
+
+    /**
+     * Redo the set in progress: reset its counter to the plan's target and restart the block clock,
+     * so a set you started wrong (or want to run again) doesn't bank a half-count. Only meaningful
+     * while a work block is open.
+     */
+    fun restartCurrentSet() = scope.launch {
+        mutex.withLock {
+            val cur = _live.value ?: return@withLock
+            if (cur.currentSegment != SegmentType.ACTIVE) return@withLock
+            val target = defaultRepsFor(cur.plan.slot(cur.currentSlotId))
+            accumulator?.setCurrentReps(target)
+            _live.update { it?.copy(currentReps = target, segmentStartMs = System.currentTimeMillis()) }
+        }
+        refresh()
+    }
+
+    // ---- Journal edits — annotate banked sets. Effort feeds history/AI only, never calories. -----
+
+    fun setSetEffort(slotId: String, setIndex: Int, scale: EffortScale?, value: Double?) =
+        scope.launch { editSetLog(slotId, setIndex) { it.copy(effortScale = scale, effortValue = value) } }
+
+    fun setSetNote(slotId: String, setIndex: Int, note: String) =
+        scope.launch { editSetLog(slotId, setIndex) { it.copy(note = note) } }
+
+    fun setSetReps(slotId: String, setIndex: Int, reps: Int) =
+        scope.launch { editSetLog(slotId, setIndex) { it.copy(reps = reps.coerceAtLeast(0)) } }
+
+    fun setSetWeight(slotId: String, setIndex: Int, kg: Double) =
+        scope.launch { editSetLog(slotId, setIndex) { it.copy(weightKg = kg.coerceIn(0.0, 300.0)) } }
+
+    private suspend fun editSetLog(slotId: String, setIndex: Int, edit: (SetLog) -> SetLog) {
+        mutex.withLock {
+            val i = setLogs.indexOfLast { it.slotId == slotId && it.setIndex == setIndex }
+            if (i < 0) return@withLock
+            setLogs[i] = edit(setLogs[i])
+            _live.update { it?.copy(setLogs = setLogs.toList()) }
+        }
+        checkpoint(force = true)
     }
 
     fun pause() = scope.launch {
@@ -290,6 +378,8 @@ class SessionController @Inject constructor(
             nowMs = now,
             segmentStartMs = open?.startMs ?: saved.startMs,
             receivingHr = false,
+            setLogs = setLogs.toList(),
+            maxHr = profile.effectiveMaxHr,
         )
 
         WorkoutSessionService.start(context)
@@ -405,6 +495,7 @@ class SessionController @Inject constructor(
             nowMs = now,
             segmentStartMs = now,
             receivingHr = false,
+            maxHr = profile.effectiveMaxHr,
         )
         accumulator?.setCurrentExercise(firstSlot?.slotId, firstSlot?.name, firstSlot?.metabolics)
 
@@ -498,6 +589,11 @@ class SessionController @Inject constructor(
 
         val slot = cur.plan.slot(slotId)
         accumulator?.startSegment(type, now, slot?.slotId, slot?.name, slot?.metabolics)
+        // A work block opens pre-filled with the target — the overwhelmingly common outcome is "I did
+        // what I planned", so the counter starts there and you adjust only when you didn't. A rest
+        // block carries no reps.
+        val openingReps = if (type == SegmentType.ACTIVE) defaultRepsFor(slot) else 0
+        accumulator?.setCurrentReps(openingReps)
         segments += Segment(
             type = type,
             startMs = now,
@@ -511,7 +607,7 @@ class SessionController @Inject constructor(
                 completedSets = completed,
                 currentSlotId = slotId,
                 setIndex = setIndex,
-                currentReps = 0,
+                currentReps = openingReps,
                 segmentStartMs = now,
             )
         }
@@ -599,14 +695,16 @@ class SessionController @Inject constructor(
 
         val slotId = sealed.slotId
         if (sealed.type == SegmentType.ACTIVE && slotId != null && cur.currentReps > 0) {
+            val slot = cur.plan.slot(slotId)
             setLogs += SetLog(
                 slotId = slotId,
-                exerciseId = cur.plan.slot(slotId)?.exerciseId.orEmpty(),
+                exerciseId = slot?.exerciseId.orEmpty(),
                 exerciseName = sealed.exerciseName.orEmpty(),
                 setIndex = cur.setIndex,
                 reps = cur.currentReps,
                 startMs = sealed.startMs,
                 endMs = now,
+                weightKg = slot?.addedWeightKg ?: 0.0,
             )
         }
     }
@@ -618,7 +716,11 @@ class SessionController @Inject constructor(
             samples += sample
             accumulator?.addSample(sample)
             lastSampleAtMs = System.currentTimeMillis()
-            _live.update { it?.copy(lastBpm = sample.bpm, receivingHr = true) }
+            recentBpm.addLast(sample.bpm)
+            while (recentBpm.size > RECENT_BPM_MAX) recentBpm.removeFirst()
+            _live.update {
+                it?.copy(lastBpm = sample.bpm, receivingHr = true, recentBpm = recentBpm.toList())
+            }
         }
         refresh()
         checkpoint()
@@ -647,6 +749,8 @@ class SessionController @Inject constructor(
                 summary = snap,
                 nowMs = now,
                 receivingHr = lastSampleAtMs > 0 && now - lastSampleAtMs < HR_STALE_MS,
+                setLogs = setLogs.toList(),
+                maxHr = profile.effectiveMaxHr,
             )
         }
     }
@@ -663,16 +767,25 @@ class SessionController @Inject constructor(
         )
     }
 
+    /** The reps a work block opens on: the plan's target for the movement, or 0 when free-form. */
+    private fun defaultRepsFor(slot: PlannedExercise?): Int = slot?.let {
+        if (it.measure == ExerciseMeasure.SECONDS) it.targetSeconds else it.targetReps
+    } ?: 0
+
     private fun clearBuffers() {
         samples.clear()
         segments.clear()
         setLogs.clear()
+        recentBpm.clear()
         lastSampleAtMs = 0L
         lastCheckpointMs = 0L
         accumulator = null
     }
 
     private companion object {
+        /** How many recent readings the HUD sparkline keeps (~one minute at 1 Hz). */
+        const val RECENT_BPM_MAX = 60
+
         /** No reading for this long means the watch link has gone quiet. */
         const val HR_STALE_MS = 10_000L
 

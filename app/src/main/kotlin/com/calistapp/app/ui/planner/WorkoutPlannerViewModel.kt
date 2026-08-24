@@ -59,9 +59,11 @@ class WorkoutPlannerViewModel @Inject constructor(
     private val all: StateFlow<List<Exercise>> = exerciseRepository.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val facets: StateFlow<FilterFacets> = all
-        .map(FilterFacets::of)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FilterFacets())
+    // Recomputed as the structural filters change, so the muscle/equipment chips only ever offer
+    // what the chosen body part actually contains.
+    val facets: StateFlow<FilterFacets> =
+        combine(all, _filters) { list, f -> FilterFacets.of(list, f) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FilterFacets())
 
     /**
      * Artwork per exercise id, for the plan's thumbnails.
@@ -126,11 +128,34 @@ class WorkoutPlannerViewModel @Inject constructor(
     val savedWorkouts: StateFlow<List<SavedWorkout>> = savedWorkouts0.saved
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * Whether the draft as it stands is already stored — drives the Save button's "Saved" state.
+     * Compared ignoring the plan id (a loaded copy gets a fresh one), so it flips back to unsaved the
+     * moment you change anything.
+     */
+    val isSaved: StateFlow<Boolean> =
+        combine(drafts.draft, savedWorkouts) { plan, saved ->
+            !plan.isEmpty && saved.any { samePlan(it.plan, plan) }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /**
+     * Store the draft. Overwrites a saved workout with the same name — or the one this draft already
+     * matches — instead of piling up a duplicate every time Save is tapped. Renaming the draft to the
+     * saved name is what lets [isSaved] light up straight afterwards.
+     */
     fun saveCurrentWorkout(name: String) {
         val plan = drafts.draft.value
         if (plan.isEmpty) return
-        viewModelScope.launch { savedWorkouts0.save(name, plan) }
+        val trimmed = name.trim().ifBlank { "Workout" }
+        val existingId = savedWorkouts.value.firstOrNull {
+            it.name.equals(trimmed, ignoreCase = true) || samePlan(it.plan, plan)
+        }?.id
+        drafts.rename(trimmed)
+        viewModelScope.launch { savedWorkouts0.save(trimmed, plan.copy(name = trimmed), existingId) }
     }
+
+    /** Two plans are "the same saved workout" when they match apart from the plan id. */
+    private fun samePlan(a: WorkoutPlan, b: WorkoutPlan): Boolean = a.copy(id = "") == b.copy(id = "")
 
     /** Load a saved workout into the draft, and remember that it was used. */
     fun loadWorkout(saved: SavedWorkout) {
@@ -145,6 +170,9 @@ class WorkoutPlannerViewModel @Inject constructor(
     fun add(exercise: Exercise) = drafts.add(exercise)
     fun remove(slotId: String) = drafts.remove(slotId)
     fun move(slotId: String, delta: Int) = drafts.move(slotId, delta)
+
+    /** Drag-to-reorder: move the exercise at [from] to position [to]. */
+    fun moveTo(from: Int, to: Int) = drafts.moveIndex(from, to)
     fun rename(name: String) = drafts.rename(name)
 
     fun setStyle(style: WorkoutStyle) = drafts.updatePlan { it.copy(style = style) }

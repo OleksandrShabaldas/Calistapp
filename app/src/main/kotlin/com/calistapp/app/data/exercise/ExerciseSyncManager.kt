@@ -12,7 +12,9 @@ import javax.inject.Singleton
  *  2. the open free-exercise-db is fetched ONCE to seed breadth (only inserts exercises not already
  *     stored, so it never clobbers existing content on later launches);
  *  3. the hand-authored rich overlays in [ExerciseEnrichments] are merged onto the stored rows every
- *     launch — authoritative and idempotent, so newly-authored batches show up automatically.
+ *     launch — authoritative and idempotent, so newly-authored batches show up automatically;
+ *  4. the authored full [VideoLibraryCatalog] (exercises the video library covers that no other
+ *     source has) is seeded the same way as step 1 — authoritative, but skips user-edited rows.
  *
  * Exercises the user AI-enriches (no overlay) are left untouched once the base is seeded.
  */
@@ -20,6 +22,7 @@ import javax.inject.Singleton
 class ExerciseSyncManager @Inject constructor(
     private val repository: ExerciseRepository,
     private val remoteSource: FreeExerciseDbSource,
+    private val videoCatalog: ExerciseVideoCatalog,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
     private var started = false
@@ -51,6 +54,22 @@ class ExerciseSyncManager @Inject constructor(
                     ?.let(enrichment::applyTo)
             }
             if (overlaid.isNotEmpty()) runCatching { repository.upsertAll(overlaid) }
+
+            // 4. Seed exercises authored purely from the video library (no dataset counterpart) —
+            //    authoritative like step 1, but skips rows the user has since hand-edited.
+            val toSeedVideoLib = VideoLibraryCatalog.exercises.filter { ex ->
+                current[ex.id]?.let { EDITED_TAG !in it.tags } ?: true
+            }
+            if (toSeedVideoLib.isNotEmpty()) runCatching { repository.upsertAll(toSeedVideoLib) }
+
+            // 5. Attach real-person video demonstrations from the bundled manifest. Idempotent —
+            //    only rows the manifest actually changes are rewritten; user-edited rows are left
+            //    alone so custom media survives.
+            val afterOverlay = runCatching { repository.currentById() }.getOrDefault(current)
+            val withMedia = afterOverlay.values
+                .filter { EDITED_TAG !in it.tags }
+                .mapNotNull { ex -> videoCatalog.applyTo(ex).takeIf { it != ex } }
+            if (withMedia.isNotEmpty()) runCatching { repository.upsertAll(withMedia) }
         }
     }
 

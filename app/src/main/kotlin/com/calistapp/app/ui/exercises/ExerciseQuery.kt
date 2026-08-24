@@ -52,19 +52,36 @@ data class ExerciseFilters(
 
 /** The filter options actually present in the loaded gallery, so no chip leads to zero results. */
 data class FilterFacets(
-    val muscles: List<String> = emptyList(),
+    val primaryMuscles: List<String> = emptyList(),
+    val secondaryMuscles: List<String> = emptyList(),
     val equipment: List<String> = emptyList(),
     val problemAreas: List<String> = emptyList(),
 ) {
     companion object {
-        fun of(list: List<Exercise>): FilterFacets {
+        /**
+         * The options that make sense given the *structural* filters already chosen — body part,
+         * difficulty, bodyweight-only. Narrowing the muscle chips to the selected body part is the
+         * point: pick "Arms" and "Target muscle" becomes the muscles arms exercises actually train.
+         *
+         * Primary and secondary are drawn from their own fields, so every muscle offered under a body
+         * part is one some exercise in it really trains that way — which is what stops "Arms + Triceps"
+         * (a triceps that was only ever a *secondary* mover there) from returning nothing.
+         */
+        fun of(list: List<Exercise>, filters: ExerciseFilters = ExerciseFilters()): FilterFacets {
             fun clean(values: List<String>) =
                 values.map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase() }.sorted()
 
+            val base = list.filter { ex ->
+                (filters.bodyParts.isEmpty() || ex.bodyPart in filters.bodyParts) &&
+                    (filters.difficulties.isEmpty() || ex.difficulty in filters.difficulties) &&
+                    (!filters.calisthenicsOnly || ex.isBodyweight)
+            }
+
             return FilterFacets(
-                muscles = clean(list.flatMap { it.primaryMuscles + it.secondaryMuscles }),
-                equipment = clean(list.flatMap { it.equipment }),
-                problemAreas = clean(list.flatMap { it.problematicAreas }),
+                primaryMuscles = clean(base.flatMap { it.primaryMuscles }),
+                secondaryMuscles = clean(base.flatMap { it.secondaryMuscles }),
+                equipment = clean(base.flatMap { it.equipment }),
+                problemAreas = clean(base.flatMap { it.problematicAreas }),
             )
         }
     }

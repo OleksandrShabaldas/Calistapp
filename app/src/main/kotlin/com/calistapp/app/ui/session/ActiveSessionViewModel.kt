@@ -5,17 +5,25 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.calistapp.app.data.exercise.ExerciseRepository
 import com.calistapp.app.data.session.PlanDraftRepository
+import com.calistapp.app.data.session.SessionPrefs
+import com.calistapp.app.data.session.SessionPrefsRepository
+import com.calistapp.app.data.session.SessionRepository
 import com.calistapp.app.data.sync.WatchConnectionMonitor
 import com.calistapp.app.data.sync.WatchLinkState
 import com.calistapp.app.session.LiveSession
 import com.calistapp.app.session.SessionController
 import com.calistapp.app.ui.navigation.Routes
+import com.calistapp.core.model.EffortScale
 import com.calistapp.core.model.Exercise
 import com.calistapp.core.model.ExerciseType
+import com.calistapp.core.model.SetLog
 import com.calistapp.core.model.WorkoutPlan
+import com.calistapp.core.progress.PerformedSession
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -28,6 +36,8 @@ class ActiveSessionViewModel @Inject constructor(
     private val controller: SessionController,
     private val drafts: PlanDraftRepository,
     private val watchConnection: WatchConnectionMonitor,
+    private val sessionPrefs: SessionPrefsRepository,
+    sessionRepository: SessionRepository,
     savedStateHandle: SavedStateHandle,
     exerciseRepository: ExerciseRepository,
 ) : ViewModel() {
@@ -40,21 +50,35 @@ class ActiveSessionViewModel @Inject constructor(
 
     fun reconnectWatch() { watchConnection.reconnect() }
 
-    /**
-     * Artwork per exercise id, so the live screen can show the movement you're on. Looked up here
-     * rather than carried in the plan, which is serialised to the watch on every start.
-     */
-    val thumbnails: StateFlow<Map<String, List<String>>> = exerciseRepository.observeAll()
-        .map { list -> list.associate { it.id to it.imageUrls } }
+    /** The live-workout toggles (sound, vibration, autoplay, hands-free), from the pause screen. */
+    val prefs: StateFlow<SessionPrefs> =
+        sessionPrefs.prefs.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionPrefs())
+
+    /** Every exercise by id, so the live screen can resolve the current movement's media and cues. */
+    private val exercisesById: StateFlow<Map<String, Exercise>> = exerciseRepository.observeAll()
+        .map { list -> list.associateBy { it.id } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** The full [Exercise] the hero should show — its videos, angles and coaching cues. */
+    val heroExercise: StateFlow<Exercise?> = combine(controller.live, exercisesById) { s, byId ->
+        s?.heroExercise?.exerciseId?.let { byId[it] }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Cross-session history for the hero exercise — last time performed, and personal bests. */
+    val heroHistory: StateFlow<ExerciseHistoryStat?> = combine(
+        controller.live.map { it?.heroExercise?.exerciseId }.distinctUntilChanged(),
+        sessionRepository.observePerformed(),
+    ) { id, performed -> historyFor(id, performed) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Artwork per exercise id — kept for any caller that only needs the thumbnail frames. */
+    val thumbnails: StateFlow<Map<String, List<String>>> = exercisesById
+        .map { m -> m.mapValues { it.value.imageUrls } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     private val exerciseId: String? = savedStateHandle[Routes.ACTIVE_ARG]
 
-    /**
-     * Whether this screen was opened for a specific gallery exercise. Known immediately, unlike
-     * [plannedExercise], which the screen would otherwise read as "nothing planned" for the frames
-     * it takes the lookup to resolve.
-     */
+    /** Whether this screen was opened for a specific gallery exercise. Known immediately. */
     val hasRequestedExercise: Boolean = exerciseId != null
 
     /** The exercise this screen was opened for (via the gallery), or null for a planned workout. */
@@ -63,12 +87,8 @@ class ActiveSessionViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
-     * Start whatever's queued up: the built plan, or — when launched straight from a gallery entry —
-     * a one-exercise plan around that movement, so even the quick path gets exercise-aware scoring.
-     *
-     * With neither, there is nothing to start: a session with no exercises can't advance or bank a
-     * set, so it would only ever record heart rate. The screen disables the button; this is the
-     * backstop that keeps the rule true however the call arrives.
+     * Start whatever's queued up: the built plan, or — when launched from a gallery entry — a
+     * one-exercise plan around that movement, so even the quick path gets exercise-aware scoring.
      */
     fun start(type: ExerciseType) {
         viewModelScope.launch {
@@ -88,15 +108,57 @@ class ActiveSessionViewModel @Inject constructor(
     fun toggleSegment() = controller.toggleSegment()
     fun startWorkNow() = controller.startWorkNow()
     fun adjustReps(delta: Int) = controller.adjustReps(delta)
+    fun setReps(reps: Int) = controller.adjustReps(reps - (live.value?.currentReps ?: 0))
+    fun setAddedWeight(kg: Double) = controller.setAddedWeight(kg)
     fun selectSlot(slotId: String) = controller.selectSlot(slotId)
     fun advanceToNext() = controller.advanceToNext()
+    fun restartCurrentSet() = controller.restartCurrentSet()
     fun pause() = controller.pause()
     fun resume() = controller.resume()
     fun discard() = controller.discard()
 
+    // Journal edits — annotate banked sets.
+    fun setSetEffort(slotId: String, setIndex: Int, scale: EffortScale?, value: Double?) =
+        controller.setSetEffort(slotId, setIndex, scale, value)
+
+    fun setSetNote(slotId: String, setIndex: Int, note: String) = controller.setSetNote(slotId, setIndex, note)
+    fun setSetReps(slotId: String, setIndex: Int, reps: Int) = controller.setSetReps(slotId, setIndex, reps)
+    fun setSetWeight(slotId: String, setIndex: Int, kg: Double) = controller.setSetWeight(slotId, setIndex, kg)
+
+    // Pause-screen toggles.
+    fun setSound(on: Boolean) = viewModelScope.launch { sessionPrefs.setSound(on) }
+    fun setVibration(on: Boolean) = viewModelScope.launch { sessionPrefs.setVibration(on) }
+    fun setAutoplay(on: Boolean) = viewModelScope.launch { sessionPrefs.setAutoplay(on) }
+    fun setHandsFree(on: Boolean) = viewModelScope.launch { sessionPrefs.setHandsFree(on) }
+
     fun finish(onDone: (String) -> Unit) {
         viewModelScope.launch { controller.stop()?.let(onDone) }
     }
+}
+
+/** Last-time and best figures for one exercise, pulled from finished sessions. */
+data class ExerciseHistoryStat(
+    val lastSets: List<SetLog>,
+    val lastWhenMs: Long,
+    val bestReps: Int,
+    val bestWeightKg: Double,
+)
+
+private fun historyFor(exerciseId: String?, performed: List<PerformedSession>): ExerciseHistoryStat? {
+    if (exerciseId == null) return null
+    val withEx = performed.mapNotNull { s ->
+        val sets = s.setLogs.filter { it.exerciseId == exerciseId }
+        if (sets.isEmpty()) null else s.startMs to sets
+    }
+    if (withEx.isEmpty()) return null
+    val latest = withEx.maxByOrNull { it.first }!!
+    val allSets = withEx.flatMap { it.second }
+    return ExerciseHistoryStat(
+        lastSets = latest.second,
+        lastWhenMs = latest.first,
+        bestReps = allSets.maxOfOrNull { it.reps } ?: 0,
+        bestWeightKg = allSets.maxOfOrNull { it.weightKg } ?: 0.0,
+    )
 }
 
 /** Map an exercise's category onto the closest workout type for the session. */
