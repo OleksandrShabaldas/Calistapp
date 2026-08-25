@@ -1,8 +1,10 @@
 package com.calistapp.app.session
 
+import com.calistapp.core.model.EffortTarget
 import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.NextUp
 import com.calistapp.core.model.PlannedExercise
+import com.calistapp.core.model.PlannedSet
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionStatus
 import com.calistapp.core.model.SessionSummary
@@ -128,6 +130,16 @@ data class LiveSession(
 
     /** Whether the set in progress (or about to start) is a warm-up set of the current exercise. */
     val isCurrentSetWarmup: Boolean get() = currentExercise?.isWarmup(setIndex) == true
+
+    /** The current set's plan — per-set target when the plan carries one, else the uniform synthesis. */
+    val currentSet: PlannedSet? get() = currentExercise?.sets()?.getOrNull(setIndex - 1)
+
+    /** Added load for the set in progress, in kg — per-set when present, else the slot's nominal. */
+    val currentSetWeightKg: Double
+        get() = currentSet?.weightKg ?: currentExercise?.addedWeightKg ?: 0.0
+
+    /** Target effort for the set in progress, or null — surfaced as the journal's pre-fill. */
+    val currentEffortTarget: EffortTarget? get() = currentSet?.effort
 
     /**
      * The opening warm-up: the very first rest, before any set has been worked. Treated as a warm-up

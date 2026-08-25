@@ -1,0 +1,43 @@
+package com.calistapp.app.data.exercise
+
+import com.calistapp.core.model.Skills
+
+/** Hand-authored [Skills] profiles, batch 37 — covers [videoLibraryBatch18] (shoulders, part 2 of 5). See [ExerciseSkills]. */
+internal val skillsBatch37: Map<String, Skills> = mapOf(
+    "mw_shoulders_barbell_landmine_single_arm_staggered_overhead_press" to Skills(strength = 30, endurance = 25, skill = 35, mobility = 15, cardio = 10),
+    "mw_shoulders_barbell_landmine_snatch" to Skills(strength = 45, endurance = 25, skill = 75, mobility = 20, cardio = 25),
+    "mw_shoulders_barbell_landmine_split_jerk" to Skills(strength = 45, endurance = 25, skill = 80, mobility = 20, cardio = 20),
+    "mw_shoulders_barbell_landmine_thruster" to Skills(strength = 40, endurance = 30, skill = 35, mobility = 15, cardio = 30),
+    "mw_shoulders_barbell_z_press" to Skills(strength = 45, endurance = 20, skill = 45, mobility = 20, cardio = 10),
+    "mw_shoulders_bodyweight_pike_press" to Skills(strength = 40, endurance = 25, skill = 45, mobility = 20, cardio = 10),
+    "mw_shoulders_bodyweight_plank_arm_lift" to Skills(strength = 20, endurance = 25, skill = 25, mobility = 10, cardio = 5),
+    "mw_shoulders_bosu_ball_ball_bosu_ball_pike_pushup" to Skills(strength = 45, endurance = 25, skill = 60, mobility = 20, cardio = 10),
+    "mw_shoulders_cable_cable_bar_face_pull" to Skills(strength = 20, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_shoulders_cable_cable_bar_front_raise" to Skills(strength = 20, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_shoulders_cable_cable_behind_the_back_lateral_raise" to Skills(strength = 20, endurance = 25, skill = 25, mobility = 15, cardio = 5),
+    "mw_shoulders_cable_cable_high_internally_rotated_reverse_fly" to Skills(strength = 20, endurance = 25, skill = 25, mobility = 15, cardio = 5),
+    "mw_shoulders_cable_cable_high_reverse_fly" to Skills(strength = 20, endurance = 25, skill = 20, mobility = 15, cardio = 5),
+    "mw_shoulders_cable_cable_high_single_arm_rear_delt_fly" to Skills(strength = 20, endurance = 25, skill = 25, mobility = 15, cardio = 5),
+    "mw_shoulders_cable_cable_lateral_raise" to Skills(strength = 20, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_shoulders_cable_cable_low_bilateral_lateral_raise" to Skills(strength = 20, endurance = 30, skill = 20, mobility = 10, cardio = 5),
+    "mw_shoulders_cable_cable_rope_front_raise" to Skills(strength = 20, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_shoulders_cable_cable_rope_low_lateral_raise" to Skills(strength = 20, endurance = 30, skill = 20, mobility = 10, cardio = 5),
+    "mw_shoulders_cable_cable_rope_mid_lateral_raise" to Skills(strength = 20, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_shoulders_cable_cable_rope_upright_row" to Skills(strength = 25, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_shoulders_cable_cable_seated_bar_face_pull" to Skills(strength = 20, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_shoulders_cable_cable_seated_rope_face_pull" to Skills(strength = 20, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_shoulders_cable_cable_seated_single_arm_face_pull" to Skills(strength = 15, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_shoulders_cable_cable_single_arm_face_pull" to Skills(strength = 15, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_shoulders_cable_cable_single_arm_internally_rotated_high_reverse_fly" to Skills(strength = 15, endurance = 25, skill = 30, mobility = 15, cardio = 5),
+    "mw_shoulders_cable_cable_single_arm_rear_delt_row" to Skills(strength = 20, endurance = 25, skill = 15, mobility = 10, cardio = 5),
+    "mw_shoulders_cable_cable_standing_single_arm_cross_rear_delt_row" to Skills(strength = 20, endurance = 25, skill = 30, mobility = 15, cardio = 5),
+    "mw_shoulders_cable_overhead_press" to Skills(strength = 40, endurance = 25, skill = 25, mobility = 15, cardio = 10),
+    "mw_shoulders_cardio_band_press_jacks" to Skills(strength = 15, endurance = 35, skill = 20, mobility = 10, cardio = 45),
+    "mw_shoulders_cardio_criss_cross_jacks" to Skills(strength = 15, endurance = 35, skill = 25, mobility = 10, cardio = 50),
+    "mw_shoulders_cardio_jumping_jacks" to Skills(strength = 10, endurance = 40, skill = 15, mobility = 10, cardio = 55),
+    "mw_shoulders_core_stability_1_crosslateral_limb_raise_4pt_position" to Skills(strength = 20, endurance = 25, skill = 25, mobility = 15, cardio = 5),
+    "mw_shoulders_core_stability_2_opposite_shoulder_tap_4pt_position" to Skills(strength = 20, endurance = 25, skill = 20, mobility = 10, cardio = 5),
+    "mw_shoulders_core_stability_4_crosslateral_limb_raise_push_up_position" to Skills(strength = 35, endurance = 30, skill = 40, mobility = 10, cardio = 10),
+    "mw_shoulders_core_stability_5_crosslateral_limb_raise_into_knee_elbow_tuck_push_up_position" to Skills(strength = 35, endurance = 30, skill = 45, mobility = 10, cardio = 10),
+    "mw_shoulders_core_stability_regression_crosslateral_limb_raise_push_up_position" to Skills(strength = 25, endurance = 25, skill = 30, mobility = 10, cardio = 5),
+)

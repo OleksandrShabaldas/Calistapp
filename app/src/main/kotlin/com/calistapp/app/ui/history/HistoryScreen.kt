@@ -24,8 +24,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.calistapp.app.ui.common.GlassCard
 import com.calistapp.app.ui.common.SegmentedToggle
 import com.calistapp.app.ui.common.SessionRow
-import com.calistapp.app.ui.theme.Cream
-import com.calistapp.app.ui.theme.CreamMuted
+import com.calistapp.app.ui.theme.Ash
+import com.calistapp.app.ui.theme.Chalk
 
 private const val TAB_SESSIONS = 0
 
@@ -37,6 +37,8 @@ fun HistoryScreen(
 ) {
     val sessions by viewModel.sessions.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
+    val stats by viewModel.stats.collectAsStateWithLifecycle()
+    val period by viewModel.period.collectAsStateWithLifecycle()
     val bodyMass by viewModel.bodyMass.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(TAB_SESSIONS) }
 
@@ -71,13 +73,13 @@ fun HistoryScreen(
                         Text(
                             "No sessions yet",
                             style = MaterialTheme.typography.titleMedium,
-                            color = Cream,
+                            color = Chalk,
                         )
                         Text(
                             "Every workout you finish lands here, with its heart-rate trace, its " +
                                 "sets, and the working behind its calorie figure.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = CreamMuted,
+                            color = Ash,
                         )
                         Button(onClick = onStartWorkout, modifier = Modifier.fillMaxWidth()) {
                             Text("Build your first workout")
@@ -90,7 +92,13 @@ fun HistoryScreen(
                 }
             }
         } else {
-            progressTab(progress, bodyMass)
+            progressTab(
+                stats = stats,
+                progress = progress,
+                bodyMass = bodyMass,
+                period = period,
+                onPeriodChange = viewModel::setPeriod,
+            )
         }
     }
 }

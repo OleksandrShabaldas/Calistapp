@@ -21618,5 +21618,44 @@
         "angle": "Side"
       }
     ]
+  },
+  {
+    "id": "Pullups",
+    "videos": [
+      {
+        "path": "lats/male-bodyweight-pullup-front.mp4",
+        "angle": "Front"
+      },
+      {
+        "path": "lats/male-bodyweight-pullup-side.mp4",
+        "angle": "Side"
+      }
+    ]
+  },
+  {
+    "id": "Chin-Up",
+    "videos": [
+      {
+        "path": "lats/male-bodyweight-chinup-front.mp4",
+        "angle": "Front"
+      },
+      {
+        "path": "lats/male-bodyweight-chinup-side.mp4",
+        "angle": "Side"
+      }
+    ]
+  },
+  {
+    "id": "Sit-Up",
+    "videos": [
+      {
+        "path": "abdominals/male-Bodyweight-situp-front.mp4",
+        "angle": "Front"
+      },
+      {
+        "path": "abdominals/male-Bodyweight-situp-side.mp4",
+        "angle": "Side"
+      }
+    ]
   }
 ]

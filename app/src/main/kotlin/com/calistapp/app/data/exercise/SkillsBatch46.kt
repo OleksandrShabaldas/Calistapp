@@ -1,0 +1,42 @@
+package com.calistapp.app.data.exercise
+
+import com.calistapp.core.model.Skills
+
+/** Hand-authored [Skills] profiles, batch 46 — covers [videoLibraryBatch27] (glutes, part 1 of 12). See [ExerciseSkills]. */
+internal val skillsBatch46: Map<String, Skills> = mapOf(
+    "mw_glutes_abductor_leg_raise_side_lying" to Skills(strength = 15, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_glutes_abductor_leg_raise_side_lying_isometric" to Skills(strength = 15, endurance = 35, skill = 10, mobility = 10, cardio = 5),
+    "mw_glutes_assisted_bulgarian_split_squat" to Skills(strength = 25, endurance = 30, skill = 25, mobility = 15, cardio = 10),
+    "mw_glutes_band_band_clamshell" to Skills(strength = 15, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_glutes_band_band_clamshell_raise" to Skills(strength = 15, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_glutes_band_band_fire_hydrant" to Skills(strength = 15, endurance = 30, skill = 15, mobility = 15, cardio = 5),
+    "mw_glutes_band_band_glute_kickback" to Skills(strength = 20, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_glutes_band_band_laying_glute_bridge_abduction" to Skills(strength = 20, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_glutes_band_band_laying_hip_abduction" to Skills(strength = 15, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_glutes_band_band_plank_glute_kickback" to Skills(strength = 30, endurance = 35, skill = 35, mobility = 10, cardio = 10),
+    "mw_glutes_band_band_plank_step_out" to Skills(strength = 30, endurance = 35, skill = 30, mobility = 10, cardio = 15),
+    "mw_glutes_band_band_pullthrough" to Skills(strength = 25, endurance = 30, skill = 15, mobility = 15, cardio = 5),
+    "mw_glutes_band_band_romanian_deadlift" to Skills(strength = 25, endurance = 25, skill = 20, mobility = 15, cardio = 5),
+    "mw_glutes_band_band_side_laying_hip_abduction" to Skills(strength = 15, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_glutes_band_band_side_to_side" to Skills(strength = 25, endurance = 35, skill = 20, mobility = 10, cardio = 20),
+    "mw_glutes_band_band_single_leg_deadlift" to Skills(strength = 25, endurance = 25, skill = 40, mobility = 20, cardio = 10),
+    "mw_glutes_band_band_spanish_squat" to Skills(strength = 30, endurance = 35, skill = 20, mobility = 15, cardio = 10),
+    "mw_glutes_band_band_squat" to Skills(strength = 25, endurance = 30, skill = 10, mobility = 10, cardio = 10),
+    "mw_glutes_band_band_standing_glute_kickback" to Skills(strength = 20, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_glutes_band_band_standing_good_morning" to Skills(strength = 20, endurance = 25, skill = 20, mobility = 15, cardio = 5),
+    "mw_glutes_band_band_standing_hip_abduction" to Skills(strength = 15, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_glutes_band_band_walking_side_to_side" to Skills(strength = 20, endurance = 35, skill = 15, mobility = 10, cardio = 15),
+    "mw_glutes_band_hip_abduction" to Skills(strength = 15, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_glutes_band_hip_adduction" to Skills(strength = 15, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_glutes_barbell_barbell_banded_back_squat" to Skills(strength = 65, endurance = 25, skill = 45, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_barbell_banded_deadlift" to Skills(strength = 70, endurance = 20, skill = 45, mobility = 10, cardio = 10),
+    "mw_glutes_barbell_barbell_banded_front_squat" to Skills(strength = 60, endurance = 25, skill = 50, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_barbell_banded_romanian_deadlift" to Skills(strength = 60, endurance = 25, skill = 45, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_barbell_banded_split_squat" to Skills(strength = 50, endurance = 30, skill = 50, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_barbell_block_conventional_deadlift" to Skills(strength = 65, endurance = 20, skill = 30, mobility = 10, cardio = 10),
+    "mw_glutes_barbell_barbell_conventional_pause_deadlift" to Skills(strength = 65, endurance = 20, skill = 35, mobility = 10, cardio = 10),
+    "mw_glutes_barbell_barbell_curtsy_deficit_lunge" to Skills(strength = 40, endurance = 25, skill = 55, mobility = 20, cardio = 15),
+    "mw_glutes_barbell_barbell_curtsy_lunge" to Skills(strength = 35, endurance = 25, skill = 45, mobility = 15, cardio = 15),
+    "mw_glutes_barbell_barbell_deficit_conventional_deadlift" to Skills(strength = 65, endurance = 20, skill = 40, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_barbell_deficit_lunge" to Skills(strength = 45, endurance = 25, skill = 45, mobility = 20, cardio = 15),
+)

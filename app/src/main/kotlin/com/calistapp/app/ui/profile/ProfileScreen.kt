@@ -44,6 +44,7 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
     val profile by viewModel.profile.collectAsStateWithLifecycle()
     val onboarded by viewModel.isOnboarded.collectAsStateWithLifecycle()
     val goals by viewModel.goals.collectAsStateWithLifecycle()
+    val hidden by viewModel.hiddenExercises.collectAsStateWithLifecycle()
 
     var name by rememberSaveable { mutableStateOf("") }
     var sex by rememberSaveable { mutableStateOf(Sex.MALE) }
@@ -201,10 +202,46 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
             )
         }
 
+        if (hidden.isNotEmpty()) {
+            HiddenExercisesSection(hidden = hidden, onRestore = viewModel::restore)
+        }
+
         UpdateCard()
 
         // Clear of the floating nav bar.
         Spacer(Modifier.height(96.dp))
+    }
+}
+
+/** The restore list for exercises hidden from the library — each row brings one back. */
+@Composable
+private fun HiddenExercisesSection(
+    hidden: List<com.calistapp.core.model.Exercise>,
+    onRestore: (String) -> Unit,
+) {
+    SectionCard(title = "Hidden exercises") {
+        Text(
+            "Hidden from the library. Restore one to see it again.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        hidden.forEach { ex ->
+            androidx.compose.foundation.layout.Row(
+                Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                Text(
+                    ex.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+                androidx.compose.material3.TextButton(onClick = { onRestore(ex.id) }) {
+                    Text("Restore")
+                }
+            }
+        }
     }
 }
 

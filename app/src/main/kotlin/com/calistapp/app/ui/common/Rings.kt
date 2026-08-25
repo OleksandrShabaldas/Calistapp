@@ -21,7 +21,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.calistapp.app.ui.theme.CreamMuted
+import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.NumericLarge
 import com.calistapp.app.ui.theme.NumericMedium
 
@@ -99,9 +99,9 @@ fun RingContent(
         },
     ) {
         Text(value, style = NumericLarge, color = accent)
-        Text(caption, style = MaterialTheme.typography.bodyMedium, color = CreamMuted)
+        Text(caption, style = MaterialTheme.typography.bodyMedium, color = Ash)
         if (sub != null) {
-            Text(sub, style = MaterialTheme.typography.bodySmall, color = CreamMuted.copy(alpha = 0.7f))
+            Text(sub, style = MaterialTheme.typography.bodySmall, color = Ash.copy(alpha = 0.7f))
         }
     }
 }
@@ -126,7 +126,7 @@ fun MiniRing(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = CreamMuted)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = Ash)
         ProgressRing(
             progress = progress,
             accent = accent,
@@ -139,7 +139,7 @@ fun MiniRing(
                 color = MaterialTheme.colorScheme.onBackground,
             )
         }
-        Text(sub, style = MaterialTheme.typography.labelSmall, color = CreamMuted.copy(alpha = 0.75f))
+        Text(sub, style = MaterialTheme.typography.labelSmall, color = Ash.copy(alpha = 0.75f))
     }
 }
 
@@ -156,6 +156,6 @@ fun MetricBlock(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(value, style = NumericMedium, color = accent)
-        Text(label, style = MaterialTheme.typography.labelMedium, color = CreamMuted)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = Ash)
     }
 }

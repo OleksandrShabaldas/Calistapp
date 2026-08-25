@@ -8,7 +8,6 @@ import com.calistapp.app.data.session.PlanDraftRepository
 import com.calistapp.app.data.session.SavedWorkoutRepository
 import com.calistapp.app.data.sync.WatchConnectionMonitor
 import com.calistapp.app.data.sync.WatchLinkState
-import com.calistapp.app.session.SessionController
 import com.calistapp.app.ui.exercises.ExerciseFilterActions
 import com.calistapp.app.ui.exercises.ExerciseFilters
 import com.calistapp.app.ui.exercises.ExerciseSort
@@ -16,10 +15,11 @@ import com.calistapp.app.ui.exercises.FilterFacets
 import com.calistapp.app.ui.exercises.applyQuery
 import com.calistapp.core.model.BodyPart
 import com.calistapp.core.model.Difficulty
+import com.calistapp.core.model.EffortTarget
 import com.calistapp.core.model.Exercise
 import com.calistapp.core.model.ExerciseMeasure
-import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.PlannedExercise
+import com.calistapp.core.model.PlannedSet
 import com.calistapp.core.model.SavedWorkout
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.WorkoutStyle
@@ -39,7 +39,6 @@ import javax.inject.Inject
 @HiltViewModel
 class WorkoutPlannerViewModel @Inject constructor(
     private val drafts: PlanDraftRepository,
-    private val controller: SessionController,
     private val savedWorkouts0: SavedWorkoutRepository,
     private val watchConnection: WatchConnectionMonitor,
     private val prefs: ExercisePrefsRepository,
@@ -167,7 +166,12 @@ class WorkoutPlannerViewModel @Inject constructor(
         viewModelScope.launch { savedWorkouts0.delete(id) }
     }
 
-    fun add(exercise: Exercise) = drafts.add(exercise)
+    fun add(exercise: Exercise) {
+        drafts.add(exercise)
+        // Adding a movement to a plan counts as "using" it — surface it in the gallery's Recent.
+        viewModelScope.launch { prefs.markRecent(exercise.id) }
+    }
+
     fun remove(slotId: String) = drafts.remove(slotId)
     fun move(slotId: String, delta: Int) = drafts.move(slotId, delta)
 
@@ -175,13 +179,33 @@ class WorkoutPlannerViewModel @Inject constructor(
     fun moveTo(from: Int, to: Int) = drafts.moveIndex(from, to)
     fun rename(name: String) = drafts.rename(name)
 
-    fun setStyle(style: WorkoutStyle) = drafts.updatePlan { it.copy(style = style) }
+    fun setStyle(style: WorkoutStyle) = drafts.updatePlan { plan ->
+        // A per-set column is a split concept — a circuit repeats one definition per round. Switching
+        // to a circuit collapses any per-set column back to a uniform slot (keeping the set count and
+        // the first set's load/reps), so the round-by-round engine never reads a pyramid.
+        val exercises = if (style != WorkoutStyle.CIRCUIT) {
+            plan.exercises
+        } else {
+            plan.exercises.map { slot ->
+                val sets = slot.plannedSets
+                if (sets.isEmpty()) return@map slot
+                val first = sets.first()
+                slot.copy(
+                    plannedSets = emptyList(),
+                    targetSets = sets.size,
+                    targetReps = if (slot.measure == ExerciseMeasure.REPS) first.reps else slot.targetReps,
+                    targetSeconds = if (slot.measure == ExerciseMeasure.SECONDS) first.reps else slot.targetSeconds,
+                    warmupSets = sets.count { it.isWarmup },
+                    metabolics = slot.metabolics.copy(externalLoadKg = first.weightKg),
+                )
+            }
+        }
+        plan.copy(style = style, exercises = exercises)
+    }
 
     fun setRounds(rounds: Int) = drafts.updatePlan { it.copy(rounds = rounds.coerceIn(1, 30)) }
 
-    fun setSets(slotId: String, sets: Int) =
-        drafts.update(slotId) { it.copy(targetSets = sets.coerceIn(1, 20)) }
-
+    /** The circuit path's single reps/seconds definition (a split edits per set — see [setSetReps]). */
     fun setTarget(slotId: String, value: Int) = drafts.update(slotId) {
         when (it.measure) {
             ExerciseMeasure.REPS -> it.copy(targetReps = value.coerceIn(1, 200))
@@ -192,10 +216,6 @@ class WorkoutPlannerViewModel @Inject constructor(
     /** Rest after a set of this movement. Zero turns the timer off for it. */
     fun setRest(slotId: String, seconds: Int) =
         drafts.update(slotId) { it.copy(restSeconds = seconds.coerceIn(0, 600)) }
-
-    /** How many of this exercise's sets are warm-ups. They score calories but not volume. */
-    fun setWarmupSets(slotId: String, sets: Int) =
-        drafts.update(slotId) { it.copy(warmupSets = sets.coerceIn(0, it.targetSets)) }
 
     /**
      * Pair this exercise with the one above it into a superset, or split it back out.
@@ -227,6 +247,55 @@ class WorkoutPlannerViewModel @Inject constructor(
         drafts.update(slotId) { it.copy(groupId = group) }
     }
 
+    // ---- Per-set editing --------------------------------------------------------------------------
+    //
+    // Every edit routes through the slot's materialized set list: `it.sets()` returns the explicit
+    // per-set column when one exists, or synthesizes a uniform one from the legacy fields, so the very
+    // first per-set edit "expands" a uniform slot into an editable column without a separate mode flag.
+
+    private fun editSets(slotId: String, transform: (List<PlannedSet>) -> List<PlannedSet>) =
+        drafts.update(slotId) { slot ->
+            val next = transform(slot.sets())
+            // Keep the slot's nominal load (what `displayName`, `isWeighted` and the session-type
+            // guess read) tracking the heaviest set, so per-set weights don't leave those stale.
+            val nominal = next.maxOfOrNull { it.weightKg } ?: 0.0
+            slot.copy(
+                plannedSets = next,
+                metabolics = slot.metabolics.copy(externalLoadKg = nominal),
+            )
+        }
+
+    /** Set the target value (reps, or seconds for a hold) of one set. */
+    fun setSetReps(slotId: String, index: Int, value: Int) = editSets(slotId) { sets ->
+        sets.mapIndexed { i, s -> if (i == index) s.copy(reps = value.coerceIn(1, 600)) else s }
+    }
+
+    fun setSetWeight(slotId: String, index: Int, kg: Double) = editSets(slotId) { sets ->
+        sets.mapIndexed { i, s -> if (i == index) s.copy(weightKg = kg.coerceIn(0.0, 300.0)) else s }
+    }
+
+    fun setSetEffort(slotId: String, index: Int, effort: EffortTarget?) = editSets(slotId) { sets ->
+        sets.mapIndexed { i, s -> if (i == index) s.copy(effort = effort) else s }
+    }
+
+    fun setSetNote(slotId: String, index: Int, note: String) = editSets(slotId) { sets ->
+        sets.mapIndexed { i, s -> if (i == index) s.copy(note = note.take(240)) else s }
+    }
+
+    fun toggleSetWarmup(slotId: String, index: Int) = editSets(slotId) { sets ->
+        sets.mapIndexed { i, s -> if (i == index) s.copy(isWarmup = !s.isWarmup) else s }
+    }
+
+    /** Append a set, copying the last one's load so a straight-set add needs no further taps. */
+    fun addSet(slotId: String) = editSets(slotId) { sets ->
+        val template = sets.lastOrNull() ?: PlannedSet()
+        sets + template.copy(isWarmup = false, effort = null, note = "")
+    }
+
+    fun removeSet(slotId: String, index: Int) = editSets(slotId) { sets ->
+        if (sets.size <= 1) sets else sets.filterIndexed { i, _ -> i != index }
+    }
+
     fun toggleMeasure(slotId: String) = drafts.update(slotId) {
         it.copy(
             measure = if (it.measure == ExerciseMeasure.REPS) ExerciseMeasure.SECONDS else ExerciseMeasure.REPS,
@@ -248,18 +317,6 @@ class WorkoutPlannerViewModel @Inject constructor(
         val kg = if (it.isWeighted) 0.0 else DEFAULT_ADDED_KG
         it.copy(metabolics = it.metabolics.copy(externalLoadKg = kg))
     }
-
-    /** Hand the built plan to the session controller, which also pushes it to the watch. */
-    fun startWorkout() {
-        val current = plan.value
-        if (current.isEmpty) return
-        controller.start(typeFor(current), current)
-        drafts.clear()
-    }
-
-    /** Pick the closest session type from what the plan is mostly made of. */
-    private fun typeFor(plan: WorkoutPlan): ExerciseType =
-        if (plan.exercises.any { it.isWeighted }) ExerciseType.STRENGTH else ExerciseType.CALISTHENICS
 
     fun targetOf(slot: PlannedExercise): Int =
         if (slot.measure == ExerciseMeasure.SECONDS) slot.targetSeconds else slot.targetReps

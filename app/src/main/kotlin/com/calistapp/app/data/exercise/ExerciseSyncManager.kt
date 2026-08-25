@@ -15,6 +15,15 @@ import javax.inject.Singleton
  *     launch — authoritative and idempotent, so newly-authored batches show up automatically;
  *  4. the authored full [VideoLibraryCatalog] (exercises the video library covers that no other
  *     source has) is seeded the same way as step 1 — authoritative, but skips user-edited rows.
+ *  5. the hand-authored [ExerciseSkills] profiles are merged onto the stored rows every launch —
+ *     kept as a separate overlay from step 3's coaching enrichments so authoring skills never
+ *     touches the (large, already-finished) enrichment/video-library files.
+ *  6. dataset ids in [supersededByVideoLibrary] — confirmed duplicates of a video-library entry
+ *     covering the same movement — are excluded from step 2's seeding and deleted if a prior launch
+ *     already inserted them, so the gallery shows the richer video-library version once, not both.
+ *     The mirror case, [supersededByCalisthenics], does the same for video-library ids that
+ *     duplicate a hand-authored calisthenics entry — the calisthenics version wins and carries the
+ *     video (merged into `exercise_videos.json` under its own id), not the auto-generated one.
  *
  * Exercises the user AI-enriches (no overlay) are left untouched once the base is seeded.
  */
@@ -35,15 +44,25 @@ class ExerciseSyncManager @Inject constructor(
             runCatching { repository.upsertAll(CalisthenicsCatalog.exercises) }
             val authoredFullIds = CalisthenicsCatalog.exercises.map { it.id }.toSet()
 
-            // 2. Seed dataset breadth once (only add exercises not already present).
+            // 2. Seed dataset breadth once (only add exercises not already present) — skipping ids
+            //    a video-library entry already covers, so the two never get seeded side by side.
             val existing = runCatching { repository.currentById() }.getOrDefault(emptyMap())
             if (existing.size < BASE_SEED_THRESHOLD) {
                 val remote = remoteSource.fetchAll()
                 if (remote.isNotEmpty()) {
-                    val toInsert = remote.filter { it.id !in authoredFullIds && it.id !in existing }
+                    val toInsert = remote.filter {
+                        it.id !in authoredFullIds && it.id !in existing && it.id !in supersededByVideoLibrary
+                    }
                     runCatching { repository.upsertAll(toInsert) }
                 }
             }
+
+            // Remove any of those duplicates a launch before this one already inserted — unless the
+            // user has since hand-edited that specific row, which always wins.
+            val toRemove = existing.filterKeys { it in supersededByVideoLibrary }
+                .filterValues { EDITED_TAG !in it.tags }
+                .keys
+            toRemove.forEach { id -> runCatching { repository.delete(id) } }
 
             // 3. Merge authored rich overlays onto the stored rows — but never clobber a row the
             //    user has hand-edited (tagged "user-edited" by the editor).
@@ -56,16 +75,35 @@ class ExerciseSyncManager @Inject constructor(
             if (overlaid.isNotEmpty()) runCatching { repository.upsertAll(overlaid) }
 
             // 4. Seed exercises authored purely from the video library (no dataset counterpart) —
-            //    authoritative like step 1, but skips rows the user has since hand-edited.
+            //    authoritative like step 1, but skips rows the user has since hand-edited, and skips
+            //    ids a hand-authored calisthenics entry already covers (see supersededByCalisthenics).
             val toSeedVideoLib = VideoLibraryCatalog.exercises.filter { ex ->
-                current[ex.id]?.let { EDITED_TAG !in it.tags } ?: true
+                ex.id !in supersededByCalisthenics &&
+                    (current[ex.id]?.let { EDITED_TAG !in it.tags } ?: true)
             }
             if (toSeedVideoLib.isNotEmpty()) runCatching { repository.upsertAll(toSeedVideoLib) }
 
-            // 5. Attach real-person video demonstrations from the bundled manifest. Idempotent —
+            // Remove any video-library duplicates of a calisthenics entry a prior launch already
+            // inserted — unless the user has since hand-edited that specific row.
+            val toRemoveVideoLib = current.filterKeys { it in supersededByCalisthenics }
+                .filterValues { EDITED_TAG !in it.tags }
+                .keys
+            toRemoveVideoLib.forEach { id -> runCatching { repository.delete(id) } }
+
+            // 5. Merge authored skills profiles onto the stored rows — same non-clobbering rule.
+            val currentForSkills = runCatching { repository.currentById() }.getOrDefault(current)
+            val withSkills = ExerciseSkills.byId.mapNotNull { (id, skills) ->
+                currentForSkills[id]
+                    ?.takeUnless { EDITED_TAG in it.tags }
+                    ?.takeIf { it.skills != skills }
+                    ?.copy(skills = skills)
+            }
+            if (withSkills.isNotEmpty()) runCatching { repository.upsertAll(withSkills) }
+
+            // 6. Attach real-person video demonstrations from the bundled manifest. Idempotent —
             //    only rows the manifest actually changes are rewritten; user-edited rows are left
             //    alone so custom media survives.
-            val afterOverlay = runCatching { repository.currentById() }.getOrDefault(current)
+            val afterOverlay = runCatching { repository.currentById() }.getOrDefault(currentForSkills)
             val withMedia = afterOverlay.values
                 .filter { EDITED_TAG !in it.tags }
                 .mapNotNull { ex -> videoCatalog.applyTo(ex).takeIf { it != ex } }

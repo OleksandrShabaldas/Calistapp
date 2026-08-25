@@ -344,7 +344,7 @@ object WearSessionManager {
         accumulator?.startSegment(type, now)
         // Match the phone: a work block opens on the plan's target rather than zero, so "did the
         // target" needs no taps and both wrists show the same number.
-        val openingReps = if (type == SegmentType.ACTIVE) defaultRepsFor(cur.plan.slot(slotId)) else 0
+        val openingReps = if (type == SegmentType.ACTIVE) defaultRepsFor(cur.plan.slot(slotId), setIndex) else 0
         _state.update {
             it.copy(
                 currentSegment = type,
@@ -393,10 +393,16 @@ object WearSessionManager {
         sendState(force = true)
     }
 
-    /** The reps a work block opens on: the plan's target for the movement, or 0 when free-form. */
-    private fun defaultRepsFor(slot: PlannedExercise?): Int = slot?.let {
-        if (it.measure == ExerciseMeasure.SECONDS) it.targetSeconds else it.targetReps
-    } ?: 0
+    /**
+     * The reps a work block opens on: the target for *this set* (per-set when the plan carries it,
+     * else the uniform target), or 0 when free-form. Reads through [PlannedExercise.sets] so an older
+     * watch build and a per-set plan agree on the number.
+     */
+    private fun defaultRepsFor(slot: PlannedExercise?, setIndex: Int): Int {
+        slot ?: return 0
+        slot.sets().getOrNull(setIndex - 1)?.let { return it.reps }
+        return if (slot.measure == ExerciseMeasure.SECONDS) slot.targetSeconds else slot.targetReps
+    }
 
     /** Push the current exercise's physical profile into the accumulator so scoring reflects it. */
     private fun applyCurrentExerciseToAccumulator() {

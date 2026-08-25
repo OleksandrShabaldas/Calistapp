@@ -53,5 +53,17 @@
                 <data android:scheme="wear" android:host="*" />
             </intent-filter>
         </service>
+
+        <!-- Hands rendered share-card PNGs to other apps without exposing the cache directory. Own
+             subclass so it doesn't collide with the updater module's FileProvider in the merger. -->
+        <provider
+            android:name=".share.ShareFileProvider"
+            android:authorities="${applicationId}.shareprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

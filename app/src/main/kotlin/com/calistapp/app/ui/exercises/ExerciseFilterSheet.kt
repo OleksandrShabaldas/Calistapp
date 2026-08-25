@@ -38,10 +38,10 @@ import com.calistapp.app.ui.common.PillChip
 import com.calistapp.app.ui.theme.Amber
 import com.calistapp.app.ui.theme.Capsule
 import com.calistapp.app.ui.theme.Coral
-import com.calistapp.app.ui.theme.Cream
-import com.calistapp.app.ui.theme.CreamMuted
-import com.calistapp.app.ui.theme.Emerald
-import com.calistapp.app.ui.theme.InkElevated
+import com.calistapp.app.ui.theme.Chalk
+import com.calistapp.app.ui.theme.Ash
+import com.calistapp.app.ui.theme.Flame
+import com.calistapp.app.ui.theme.OnyxRaised
 import com.calistapp.app.ui.theme.Sky
 import com.calistapp.core.model.BodyPart
 import com.calistapp.core.model.Difficulty
@@ -82,7 +82,7 @@ fun SortMenu(current: ExerciseSort, onSelect: (ExerciseSort) -> Unit) {
                     onClick = { onSelect(sort); open = false },
                     trailingIcon = {
                         if (sort == current) {
-                            Icon(Icons.Filled.Check, contentDescription = null, tint = Emerald)
+                            Icon(Icons.Filled.Check, contentDescription = null, tint = Flame)
                         }
                     },
                 )
@@ -105,8 +105,8 @@ fun ExerciseFilterSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = InkElevated,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = CreamMuted) },
+        containerColor = OnyxRaised,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = Ash) },
     ) {
         Column(
             Modifier
@@ -120,7 +120,7 @@ fun ExerciseFilterSheet(
                 Text(
                     "Filters",
                     style = MaterialTheme.typography.headlineSmall,
-                    color = Cream,
+                    color = Chalk,
                     modifier = Modifier.weight(1f),
                 )
                 if (filters.activeCount > 0) {
@@ -154,7 +154,7 @@ fun ExerciseFilterSheet(
                         PillChip(
                             label = m,
                             selected = m in filters.primaryMuscles,
-                            accent = Emerald,
+                            accent = Flame,
                             onClick = { actions.togglePrimaryMuscle(m) },
                         )
                     }
@@ -225,9 +225,9 @@ private fun FilterGroup(
     content: @Composable FlowRowScope.() -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleLarge, color = Cream)
+        Text(title, style = MaterialTheme.typography.titleLarge, color = Chalk)
         if (subtitle != null) {
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = CreamMuted)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Ash)
         }
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),

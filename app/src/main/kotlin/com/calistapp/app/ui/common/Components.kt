@@ -12,8 +12,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.calistapp.app.ui.theme.Cream
-import com.calistapp.app.ui.theme.CreamMuted
+import com.calistapp.app.ui.theme.Chalk
+import com.calistapp.app.ui.theme.Ash
 
 /**
  * A titled surface used to group content across screens.
@@ -30,7 +30,7 @@ fun SectionCard(
 ) {
     GlassCard(modifier = modifier, accent = accent) {
         if (title != null) {
-            Text(title, style = MaterialTheme.typography.titleLarge, color = Cream)
+            Text(title, style = MaterialTheme.typography.titleLarge, color = Chalk)
         }
         content()
     }
@@ -51,7 +51,7 @@ fun StatTile(
             fontWeight = FontWeight.Bold,
             color = accent,
         )
-        Text(label, style = MaterialTheme.typography.labelMedium, color = CreamMuted)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = Ash)
     }
 }
 
@@ -74,9 +74,9 @@ fun KeyValueRow(key: String, value: String) {
         Text(
             key,
             style = MaterialTheme.typography.bodyMedium,
-            color = CreamMuted,
+            color = Ash,
             modifier = Modifier.weight(1f),
         )
-        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Cream)
+        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Chalk)
     }
 }

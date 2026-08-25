@@ -42,6 +42,8 @@ data class ExerciseProgress(
     val mostReps: BestSet?,
     /** Best single set by added load. Null when the movement was never weighted. */
     val heaviest: BestSet?,
+    /** Best single set by volume (added weight × reps). Null when the movement was never weighted. */
+    val maxVolume: BestSet? = null,
 )
 
 data class WeekSummary(
@@ -67,11 +69,19 @@ data class TrainingProgress(
     val streakWeeks: Int,
     /** Null until there's a month of history to average this week against. */
     val ramp: TrainingLoad.Ramp? = null,
+    /**
+     * The last 30 calendar days as a train/rest strip, oldest first (index 29 is today). Independent
+     * of the week window above — it drives the stats screen's day-dot calendar.
+     */
+    val recentDays: List<Boolean> = emptyList(),
 ) {
     val isEmpty: Boolean get() = totalSessions == 0
 
     /** The busiest week in the window, for scaling a chart against something real. */
     val peakWeekKcal: Int get() = weeks.maxOfOrNull { it.kcal } ?: 0
+
+    /** Days trained in the last 30 — the headline for the day-dot strip. */
+    val recentTrainedDays: Int get() = recentDays.count { it }
 }
 
 /**
@@ -107,6 +117,14 @@ fun summarizeProgress(
         }
     }
 
+    // The 30-day strip: a set of trained day-starts, then probed day by day so a clock change can't
+    // skip or double-count a day (same reasoning as the week probe below).
+    val trainedDays = sessions.mapTo(HashSet()) { startOfDayMs(it.startMs, zone) }
+    val today = startOfDayMs(nowMs, zone)
+    val recentDays = (RECENT_DAYS - 1 downTo 0).map { back ->
+        startOfDayMs(today - back * DAY_PROBE_MS, zone) in trainedDays
+    }
+
     return TrainingProgress(
         weeks = buckets.map { (start, w) -> WeekSummary(start, w.sessions, w.kcal, w.reps, w.activeMs) },
         exercises = exerciseProgress(sessions),
@@ -116,8 +134,12 @@ fun summarizeProgress(
         totalActiveMs = sessions.sumOf { it.activeDurationMs },
         streakWeeks = streakWeeks(sessions, currentWeek, zone),
         ramp = profile?.let { TrainingLoad.ramp(dailyLoads(sessions, nowMs, it, zone)) },
+        recentDays = recentDays,
     )
 }
+
+/** Length of the day-dot strip on the stats screen. */
+private const val RECENT_DAYS = 30
 
 /**
  * Session load bucketed into days, most recent first, with zeros for rest days.
@@ -189,6 +211,7 @@ private fun exerciseProgress(sessions: List<PerformedSession>): List<ExercisePro
         var lastMs = 0L
         var mostReps: BestSet? = null
         var heaviest: BestSet? = null
+        var maxVolume: BestSet? = null
     }
 
     val byExercise = LinkedHashMap<String, Acc>()
@@ -218,6 +241,11 @@ private fun exerciseProgress(sessions: List<PerformedSession>): List<ExercisePro
             if (addedKg > 0.0 && addedKg > (acc.heaviest?.addedWeightKg ?: 0.0)) {
                 acc.heaviest = BestSet(log.reps, addedKg, log.startMs)
             }
+            val volume = addedKg * log.reps
+            val bestVolume = acc.maxVolume?.let { it.addedWeightKg * it.reps } ?: 0.0
+            if (addedKg > 0.0 && volume > bestVolume) {
+                acc.maxVolume = BestSet(log.reps, addedKg, log.startMs)
+            }
         }
     }
 
@@ -231,6 +259,7 @@ private fun exerciseProgress(sessions: List<PerformedSession>): List<ExercisePro
             lastPerformedMs = acc.lastMs,
             mostReps = acc.mostReps,
             heaviest = acc.heaviest,
+            maxVolume = acc.maxVolume,
         )
     }.sortedByDescending { it.totalReps }
 }

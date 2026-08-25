@@ -29,11 +29,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.calistapp.app.ui.theme.Capsule
-import com.calistapp.app.ui.theme.CreamFaint
-import com.calistapp.app.ui.theme.Emerald
-import com.calistapp.app.ui.theme.EmeraldDeep
-import com.calistapp.app.ui.theme.GlassBorder
-import com.calistapp.app.ui.theme.Ink
+import com.calistapp.app.ui.theme.AshFaint
+import com.calistapp.app.ui.theme.Flame
+import com.calistapp.app.ui.theme.FlameDeep
+import com.calistapp.app.ui.theme.OnyxBorder
+import com.calistapp.app.ui.theme.Onyx
 
 data class NavItem(val route: String, val label: String, val icon: ImageVector)
 
@@ -70,7 +70,7 @@ fun FloatingNavBar(
                 .height(64.dp)
                 .clip(Capsule)
                 .background(Color.White.copy(alpha = 0.06f))
-                .border(BorderStroke(1.dp, GlassBorder), Capsule),
+                .border(BorderStroke(1.dp, OnyxBorder), Capsule),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             NavCluster(left, currentRoute, onSelect, Modifier.weight(1f))
@@ -83,14 +83,14 @@ fun FloatingNavBar(
             Modifier
                 .size(62.dp)
                 .clip(CircleShape)
-                .background(Brush.verticalGradient(listOf(Emerald, EmeraldDeep)))
+                .background(Brush.verticalGradient(listOf(Flame, FlameDeep)))
                 .clickable(onClick = onAction),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 Icons.Filled.Add,
                 contentDescription = actionDescription,
-                tint = Ink,
+                tint = Onyx,
                 modifier = Modifier.size(28.dp),
             )
         }
@@ -112,7 +112,7 @@ private fun NavCluster(
         items.forEach { item ->
             val selected = currentRoute == item.route
             val tint by animateColorAsState(
-                if (selected) MaterialTheme.colorScheme.primary else CreamFaint,
+                if (selected) MaterialTheme.colorScheme.primary else AshFaint,
                 label = "navTint",
             )
             val interaction = remember { MutableInteractionSource() }

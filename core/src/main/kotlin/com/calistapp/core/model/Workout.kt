@@ -38,6 +38,43 @@ data class ExerciseMetabolics(
 }
 
 /**
+ * One planned set, when a slot's sets aren't uniform.
+ *
+ * The old model gave a slot a single target (`targetSets × targetReps`, one added weight, N warm-ups)
+ * — fine for straight sets, but it can't express a pyramid, a top-set-plus-back-offs, or a warm-up
+ * ramp with rising load. [PlannedSet] carries per-set intent instead; a slot with a non-empty
+ * [PlannedExercise.plannedSets] is driven set-by-set, and one without falls back to the uniform
+ * fields (see [PlannedExercise.sets]). For a timed hold, [reps] carries the seconds, matching how the
+ * rest of the model overloads "reps".
+ */
+@Serializable
+data class PlannedSet(
+    val reps: Int = 10,
+    val weightKg: Double = 0.0,
+    /** Target effort for this set, surfaced as a journal pre-fill. Null = no target set. */
+    val effort: EffortTarget? = null,
+    val note: String = "",
+    val isWarmup: Boolean = false,
+) {
+    val isWeighted: Boolean get() = weightKg > 0.0
+}
+
+/**
+ * A target effort for a planned set — the same three scales a completed set is rated on, so a plan
+ * can say "top set at 8 RPE" and the journal opens pre-filled to it. Like logged effort, this never
+ * enters the calorie estimate; it's intent, for history and the AI layer.
+ */
+@Serializable
+data class EffortTarget(val scale: EffortScale, val value: Double) {
+    /** "8 RPE", "2 RIR", "80 %RM". */
+    val label: String
+        get() {
+            val n = if (value % 1.0 == 0.0) value.toInt().toString() else value.toString()
+            return if (scale == EffortScale.PERCENT_RM) "$n %RM" else "$n ${scale.label}"
+        }
+}
+
+/**
  * One exercise slotted into a workout plan.
  *
  * [slotId] is distinct from [exerciseId] because the same movement legitimately appears more than
@@ -78,6 +115,13 @@ data class PlannedExercise(
      */
     val groupId: String? = null,
     val metabolics: ExerciseMetabolics = ExerciseMetabolics.DEFAULT,
+    /**
+     * Per-set targets, when this slot's sets aren't uniform. Empty means "uniform" — the slot is
+     * driven by [targetSets]/[targetReps]/[targetSeconds]/[warmupSets]/[addedWeightKg] via [sets].
+     * Additive with a default, so every plan and stored session written before per-set existed keeps
+     * deserializing and behaving exactly as before.
+     */
+    val plannedSets: List<PlannedSet> = emptyList(),
 ) {
     /**
      * Extra load carried beyond bodyweight — vest, belt, dumbbells. Any movement can be weighted,
@@ -92,19 +136,44 @@ data class PlannedExercise(
     val displayName: String
         get() = if (isWeighted) "$name +${formatKg(addedWeightKg)} kg" else name
 
+    /**
+     * The set-by-set plan. Returns [plannedSets] when the slot carries them, otherwise synthesizes a
+     * uniform column from the legacy fields — the single place the two models meet, so everything
+     * else (targets, warm-ups, the live counter, the watch) reads one shape and stays backward
+     * compatible.
+     */
+    fun sets(): List<PlannedSet> {
+        if (plannedSets.isNotEmpty()) return plannedSets
+        val value = if (measure == ExerciseMeasure.SECONDS) targetSeconds else targetReps
+        return List(targetSets.coerceAtLeast(0)) { i ->
+            PlannedSet(reps = value, weightKg = addedWeightKg, isWarmup = i < warmupSets)
+        }
+    }
+
     val targetLabel: String
         get() {
-            val base = when (measure) {
-                ExerciseMeasure.REPS -> "$targetSets × $targetReps"
-                ExerciseMeasure.SECONDS -> "$targetSets × ${targetSeconds}s"
+            val s = sets()
+            if (s.isEmpty()) return ""
+            val unit = if (measure == ExerciseMeasure.SECONDS) "s" else ""
+            val sameReps = s.all { it.reps == s.first().reps }
+            val sameWeight = s.all { it.weightKg == s.first().weightKg }
+            return when {
+                sameReps -> {
+                    val base = "${s.size} × ${s.first().reps}$unit"
+                    val kg = s.first().weightKg
+                    if (kg > 0 && sameWeight) "$base · +${formatKg(kg)} kg" else base
+                }
+                // A varying column reads best as the actual figures — "12/10/8".
+                s.size <= 6 -> s.joinToString("/") { "${it.reps}" } + unit
+                else -> "${s.size} sets"
             }
-            return if (isWeighted) "$base · +${formatKg(addedWeightKg)} kg" else base
         }
 
     val isRestTimed: Boolean get() = restSeconds > 0
 
     /** Whether the [setIndex]-th set (1-based) of this exercise is a warm-up. */
-    fun isWarmup(setIndex: Int): Boolean = setIndex <= warmupSets
+    fun isWarmup(setIndex: Int): Boolean =
+        sets().getOrNull(setIndex - 1)?.isWarmup ?: (setIndex <= warmupSets)
 
     /** "1:30" — the rest target, or null when this movement's rest is untimed. */
     val restLabel: String?
@@ -165,12 +234,14 @@ data class WorkoutPlan(
      */
     val totalSets: Int
         get() = if (isCircuit) exercises.size * rounds.coerceAtLeast(1)
-        else exercises.sumOf { it.targetSets }
+        else exercises.sumOf { it.sets().size }
 
     /** How many sets of [slotId] this plan calls for. */
     fun targetSetsFor(slotId: String?): Int {
         val slot = slot(slotId) ?: return 0
-        return if (isCircuit) rounds.coerceAtLeast(1) else slot.targetSets
+        // A circuit's set count is the round count (each slot is worked once per round); a split runs
+        // the slot's own column, which is now its per-set list (uniform or not).
+        return if (isCircuit) rounds.coerceAtLeast(1) else slot.sets().size
     }
 
     fun slot(slotId: String?): PlannedExercise? =

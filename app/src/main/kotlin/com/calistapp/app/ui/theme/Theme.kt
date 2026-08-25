@@ -9,40 +9,39 @@ import androidx.compose.runtime.CompositionLocalProvider
 /**
  * Calistapp is **dark-only by design**, not by omission.
  *
- * The whole visual system rests on a coloured ambient wash bleeding out of a near-black page — that
- * effect has no meaningful light-mode equivalent, and the previous half-specified light scheme
- * (three colours, everything else defaulted) was a large part of why the app looked unfinished.
- * One well-made theme beats two mediocre ones.
+ * The whole visual system rests on a warm orange glow bleeding out of a near-black page — that effect
+ * has no meaningful light-mode equivalent, and a half-specified light scheme is a large part of what
+ * made the app once look unfinished. One well-made theme beats two mediocre ones.
  */
 private val CalistColors = darkColorScheme(
-    primary = Emerald,
-    onPrimary = Ink,
-    primaryContainer = EmeraldDeep,
-    onPrimaryContainer = Cream,
+    primary = Flame,
+    onPrimary = Onyx,
+    primaryContainer = FlameDeep,
+    onPrimaryContainer = Chalk,
 
     secondary = Sky,
-    onSecondary = Ink,
+    onSecondary = Onyx,
 
     tertiary = Amber,
-    onTertiary = Ink,
+    onTertiary = Onyx,
 
-    background = Ink,
-    onBackground = Cream,
+    background = Onyx,
+    onBackground = Chalk,
 
-    // Surfaces stay near-transparent in practice: cards use the glass tokens so the ambient
-    // gradient reads through them. These are the fallbacks for anything opaque.
-    surface = InkElevated,
-    onSurface = Cream,
-    surfaceVariant = InkElevated,
-    onSurfaceVariant = CreamMuted,
+    // Surfaces stay near-flat in practice: cards use the onyx fill tokens over the ambient glow.
+    // These are the fallbacks for anything opaque (menus, dialogs).
+    surface = OnyxRaised,
+    onSurface = Chalk,
+    surfaceVariant = OnyxRaised,
+    onSurfaceVariant = Ash,
 
-    outline = GlassBorder,
-    outlineVariant = GlassBorder,
+    outline = OnyxBorder,
+    outlineVariant = OnyxBorder,
 
     error = Coral,
-    onError = Ink,
+    onError = Onyx,
 
-    scrim = Ink,
+    scrim = Onyx,
 )
 
 @Composable
@@ -55,6 +54,6 @@ fun CalistTheme(content: @Composable () -> Unit) {
         // The app's root is a plain Box (the ambient wash), not a Surface, so nothing would
         // otherwise supply LocalContentColor — and Material3 defaults it to black, which renders
         // unstyled text invisible on this background. Provide it once here so every screen inherits.
-        CompositionLocalProvider(LocalContentColor provides Cream, content = content)
+        CompositionLocalProvider(LocalContentColor provides Chalk, content = content)
     }
 }

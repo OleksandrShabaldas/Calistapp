@@ -33,9 +33,9 @@ import com.calistapp.app.ui.common.SectionHeading
 import com.calistapp.app.ui.theme.Amber
 import com.calistapp.app.ui.theme.Capsule
 import com.calistapp.app.ui.theme.Coral
-import com.calistapp.app.ui.theme.Cream
-import com.calistapp.app.ui.theme.CreamMuted
-import com.calistapp.app.ui.theme.Emerald
+import com.calistapp.app.ui.theme.Chalk
+import com.calistapp.app.ui.theme.Ash
+import com.calistapp.app.ui.theme.Flame
 import com.calistapp.core.update.ReleaseNotes
 import com.calistapp.updater.UpdateState
 
@@ -57,12 +57,12 @@ fun UpdateCard(viewModel: UpdateViewModel = hiltViewModel()) {
         if (state is UpdateState.Idle) viewModel.check()
     }
 
-    GlassCard(accent = if (state is UpdateState.Available) Emerald else null) {
+    GlassCard(accent = if (state is UpdateState.Available) Flame else null) {
         SectionHeading("App version")
         Text(
             "Installed: ${viewModel.currentVersion}",
             style = MaterialTheme.typography.bodyMedium,
-            color = CreamMuted,
+            color = Ash,
         )
 
         when (val s = state) {
@@ -75,14 +75,14 @@ fun UpdateCard(viewModel: UpdateViewModel = hiltViewModel()) {
             is UpdateState.Checking -> {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    Text("Checking…", style = MaterialTheme.typography.bodyMedium, color = CreamMuted)
+                    Text("Checking…", style = MaterialTheme.typography.bodyMedium, color = Ash)
                 }
             }
 
             is UpdateState.UpToDate -> {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Emerald, modifier = Modifier.size(18.dp))
-                    Text("You're on the latest version.", style = MaterialTheme.typography.bodyMedium, color = Cream)
+                    Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Flame, modifier = Modifier.size(18.dp))
+                    Text("You're on the latest version.", style = MaterialTheme.typography.bodyMedium, color = Chalk)
                 }
                 TextButton(onClick = viewModel::check) { Text("Check again") }
             }
@@ -91,12 +91,12 @@ fun UpdateCard(viewModel: UpdateViewModel = hiltViewModel()) {
                 Text(
                     "Version ${s.update.version.name} is available",
                     style = MaterialTheme.typography.titleMedium,
-                    color = Emerald,
+                    color = Flame,
                     fontWeight = FontWeight.Bold,
                 )
                 val notes = ReleaseNotes.toPlainText(s.update.notes)
                 if (notes.isNotBlank()) {
-                    Text(notes, style = MaterialTheme.typography.bodySmall, color = CreamMuted)
+                    Text(notes, style = MaterialTheme.typography.bodySmall, color = Ash)
                 }
                 // Sideloaded installs need this granted once; without it the installer silently
                 // refuses, which looks like the update simply not working.
@@ -118,7 +118,7 @@ fun UpdateCard(viewModel: UpdateViewModel = hiltViewModel()) {
                     onClick = { viewModel.download(s.update) },
                     modifier = Modifier.fillMaxWidth(),
                     shape = Capsule,
-                    colors = ButtonDefaults.buttonColors(containerColor = Emerald),
+                    colors = ButtonDefaults.buttonColors(containerColor = Flame),
                 ) {
                     Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                     Text("  Download ${formatSize(s.update.asset.size)}", fontWeight = FontWeight.Bold)
@@ -131,7 +131,7 @@ fun UpdateCard(viewModel: UpdateViewModel = hiltViewModel()) {
                     // what it is instead of throwing the whole update away.
                     if (s.reconnecting) "Reconnecting…" else "Downloading ${s.version.name}…",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Cream,
+                    color = Chalk,
                 )
                 // Bound locally: a property from another module can't be smart-cast after a null
                 // check, since that module could in principle change it between the two reads.
@@ -147,18 +147,18 @@ fun UpdateCard(viewModel: UpdateViewModel = hiltViewModel()) {
                 Text(
                     "Version ${s.version.name} is ready.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Cream,
+                    color = Chalk,
                 )
                 Text(
                     "Android will ask you to confirm.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = CreamMuted,
+                    color = Ash,
                 )
                 Button(
                     onClick = viewModel::install,
                     modifier = Modifier.fillMaxWidth(),
                     shape = Capsule,
-                    colors = ButtonDefaults.buttonColors(containerColor = Emerald),
+                    colors = ButtonDefaults.buttonColors(containerColor = Flame),
                 ) {
                     Text("Install", fontWeight = FontWeight.Bold)
                 }
@@ -181,11 +181,11 @@ fun UpdateCard(viewModel: UpdateViewModel = hiltViewModel()) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Icon(Icons.Filled.Watch, contentDescription = null, tint = Emerald, modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.Watch, contentDescription = null, tint = Flame, modifier = Modifier.size(18.dp))
                 Text(
                     "Asked your watch to update. Confirm it on the watch.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Cream,
+                    color = Chalk,
                 )
             }
 
@@ -198,7 +198,7 @@ fun UpdateCard(viewModel: UpdateViewModel = hiltViewModel()) {
             WatchUpdateState.IDLE -> Text(
                 "The watch installs its own update — the phone can't do it for it.",
                 style = MaterialTheme.typography.bodySmall,
-                color = CreamMuted,
+                color = Ash,
             )
         }
         OutlinedButton(

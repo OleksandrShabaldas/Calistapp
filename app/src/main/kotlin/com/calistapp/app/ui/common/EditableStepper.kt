@@ -35,9 +35,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.calistapp.app.ui.theme.Cream
-import com.calistapp.app.ui.theme.CreamMuted
-import com.calistapp.app.ui.theme.Emerald
+import com.calistapp.app.ui.theme.Chalk
+import com.calistapp.app.ui.theme.Ash
+import com.calistapp.app.ui.theme.Flame
 
 /**
  * A labelled −/＋ stepper whose value you can also just *type*. Tapping the number turns it into a
@@ -58,10 +58,10 @@ fun EditableStepper(
     format: (Int) -> String = { it.toString() },
 ) {
     Column(modifier) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = CreamMuted)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Ash)
         Row(verticalAlignment = Alignment.CenterVertically) {
             RepeatingIconButton(onClick = { onChange(value - step) }, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Filled.Remove, "Decrease $label", tint = Cream, modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.Remove, "Decrease $label", tint = Chalk, modifier = Modifier.size(18.dp))
             }
             EditableNumber(
                 value = value,
@@ -71,7 +71,7 @@ fun EditableStepper(
                 modifier = Modifier.widthIn(min = 48.dp).padding(horizontal = 2.dp),
             )
             RepeatingIconButton(onClick = { onChange(value + step) }, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Filled.Add, "Increase $label", tint = Cream, modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.Add, "Increase $label", tint = Chalk, modifier = Modifier.size(18.dp))
             }
         }
     }
@@ -90,7 +90,7 @@ fun EditableNumber(
     onChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
     display: String = value.toString(),
-    color: androidx.compose.ui.graphics.Color = Cream,
+    color: androidx.compose.ui.graphics.Color = Chalk,
     textStyle: TextStyle = LocalTextStyle.current,
     onEditStart: () -> Unit = {},
 ) {
@@ -128,7 +128,7 @@ fun EditableNumber(
         onValueChange = { new -> text = new.filter { it.isDigit() }.take(4) },
         singleLine = true,
         textStyle = textStyle.copy(color = color, textAlign = TextAlign.Center),
-        cursorBrush = androidx.compose.ui.graphics.SolidColor(Emerald),
+        cursorBrush = androidx.compose.ui.graphics.SolidColor(Flame),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = {
             commit()

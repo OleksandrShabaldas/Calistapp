@@ -38,14 +38,20 @@ class ExercisesViewModel @Inject constructor(
     private val all: StateFlow<List<Exercise>> = repository.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val totalCount: StateFlow<Int> = all
+    /** Everything the user hasn't hidden — the real library as far as browsing is concerned. */
+    private val visible: StateFlow<List<Exercise>> =
+        combine(all, prefs.hiddenIds) { list, hidden ->
+            if (hidden.isEmpty()) list else list.filterNot { it.id in hidden }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val totalCount: StateFlow<Int> = visible
         .map { it.size }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     // Recomputed as the structural filters change, so the muscle/equipment chips only ever offer
     // what the chosen body part actually contains.
     val facets: StateFlow<FilterFacets> =
-        combine(all, _filters) { list, f -> FilterFacets.of(list, f) }
+        combine(visible, _filters) { list, f -> FilterFacets.of(list, f) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FilterFacets())
 
     val favourites: StateFlow<Set<String>> = prefs.favourites
@@ -58,12 +64,27 @@ class ExercisesViewModel @Inject constructor(
      * pulls it up the list without scrambling everything below it.
      */
     val exercises: StateFlow<List<Exercise>> =
-        combine(all, _filters, prefs.favourites) { list, f, starred ->
+        combine(visible, _filters, prefs.favourites) { list, f, starred ->
             list.applyQuery(f).sortedByDescending { it.id in starred }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * The recently opened movements, most-recent-first, that are still visible — the gallery's
+     * shortcut back to what you were just looking at. The screen shows it only on the default,
+     * unfiltered view so it never competes with a search.
+     */
+    val recent: StateFlow<List<Exercise>> =
+        combine(visible, prefs.recentIds) { list, ids ->
+            ids.mapNotNull { id -> list.firstOrNull { it.id == id } }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun toggleFavourite(exerciseId: String) {
         viewModelScope.launch { prefs.toggleFavourite(exerciseId) }
+    }
+
+    /** Remember a movement was opened, so it surfaces in Recent. */
+    fun markRecent(exerciseId: String) {
+        viewModelScope.launch { prefs.markRecent(exerciseId) }
     }
 
     // ---- Mutations -------------------------------------------------------------------------------

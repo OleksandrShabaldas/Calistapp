@@ -12,10 +12,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.calistapp.app.ui.theme.Cream
-import com.calistapp.app.ui.theme.CreamFaint
-import com.calistapp.app.ui.theme.CreamMuted
-import com.calistapp.app.ui.theme.Emerald
+import com.calistapp.app.ui.theme.Chalk
+import com.calistapp.app.ui.theme.AshFaint
+import com.calistapp.app.ui.theme.Ash
+import com.calistapp.app.ui.theme.Flame
 import com.calistapp.core.model.SessionOverview
 
 @Composable
@@ -25,12 +25,12 @@ fun SessionRow(session: SessionOverview, onClick: () -> Unit) {
             Text(
                 session.title,
                 style = MaterialTheme.typography.titleMedium,
-                color = Cream,
+                color = Chalk,
             )
             Text(
                 formatDate(session.startMs),
                 style = MaterialTheme.typography.bodySmall,
-                color = CreamMuted,
+                color = Ash,
             )
         }
         Column(horizontalAlignment = Alignment.End) {
@@ -38,7 +38,7 @@ fun SessionRow(session: SessionOverview, onClick: () -> Unit) {
                 "${session.totalKcal} kcal",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = Emerald,
+                color = Flame,
             )
             Text(
                 if (session.totalReps > 0) {
@@ -47,13 +47,13 @@ fun SessionRow(session: SessionOverview, onClick: () -> Unit) {
                     "avg ${session.avgHr} bpm"
                 },
                 style = MaterialTheme.typography.bodySmall,
-                color = CreamMuted,
+                color = Ash,
             )
         }
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
-            tint = CreamFaint,
+            tint = AshFaint,
         )
     }
 }

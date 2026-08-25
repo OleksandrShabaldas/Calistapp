@@ -8,11 +8,16 @@ import com.calistapp.app.data.session.SessionRepository
 import com.calistapp.core.model.SessionOverview
 import com.calistapp.core.progress.BodyMass
 import com.calistapp.core.progress.BodyMassTrend
+import com.calistapp.core.progress.StatsPeriod
+import com.calistapp.core.progress.StatsSummary
 import com.calistapp.core.progress.TrainingProgress
+import com.calistapp.core.progress.statsSummary
 import com.calistapp.core.progress.summarizeProgress
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
@@ -43,6 +48,23 @@ class HistoryViewModel @Inject constructor(
                 // Training load is a function of your heart-rate reserve, so it needs the profile.
                 profile = profile,
             )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Which window the stats grid is scoped to. Defaults to the current week. */
+    private val _period = MutableStateFlow(StatsPeriod.WEEK)
+    val period: StateFlow<StatsPeriod> = _period.asStateFlow()
+
+    fun setPeriod(value: StatsPeriod) {
+        _period.value = value
+    }
+
+    /**
+     * The period-scoped headline grid (workouts, volume, duration, …), recomputed whenever the
+     * period changes or a session lands. Cheap — a single pass over the performed sessions.
+     */
+    val stats: StateFlow<StatsSummary?> =
+        combine(sessionRepository.observePerformed(), _period) { sessions, period ->
+            statsSummary(sessions, period, System.currentTimeMillis())
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**

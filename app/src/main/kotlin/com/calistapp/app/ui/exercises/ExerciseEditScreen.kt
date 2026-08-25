@@ -240,10 +240,15 @@ fun ExerciseEditScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(if (viewModel.isNew) "Add exercise" else "Save changes", fontWeight = FontWeight.Bold) }
 
-            if (!viewModel.isNew && base.source.equals("Custom", true)) {
+            // Any stored exercise can go: a user-added one (custom_…) is deleted for good, a dataset
+            // one is hidden (the sync would re-seed a hard delete) and restorable from Profile.
+            if (!viewModel.isNew) {
                 OutlinedButton(onClick = { viewModel.delete(onBack) }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Filled.DeleteOutline, contentDescription = null)
-                    Text("  Delete exercise", color = MaterialTheme.colorScheme.error)
+                    Text(
+                        if (viewModel.isUserAdded) "  Delete exercise" else "  Hide exercise",
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
         }

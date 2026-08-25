@@ -12,15 +12,13 @@ import androidx.compose.ui.unit.sp
 import com.calistapp.app.R
 
 /**
- * Two voices, used for different jobs.
+ * One athletic voice.
  *
- * **Playfair Display** (a high-contrast transitional serif) carries titles and section headings. It
- * is the single biggest reason the app stops looking like an unstyled Material template — stock
- * `Typography()` is default Roboto at default sizes, which reads as "no one chose this".
- *
- * **The system sans** carries body text, labels and — importantly — every number. Data wants a
- * neutral, evenly-weighted face; setting a heart rate in a display serif would be styling for its
- * own sake at the cost of legibility mid-set.
+ * The app now speaks in **bold sans** throughout — headings, titles, body, labels and every number —
+ * matching the onyx/orange reference training app, which reads as athletic rather than editorial.
+ * The old high-contrast **Playfair Display** serif is kept defined below (a few surfaces may still
+ * opt into it deliberately) but is **no longer routed through `MaterialTheme.typography`**; headings
+ * are heavy sans with tight tracking so big type still feels designed, not defaulted.
  *
  * Playfair ships here as a variable font, so weights are requested through [FontVariation] rather
  * than by bundling one file per weight (minSdk is 26, which is where variable font support starts).
@@ -89,35 +87,35 @@ val TitleSans = TextStyle(
 )
 
 val CalistTypography = Typography(
-    // ---- Display serif: page titles and hero headings ----
+    // ---- Bold sans: page titles and hero headings (heavy weight + tight tracking) ----
     displayLarge = TextStyle(
-        fontFamily = Display, fontWeight = FontWeight.Bold,
-        fontSize = 44.sp, lineHeight = 50.sp, letterSpacing = (-0.5).sp,
+        fontFamily = Sans, fontWeight = FontWeight.Black,
+        fontSize = 44.sp, lineHeight = 48.sp, letterSpacing = (-1.0).sp,
     ),
     displayMedium = TextStyle(
-        fontFamily = Display, fontWeight = FontWeight.Bold,
-        fontSize = 36.sp, lineHeight = 42.sp, letterSpacing = (-0.4).sp,
+        fontFamily = Sans, fontWeight = FontWeight.Black,
+        fontSize = 36.sp, lineHeight = 40.sp, letterSpacing = (-0.8).sp,
     ),
     displaySmall = TextStyle(
-        fontFamily = Display, fontWeight = FontWeight.Bold,
-        fontSize = 30.sp, lineHeight = 36.sp, letterSpacing = (-0.3).sp,
+        fontFamily = Sans, fontWeight = FontWeight.ExtraBold,
+        fontSize = 30.sp, lineHeight = 35.sp, letterSpacing = (-0.6).sp,
     ),
     headlineLarge = TextStyle(
-        fontFamily = Display, fontWeight = FontWeight.Bold,
-        fontSize = 32.sp, lineHeight = 38.sp, letterSpacing = (-0.3).sp,
+        fontFamily = Sans, fontWeight = FontWeight.ExtraBold,
+        fontSize = 32.sp, lineHeight = 37.sp, letterSpacing = (-0.6).sp,
     ),
     headlineMedium = TextStyle(
-        fontFamily = Display, fontWeight = FontWeight.Bold,
-        fontSize = 26.sp, lineHeight = 32.sp, letterSpacing = (-0.2).sp,
+        fontFamily = Sans, fontWeight = FontWeight.Bold,
+        fontSize = 26.sp, lineHeight = 31.sp, letterSpacing = (-0.4).sp,
     ),
     headlineSmall = TextStyle(
-        fontFamily = Display, fontWeight = FontWeight.SemiBold,
-        fontSize = 21.sp, lineHeight = 27.sp,
+        fontFamily = Sans, fontWeight = FontWeight.Bold,
+        fontSize = 21.sp, lineHeight = 26.sp, letterSpacing = (-0.3).sp,
     ),
-    // Section headings sit in the serif too, so cards feel authored rather than generated.
+    // Section headings are heavy sans too, so cards feel authored rather than generated.
     titleLarge = TextStyle(
-        fontFamily = Display, fontWeight = FontWeight.SemiBold,
-        fontSize = 19.sp, lineHeight = 25.sp,
+        fontFamily = Sans, fontWeight = FontWeight.Bold,
+        fontSize = 19.sp, lineHeight = 24.sp, letterSpacing = (-0.2).sp,
     ),
 
     // ---- Sans: everything you actually read or scan ----

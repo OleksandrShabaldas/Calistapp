@@ -40,9 +40,9 @@ import com.calistapp.app.ui.common.WatchStatusCard
 import com.calistapp.app.ui.common.formatClock
 import com.calistapp.app.ui.theme.Amber
 import com.calistapp.app.ui.theme.Coral
-import com.calistapp.app.ui.theme.Cream
-import com.calistapp.app.ui.theme.CreamMuted
-import com.calistapp.app.ui.theme.Emerald
+import com.calistapp.app.ui.theme.Chalk
+import com.calistapp.app.ui.theme.Ash
+import com.calistapp.app.ui.theme.Flame
 import com.calistapp.app.ui.theme.Sky
 
 @Composable
@@ -74,13 +74,13 @@ fun DashboardScreen(
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 ProgressRing(
                     progress = week.totalKcal / goals.weeklyKcal.toFloat(),
-                    accent = Emerald,
+                    accent = Flame,
                 ) {
                     RingContent(
                         value = "${week.totalKcal}",
                         caption = "of ${goals.weeklyKcal} kcal",
                         sub = "${week.sessions} of ${goals.weeklySessions} sessions",
-                        accent = Cream,
+                        accent = Chalk,
                     )
                 }
             }
@@ -96,11 +96,11 @@ fun DashboardScreen(
 
         if (!onboarded) {
             GlassCard(accent = Amber) {
-                Text("Finish setting up your profile", style = MaterialTheme.typography.titleLarge, color = Cream)
+                Text("Finish setting up your profile", style = MaterialTheme.typography.titleLarge, color = Chalk)
                 Text(
                     "Accurate calories need your weight, age, sex and heart data.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = CreamMuted,
+                    color = Ash,
                 )
                 TextButton(onClick = onOpenProfile, contentPadding = ButtonDefaults.TextButtonContentPadding) {
                     Text("Set up profile", color = Amber)
@@ -110,22 +110,22 @@ fun DashboardScreen(
 
         val current = live
         if (current != null) {
-            GlassCard(accent = Emerald) {
+            GlassCard(accent = Flame) {
                 SectionHeading("Workout in progress")
                 Text(
                     formatClock(current.elapsedMs),
                     style = MaterialTheme.typography.displaySmall,
-                    color = Cream,
+                    color = Chalk,
                 )
                 Text(
                     "${current.lastBpm} bpm · ${current.summary.totalKcal.toInt()} kcal so far",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = CreamMuted,
+                    color = Ash,
                 )
                 Button(
                     onClick = onStartWorkout,
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = Emerald),
+                    colors = ButtonDefaults.buttonColors(containerColor = Flame),
                 ) {
                     Text("Resume", fontWeight = FontWeight.Bold)
                 }
@@ -134,7 +134,7 @@ fun DashboardScreen(
             Button(
                 onClick = onStartWorkout,
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Emerald),
+                colors = ButtonDefaults.buttonColors(containerColor = Flame),
                 contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
             ) {
                 Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
@@ -154,7 +154,7 @@ fun DashboardScreen(
                 Text(
                     "No workouts yet — start one and every rep gets counted.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = CreamMuted,
+                    color = Ash,
                 )
             }
         }
@@ -177,11 +177,11 @@ private fun Greeting(name: String, hasTrained: Boolean) {
 
     Text(
         buildAnnotatedString {
-            withStyle(SpanStyle(color = Emerald, fontStyle = FontStyle.Italic)) { append(lead) }
+            withStyle(SpanStyle(color = Flame, fontStyle = FontStyle.Italic)) { append(lead) }
             append(rest)
         },
         style = MaterialTheme.typography.headlineLarge,
-        color = Cream,
+        color = Chalk,
         modifier = Modifier.padding(top = 12.dp),
     )
 }

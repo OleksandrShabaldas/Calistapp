@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.calistapp.app.data.ai.CoachSuggestResult
 import com.calistapp.app.data.ai.ExerciseAiSuggestion
 import com.calistapp.app.data.ai.ExerciseCoachRepository
+import com.calistapp.app.data.exercise.ExercisePrefsRepository
 import com.calistapp.app.data.exercise.ExerciseRepository
 import com.calistapp.app.data.exercise.ExerciseSyncManager
 import com.calistapp.app.ui.navigation.Routes
@@ -33,6 +34,7 @@ sealed interface EditAiState {
 class ExerciseEditViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repository: ExerciseRepository,
+    private val prefs: ExercisePrefsRepository,
     private val coach: ExerciseCoachRepository,
 ) : ViewModel() {
 
@@ -79,10 +81,17 @@ class ExerciseEditViewModel @Inject constructor(
         }
     }
 
+    /** True while editing a user-added movement (`custom_…`) — a real delete rather than a hide. */
+    val isUserAdded: Boolean = editingId?.startsWith("custom_") == true
+
+    /**
+     * Remove this movement. A user-added one (`custom_…`) is deleted outright; a dataset one is
+     * hidden instead — the sync would only re-seed a hard delete — and can be restored from Profile.
+     */
     fun delete(onDeleted: () -> Unit) {
         val id = editingId ?: return
         viewModelScope.launch {
-            repository.delete(id)
+            if (isUserAdded) repository.delete(id) else prefs.hide(id)
             onDeleted()
         }
     }

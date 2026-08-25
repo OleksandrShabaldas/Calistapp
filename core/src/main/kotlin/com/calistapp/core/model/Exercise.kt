@@ -49,9 +49,35 @@ data class ExerciseMedia(
 )
 
 /**
+ * A movement's training-attribute profile, 0..100 per axis — how much it develops each quality.
+ *
+ * Hand-authored (or generated offline) through the enrichment overlay, so it's an *estimate* and is
+ * deliberately kept out of the calorie engine, which stays on heart rate and mechanical work. Null
+ * until a movement has been rated; the detail screen shows an empty state rather than zeroed bars.
+ */
+@Serializable
+data class Skills(
+    val strength: Int = 0,
+    val endurance: Int = 0,
+    val skill: Int = 0,
+    val mobility: Int = 0,
+    val cardio: Int = 0,
+) {
+    /** The axes in display order as (label, 0..100), for the bars. */
+    val axes: List<Pair<String, Int>>
+        get() = listOf(
+            "Strength" to strength,
+            "Endurance" to endurance,
+            "Skill" to skill,
+            "Mobility" to mobility,
+            "Cardio" to cardio,
+        )
+}
+
+/**
  * A single exercise in the gallery. Basic fields (muscles, equipment, images, instructions) come
  * from the open free-exercise-db; the richer coaching fields ([overview], [commonMistakes], [tips],
- * [problematicAreas], [efficiency]) are authored by Calistapp for the curated calisthenics set.
+ * [problematicAreas], [efficiency], [skills]) are authored by Calistapp for the curated set.
  */
 @Serializable
 data class Exercise(
@@ -86,6 +112,8 @@ data class Exercise(
     val tags: List<String> = emptyList(),
     val source: String = "",
     val isCalisthenics: Boolean = false,
+    /** Training-attribute profile (0..100 per axis). Null until authored. */
+    val skills: Skills? = null,
 ) {
     val isBodyweight: Boolean
         get() = equipment.isEmpty() || equipment.any { it.equals("body only", true) || it.contains("bar", true) }

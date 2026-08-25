@@ -179,12 +179,22 @@ class SessionController @Inject constructor(
             val cur = _live.value ?: return@withLock null
             val slotId = cur.currentSlotId ?: return@withLock null
             val clamped = kg.coerceIn(0.0, 300.0)
+            val setIndex = cur.setIndex
             val plan = cur.plan.copy(
-                exercises = cur.plan.exercises.map {
-                    if (it.slotId == slotId) {
-                        it.copy(metabolics = it.metabolics.copy(externalLoadKg = clamped))
+                exercises = cur.plan.exercises.map { slot ->
+                    if (slot.slotId != slotId) {
+                        slot
                     } else {
-                        it
+                        // On a per-set plan the change lands on the set being performed now; on a
+                        // uniform one it moves the slot's nominal load. Either way [weightForSet]
+                        // reads the value back at bank time.
+                        val updatedSets = slot.plannedSets.takeIf { it.isNotEmpty() }
+                            ?.mapIndexed { i, s -> if (i == setIndex - 1) s.copy(weightKg = clamped) else s }
+                            ?: slot.plannedSets
+                        slot.copy(
+                            plannedSets = updatedSets,
+                            metabolics = slot.metabolics.copy(externalLoadKg = clamped),
+                        )
                     }
                 },
             )
@@ -220,7 +230,7 @@ class SessionController @Inject constructor(
         mutex.withLock {
             val cur = _live.value ?: return@withLock
             if (cur.currentSegment != SegmentType.ACTIVE) return@withLock
-            val target = defaultRepsFor(cur.plan.slot(cur.currentSlotId))
+            val target = defaultRepsFor(cur.plan.slot(cur.currentSlotId), cur.setIndex)
             accumulator?.setCurrentReps(target)
             _live.update { it?.copy(currentReps = target, segmentStartMs = System.currentTimeMillis()) }
         }
@@ -588,18 +598,22 @@ class SessionController @Inject constructor(
         }
 
         val slot = cur.plan.slot(slotId)
-        accumulator?.startSegment(type, now, slot?.slotId, slot?.name, slot?.metabolics)
+        // Score this block on *this set's* load, so a top set at +20 kg and its back-offs at bodyweight
+        // aren't estimated as if they were the same. Uniform plans are unaffected — the per-set weight
+        // equals the slot's nominal one.
+        val setMetabolics = slot?.metabolics?.copy(externalLoadKg = weightForSet(slot, setIndex))
+        accumulator?.startSegment(type, now, slot?.slotId, slot?.name, setMetabolics)
         // A work block opens pre-filled with the target — the overwhelmingly common outcome is "I did
         // what I planned", so the counter starts there and you adjust only when you didn't. A rest
         // block carries no reps.
-        val openingReps = if (type == SegmentType.ACTIVE) defaultRepsFor(slot) else 0
+        val openingReps = if (type == SegmentType.ACTIVE) defaultRepsFor(slot, setIndex) else 0
         accumulator?.setCurrentReps(openingReps)
         segments += Segment(
             type = type,
             startMs = now,
             slotId = slot?.slotId,
             exerciseName = slot?.name,
-            metabolics = slot?.metabolics,
+            metabolics = setMetabolics,
         )
         _live.update {
             it?.copy(
@@ -704,7 +718,7 @@ class SessionController @Inject constructor(
                 reps = cur.currentReps,
                 startMs = sealed.startMs,
                 endMs = now,
-                weightKg = slot?.addedWeightKg ?: 0.0,
+                weightKg = weightForSet(slot, cur.setIndex),
             )
         }
     }
@@ -767,10 +781,21 @@ class SessionController @Inject constructor(
         )
     }
 
-    /** The reps a work block opens on: the plan's target for the movement, or 0 when free-form. */
-    private fun defaultRepsFor(slot: PlannedExercise?): Int = slot?.let {
-        if (it.measure == ExerciseMeasure.SECONDS) it.targetSeconds else it.targetReps
-    } ?: 0
+    /**
+     * The reps a work block opens on: the target for *this set* of the movement (per-set when the
+     * plan carries it, else the uniform target), or 0 when free-form.
+     */
+    private fun defaultRepsFor(slot: PlannedExercise?, setIndex: Int): Int {
+        slot ?: return 0
+        slot.sets().getOrNull(setIndex - 1)?.let { return it.reps }
+        return if (slot.measure == ExerciseMeasure.SECONDS) slot.targetSeconds else slot.targetReps
+    }
+
+    /** Added load for a given set of a slot — per-set when present, else the slot's nominal weight. */
+    private fun weightForSet(slot: PlannedExercise?, setIndex: Int): Double {
+        slot ?: return 0.0
+        return slot.sets().getOrNull(setIndex - 1)?.weightKg ?: slot.addedWeightKg
+    }
 
     private fun clearBuffers() {
         samples.clear()

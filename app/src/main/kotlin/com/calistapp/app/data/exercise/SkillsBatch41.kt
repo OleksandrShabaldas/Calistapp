@@ -1,0 +1,40 @@
+package com.calistapp.app.data.exercise
+
+import com.calistapp.core.model.Skills
+
+/** Hand-authored [Skills] profiles, batch 41 — covers [videoLibraryBatch22] (chest, part 1 of 5). See [ExerciseSkills]. */
+internal val skillsBatch41: Map<String, Skills> = mapOf(
+    "mw_chest_band_band_bench_fly" to Skills(strength = 15, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_chest_band_band_bench_press" to Skills(strength = 20, endurance = 30, skill = 10, mobility = 5, cardio = 5),
+    "mw_chest_band_band_press_around" to Skills(strength = 20, endurance = 30, skill = 25, mobility = 15, cardio = 10),
+    "mw_chest_band_band_single_arm_internally_rotated_chest_fly" to Skills(strength = 15, endurance = 25, skill = 25, mobility = 15, cardio = 5),
+    "mw_chest_band_band_standing_chest_press" to Skills(strength = 20, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_chest_band_chest_fly" to Skills(strength = 15, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_chest_band_chest_press" to Skills(strength = 20, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_chest_band_internally_rotated_chest_fly" to Skills(strength = 15, endurance = 25, skill = 20, mobility = 15, cardio = 5),
+    "mw_chest_band_pushup" to Skills(strength = 40, endurance = 35, skill = 25, mobility = 10, cardio = 15),
+    "mw_chest_barbell_barbell_floor_press" to Skills(strength = 45, endurance = 25, skill = 20, mobility = 5, cardio = 5),
+    "mw_chest_barbell_barbell_guillotine_high_incline_bench_press" to Skills(strength = 45, endurance = 20, skill = 35, mobility = 10, cardio = 5),
+    "mw_chest_barbell_barbell_guillotine_incline_bench_press" to Skills(strength = 50, endurance = 20, skill = 35, mobility = 10, cardio = 5),
+    "mw_chest_barbell_barbell_high_incline_bench_press" to Skills(strength = 50, endurance = 20, skill = 20, mobility = 5, cardio = 5),
+    "mw_chest_barbell_barbell_incline_bench_press" to Skills(strength = 55, endurance = 20, skill = 20, mobility = 5, cardio = 5),
+    "mw_chest_barbell_barbell_reverse_grip_bench_press" to Skills(strength = 50, endurance = 20, skill = 35, mobility = 10, cardio = 5),
+    "mw_chest_barbell_bench_press" to Skills(strength = 60, endurance = 20, skill = 20, mobility = 5, cardio = 5),
+    "mw_chest_barbell_hooklying_bench_press" to Skills(strength = 55, endurance = 20, skill = 25, mobility = 10, cardio = 5),
+    "mw_chest_barbell_landmine_alternating_lunge_to_chest_press" to Skills(strength = 35, endurance = 30, skill = 45, mobility = 15, cardio = 20),
+    "mw_chest_barbell_landmine_single_arm_chest_press" to Skills(strength = 30, endurance = 25, skill = 35, mobility = 10, cardio = 10),
+    "mw_chest_barbell_larsen_bench_press" to Skills(strength = 50, endurance = 20, skill = 30, mobility = 10, cardio = 5),
+    "mw_chest_barbell_spoto_press" to Skills(strength = 50, endurance = 20, skill = 30, mobility = 5, cardio = 5),
+    "mw_chest_bodyweight_box_assisted_dips" to Skills(strength = 30, endurance = 25, skill = 15, mobility = 10, cardio = 5),
+    "mw_chest_bodyweight_clapping_push_up" to Skills(strength = 55, endurance = 30, skill = 55, mobility = 10, cardio = 25),
+    "mw_chest_bodyweight_diamond_knee_push_ups" to Skills(strength = 25, endurance = 30, skill = 15, mobility = 10, cardio = 10),
+    "mw_chest_bodyweight_elevated_push_up" to Skills(strength = 30, endurance = 30, skill = 15, mobility = 10, cardio = 10),
+    "mw_chest_bodyweight_explosive_push_up" to Skills(strength = 45, endurance = 30, skill = 40, mobility = 10, cardio = 25),
+    "mw_chest_bodyweight_hands_up_push_ups" to Skills(strength = 40, endurance = 30, skill = 35, mobility = 10, cardio = 10),
+    "mw_chest_bodyweight_incline_knee_push_up" to Skills(strength = 20, endurance = 25, skill = 15, mobility = 10, cardio = 5),
+    "mw_chest_bodyweight_knee_push_ups" to Skills(strength = 25, endurance = 30, skill = 10, mobility = 10, cardio = 10),
+    "mw_chest_bosu_ball_ball_bosu_ball_burpee" to Skills(strength = 30, endurance = 40, skill = 45, mobility = 10, cardio = 55),
+    "mw_chest_bosu_ball_ball_offset_pushup" to Skills(strength = 45, endurance = 30, skill = 55, mobility = 15, cardio = 10),
+    "mw_chest_bosu_ball_ball_pushup" to Skills(strength = 40, endurance = 30, skill = 45, mobility = 10, cardio = 10),
+    "mw_chest_bosu_ball_ball_walkover_pushup" to Skills(strength = 45, endurance = 30, skill = 60, mobility = 15, cardio = 10),
+)

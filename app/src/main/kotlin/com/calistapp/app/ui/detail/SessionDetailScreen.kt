@@ -56,7 +56,7 @@ import com.calistapp.app.ui.common.formatCompact
 import com.calistapp.app.ui.common.formatDate
 import com.calistapp.app.ui.theme.Amber
 import com.calistapp.app.ui.theme.Coral
-import com.calistapp.app.ui.theme.Emerald
+import com.calistapp.app.ui.theme.Flame
 import com.calistapp.app.ui.theme.Sky
 import com.calistapp.core.model.HrRecovery
 import com.calistapp.core.model.HrZone
@@ -138,7 +138,7 @@ fun SessionDetailScreen(
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    StatTile("Active burn", "${s.activeKcal.toInt()} kcal", accent = Emerald)
+                    StatTile("Active burn", "${s.activeKcal.toInt()} kcal", accent = Flame)
                     StatTile("Rest burn", "${s.restKcal.toInt()} kcal", accent = Sky)
                     StatTile("Work ratio", "${(s.activeRatio * 100).toInt()}%", accent = Amber)
                 }
@@ -205,7 +205,7 @@ fun SessionDetailScreen(
             SectionCard(title = "Heart rate") {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     StatTile("Average", "${s.avgHr}")
-                    StatTile("Active avg", "${s.avgActiveHr}", accent = Emerald)
+                    StatTile("Active avg", "${s.avgActiveHr}", accent = Flame)
                     StatTile("Peak", "${s.peakHr}", accent = Coral)
                     StatTile("Min", "${s.minHr}", accent = Sky)
                 }
@@ -376,7 +376,7 @@ private fun rpeLabel(rpe: Int): String = when (rpe) {
 
 private fun rpeAccent(rpe: Int): Color = when {
     rpe <= 4 -> Sky
-    rpe <= 6 -> Emerald
+    rpe <= 6 -> Flame
     rpe <= 8 -> Amber
     else -> Coral
 }
@@ -424,7 +424,7 @@ private fun NotesCard(saved: String, onChange: (String) -> Unit) {
 @Composable
 private fun RecoveryCard(recovery: HrRecovery) {
     val accent = when {
-        recovery.meanDropBpm >= 25 -> Emerald
+        recovery.meanDropBpm >= 25 -> Flame
         recovery.meanDropBpm >= 12 -> Sky
         else -> Amber
     }
@@ -432,7 +432,7 @@ private fun RecoveryCard(recovery: HrRecovery) {
     SectionCard(title = "Heart-rate recovery") {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             StatTile("Average drop", "${recovery.meanDropBpm} bpm", accent = accent)
-            StatTile("Best", "${recovery.bestDropBpm} bpm", accent = Emerald)
+            StatTile("Best", "${recovery.bestDropBpm} bpm", accent = Flame)
             StatTile("Rests measured", "${recovery.measuredRests}")
         }
         Text(
@@ -461,7 +461,7 @@ private fun RecoveryCard(recovery: HrRecovery) {
 @Composable
 private fun HrZoneBars(s: SessionSummary) {
     val zoneColors = mapOf(
-        HrZone.ZONE1 to Sky, HrZone.ZONE2 to Emerald, HrZone.ZONE3 to Amber,
+        HrZone.ZONE1 to Sky, HrZone.ZONE2 to Flame, HrZone.ZONE3 to Amber,
         HrZone.ZONE4 to Color(0xFFF97316), HrZone.ZONE5 to Coral,
     )
     val maxMs = s.timeInZonesMs.values.maxOrNull()?.coerceAtLeast(1L) ?: 1L
@@ -480,7 +480,7 @@ private fun HrZoneBars(s: SessionSummary) {
                         Modifier
                             .fillMaxWidth(fraction = (ms.toFloat() / maxMs).coerceIn(0f, 1f))
                             .height(16.dp)
-                            .background(zoneColors[zone] ?: Emerald, RoundedCornerShape(8.dp)),
+                            .background(zoneColors[zone] ?: Flame, RoundedCornerShape(8.dp)),
                     )
                 }
                 Text(formatCompact(ms), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -1,0 +1,41 @@
+package com.calistapp.app.data.exercise
+
+import com.calistapp.core.model.Skills
+
+/** Hand-authored [Skills] profiles, batch 42 — covers [videoLibraryBatch23] (chest, part 2 of 5). See [ExerciseSkills]. */
+internal val skillsBatch42: Map<String, Skills> = mapOf(
+    "mw_chest_cable_cable_alternating_bench_chest_fly" to Skills(strength = 20, endurance = 25, skill = 30, mobility = 15, cardio = 5),
+    "mw_chest_cable_cable_alternating_bench_press" to Skills(strength = 25, endurance = 25, skill = 30, mobility = 10, cardio = 5),
+    "mw_chest_cable_cable_alternating_decline_bench_chest_fly" to Skills(strength = 20, endurance = 25, skill = 30, mobility = 15, cardio = 5),
+    "mw_chest_cable_cable_alternating_incline_bench_internally_rotated_chest_fly" to Skills(strength = 20, endurance = 25, skill = 30, mobility = 15, cardio = 5),
+    "mw_chest_cable_cable_bench_chest_fly" to Skills(strength = 20, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_chest_cable_cable_bench_internally_rotated_chest_fly" to Skills(strength = 20, endurance = 25, skill = 20, mobility = 15, cardio = 5),
+    "mw_chest_cable_cable_bench_press" to Skills(strength = 30, endurance = 30, skill = 10, mobility = 5, cardio = 5),
+    "mw_chest_cable_cable_braced_single_arm_chest_fly" to Skills(strength = 20, endurance = 25, skill = 25, mobility = 15, cardio = 5),
+    "mw_chest_cable_cable_braced_single_arm_chest_press" to Skills(strength = 25, endurance = 25, skill = 25, mobility = 10, cardio = 5),
+    "mw_chest_cable_cable_braced_single_arm_internally_rotated_chest_fly" to Skills(strength = 20, endurance = 25, skill = 30, mobility = 15, cardio = 5),
+    "mw_chest_cable_cable_decline_alternating_bench_press" to Skills(strength = 25, endurance = 25, skill = 30, mobility = 10, cardio = 5),
+    "mw_chest_cable_cable_decline_bench_chest_fly" to Skills(strength = 20, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_chest_cable_cable_decline_bench_internally_rotated_chest_fly" to Skills(strength = 20, endurance = 25, skill = 20, mobility = 15, cardio = 5),
+    "mw_chest_cable_cable_decline_bench_press" to Skills(strength = 30, endurance = 30, skill = 15, mobility = 5, cardio = 5),
+    "mw_chest_cable_cable_decline_chest_fly" to Skills(strength = 20, endurance = 25, skill = 20, mobility = 15, cardio = 5),
+    "mw_chest_cable_cable_decline_internally_rotated_chest_fly" to Skills(strength = 20, endurance = 25, skill = 25, mobility = 15, cardio = 5),
+    "mw_chest_cable_cable_decline_press_around" to Skills(strength = 25, endurance = 25, skill = 25, mobility = 15, cardio = 10),
+    "mw_chest_cable_cable_decline_single_arm_bench_press" to Skills(strength = 25, endurance = 25, skill = 30, mobility = 10, cardio = 5),
+    "mw_chest_cable_cable_incline_alternating_bench_press" to Skills(strength = 25, endurance = 25, skill = 30, mobility = 10, cardio = 5),
+    "mw_chest_cable_cable_incline_bench_internally_rotated_chest_fly" to Skills(strength = 20, endurance = 25, skill = 20, mobility = 15, cardio = 5),
+    "mw_chest_cable_cable_incline_bench_press" to Skills(strength = 30, endurance = 30, skill = 15, mobility = 5, cardio = 5),
+    "mw_chest_cable_cable_incline_chest_fly" to Skills(strength = 20, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_chest_cable_cable_incline_fly_around" to Skills(strength = 20, endurance = 25, skill = 25, mobility = 15, cardio = 10),
+    "mw_chest_cable_cable_incline_internally_rotated_chest_fly" to Skills(strength = 20, endurance = 25, skill = 25, mobility = 15, cardio = 5),
+    "mw_chest_cable_cable_incline_press_around" to Skills(strength = 25, endurance = 25, skill = 25, mobility = 15, cardio = 10),
+    "mw_chest_cable_cable_internally_rotated_chest_fly" to Skills(strength = 20, endurance = 25, skill = 20, mobility = 15, cardio = 5),
+    "mw_chest_cable_cable_push_pull" to Skills(strength = 25, endurance = 30, skill = 30, mobility = 15, cardio = 10),
+    "mw_chest_cable_cable_single_arm_bench_chest_fly" to Skills(strength = 15, endurance = 25, skill = 20, mobility = 15, cardio = 5),
+    "mw_chest_cable_cable_single_arm_bench_press" to Skills(strength = 25, endurance = 25, skill = 25, mobility = 10, cardio = 5),
+    "mw_chest_cable_cable_single_arm_decline_bench_chest_fly" to Skills(strength = 15, endurance = 25, skill = 25, mobility = 15, cardio = 5),
+    "mw_chest_cable_cable_single_arm_incline_bench_press" to Skills(strength = 25, endurance = 25, skill = 25, mobility = 10, cardio = 5),
+    "mw_chest_cable_cable_single_arm_incline_chest_fly" to Skills(strength = 15, endurance = 25, skill = 20, mobility = 15, cardio = 5),
+    "mw_chest_cable_cable_standing_alternating_chest_fly" to Skills(strength = 20, endurance = 25, skill = 30, mobility = 15, cardio = 5),
+    "mw_chest_cable_cable_standing_alternating_chest_press" to Skills(strength = 25, endurance = 25, skill = 30, mobility = 10, cardio = 5),
+)

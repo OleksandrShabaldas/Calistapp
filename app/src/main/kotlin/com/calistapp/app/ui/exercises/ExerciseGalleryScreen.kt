@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
@@ -49,6 +51,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -57,11 +61,11 @@ import com.calistapp.app.ui.common.PillChip
 import com.calistapp.app.ui.theme.Amber
 import com.calistapp.app.ui.theme.Capsule
 import com.calistapp.app.ui.theme.Coral
-import com.calistapp.app.ui.theme.Cream
-import com.calistapp.app.ui.theme.CreamFaint
-import com.calistapp.app.ui.theme.CreamMuted
-import com.calistapp.app.ui.theme.Emerald
-import com.calistapp.app.ui.theme.InkElevated
+import com.calistapp.app.ui.theme.Chalk
+import com.calistapp.app.ui.theme.AshFaint
+import com.calistapp.app.ui.theme.Ash
+import com.calistapp.app.ui.theme.Flame
+import com.calistapp.app.ui.theme.OnyxRaised
 import com.calistapp.app.ui.theme.Sky
 import com.calistapp.app.ui.theme.Violet
 import com.calistapp.core.model.BodyPart
@@ -76,12 +80,16 @@ fun ExerciseGalleryScreen(
     viewModel: ExercisesViewModel = hiltViewModel(),
 ) {
     val exercises by viewModel.exercises.collectAsStateWithLifecycle()
+    val recent by viewModel.recent.collectAsStateWithLifecycle()
     val filters by viewModel.filters.collectAsStateWithLifecycle()
     val total by viewModel.totalCount.collectAsStateWithLifecycle()
     val enrichment by viewModel.enrichmentProgress.collectAsStateWithLifecycle()
     val facets by viewModel.facets.collectAsStateWithLifecycle()
     val favourites by viewModel.favourites.collectAsStateWithLifecycle()
     var showFilters by remember { mutableStateOf(false) }
+
+    // Recent belongs to the default browse view — it shouldn't compete with a search or a filter.
+    val showRecent = recent.isNotEmpty() && filters.query.isBlank() && filters.activeCount == 0
 
     if (showFilters) {
         ExerciseFilterSheet(
@@ -136,8 +144,35 @@ fun ExerciseGalleryScreen(
             Text(
                 "${exercises.size} of $total exercises",
                 style = MaterialTheme.typography.labelMedium,
-                color = CreamMuted,
+                color = Ash,
             )
+        }
+        if (showRecent) {
+            item {
+                Text(
+                    "Recent",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Chalk,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(recent, key = { it.id }) { ex ->
+                        RecentChip(exercise = ex, onClick = { onOpenExercise(ex.id) })
+                    }
+                }
+            }
+            item {
+                Text(
+                    "All exercises",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Chalk,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
         }
         item {
             EnrichAllCard(
@@ -162,7 +197,7 @@ fun ExerciseGalleryScreen(
                     } else {
                         "The gallery downloads on first launch — check your connection."
                     },
-                    color = CreamMuted,
+                    color = Ash,
                 )
             }
         }
@@ -286,10 +321,36 @@ private fun ExerciseCard(
                     } else {
                         "Add ${exercise.name} to favourites"
                     },
-                    tint = if (isFavourite) Amber else CreamFaint,
+                    tint = if (isFavourite) Amber else AshFaint,
                 )
             }
         }
+    }
+}
+
+/** A compact recent-exercise tile for the horizontal Recent strip. */
+@Composable
+private fun RecentChip(exercise: Exercise, onClick: () -> Unit) {
+    Column(
+        Modifier.width(84.dp).clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        ExerciseImage(
+            urls = exercise.imageUrls,
+            contentDescription = exercise.name,
+            animate = false,
+            phaseKey = exercise.id,
+            modifier = Modifier.size(84.dp).clip(RoundedCornerShape(14.dp)),
+        )
+        Text(
+            exercise.name,
+            style = MaterialTheme.typography.labelSmall,
+            color = Chalk,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 

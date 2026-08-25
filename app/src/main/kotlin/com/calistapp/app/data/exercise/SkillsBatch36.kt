@@ -1,0 +1,42 @@
+package com.calistapp.app.data.exercise
+
+import com.calistapp.core.model.Skills
+
+/** Hand-authored [Skills] profiles, batch 36 — covers [videoLibraryBatch17] (shoulders, part 1 of 5). See [ExerciseSkills]. */
+internal val skillsBatch36: Map<String, Skills> = mapOf(
+    "mw_shoulders_alternating_pole_rotation" to Skills(strength = 10, endurance = 15, skill = 20, mobility = 50, cardio = 5),
+    "mw_shoulders_backward_arm_circle" to Skills(strength = 5, endurance = 15, skill = 10, mobility = 45, cardio = 5),
+    "mw_shoulders_band_band_front_raise" to Skills(strength = 15, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_shoulders_band_band_single_arm_lateral_raise" to Skills(strength = 15, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_shoulders_band_band_upright_row" to Skills(strength = 20, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_shoulders_band_face_pull" to Skills(strength = 20, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_shoulders_band_low_lateral_raise" to Skills(strength = 15, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_shoulders_band_mid_lateral_raise" to Skills(strength = 15, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_shoulders_band_overhead_press" to Skills(strength = 20, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_shoulders_band_rear_delt_fly" to Skills(strength = 15, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_shoulders_barbell_barbell_behind_the_neck_press" to Skills(strength = 50, endurance = 20, skill = 45, mobility = 25, cardio = 10),
+    "mw_shoulders_barbell_barbell_behind_the_neck_seated_overhead_press" to Skills(strength = 50, endurance = 20, skill = 45, mobility = 25, cardio = 10),
+    "mw_shoulders_barbell_barbell_bradford_press" to Skills(strength = 40, endurance = 30, skill = 40, mobility = 20, cardio = 15),
+    "mw_shoulders_barbell_barbell_front_raise" to Skills(strength = 25, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_shoulders_barbell_barbell_full_front_raise" to Skills(strength = 25, endurance = 30, skill = 20, mobility = 15, cardio = 5),
+    "mw_shoulders_barbell_barbell_overhead_press" to Skills(strength = 60, endurance = 20, skill = 30, mobility = 15, cardio = 10),
+    "mw_shoulders_barbell_barbell_seated_full_front_raise" to Skills(strength = 25, endurance = 30, skill = 20, mobility = 15, cardio = 5),
+    "mw_shoulders_barbell_barbell_thruster" to Skills(strength = 50, endurance = 35, skill = 40, mobility = 15, cardio = 40),
+    "mw_shoulders_barbell_ez_bar_front_raise" to Skills(strength = 25, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_shoulders_barbell_ez_bar_overhead_press" to Skills(strength = 55, endurance = 20, skill = 25, mobility = 15, cardio = 10),
+    "mw_shoulders_barbell_ez_bar_upright_row" to Skills(strength = 25, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_shoulders_barbell_landmine_alternating_single_arm_press" to Skills(strength = 35, endurance = 30, skill = 35, mobility = 15, cardio = 15),
+    "mw_shoulders_barbell_landmine_half_kneeling_single_arm_overhead_press" to Skills(strength = 30, endurance = 25, skill = 40, mobility = 15, cardio = 10),
+    "mw_shoulders_barbell_landmine_hollow_hold" to Skills(strength = 35, endurance = 35, skill = 35, mobility = 10, cardio = 5),
+    "mw_shoulders_barbell_landmine_kneeling_alternating_overhead_press" to Skills(strength = 30, endurance = 25, skill = 35, mobility = 15, cardio = 10),
+    "mw_shoulders_barbell_landmine_kneeling_overhead_press" to Skills(strength = 30, endurance = 25, skill = 30, mobility = 15, cardio = 10),
+    "mw_shoulders_barbell_landmine_lateral_raise" to Skills(strength = 25, endurance = 25, skill = 30, mobility = 15, cardio = 5),
+    "mw_shoulders_barbell_landmine_lunge_to_overhead_press" to Skills(strength = 35, endurance = 30, skill = 40, mobility = 15, cardio = 20),
+    "mw_shoulders_barbell_landmine_overhead_press" to Skills(strength = 40, endurance = 25, skill = 25, mobility = 15, cardio = 10),
+    "mw_shoulders_barbell_landmine_rotational_lift_to_press" to Skills(strength = 30, endurance = 25, skill = 40, mobility = 20, cardio = 15),
+    "mw_shoulders_barbell_landmine_seated_alternating_overhead_press" to Skills(strength = 30, endurance = 25, skill = 30, mobility = 15, cardio = 10),
+    "mw_shoulders_barbell_landmine_seated_overhead_press" to Skills(strength = 35, endurance = 25, skill = 20, mobility = 15, cardio = 5),
+    "mw_shoulders_barbell_landmine_seated_single_arm_overhead_press" to Skills(strength = 30, endurance = 25, skill = 30, mobility = 15, cardio = 10),
+    "mw_shoulders_barbell_landmine_single_arm_overhead_press" to Skills(strength = 30, endurance = 25, skill = 35, mobility = 15, cardio = 10),
+    "mw_shoulders_barbell_landmine_single_arm_push_press" to Skills(strength = 35, endurance = 25, skill = 40, mobility = 15, cardio = 15),
+)

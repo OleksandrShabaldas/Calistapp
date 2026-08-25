@@ -60,9 +60,6 @@ import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.Capsule
 import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Coral
-import com.calistapp.app.ui.theme.Cream
-import com.calistapp.app.ui.theme.CreamMuted
-import com.calistapp.app.ui.theme.Emerald
 import com.calistapp.app.ui.theme.Flame
 import com.calistapp.app.ui.theme.NumericLarge
 import com.calistapp.app.ui.theme.Onyx
@@ -342,12 +339,12 @@ private fun LiveControls(
                     countdown != null -> Unit
                     isActive && exercise != null -> RepCounterDock(
                         reps = live.currentReps,
-                        target = if (isHold) exercise.targetSeconds else exercise.targetReps,
+                        target = live.currentSet?.reps ?: if (isHold) exercise.targetSeconds else exercise.targetReps,
                         isHold = isHold,
                         touched = counterTouched,
                         onDelta = { counterTouched = true; vm.adjustReps(it) },
                         onOpenNumpad = { repsNumpad = true },
-                        weightKg = exercise.addedWeightKg,
+                        weightKg = live.currentSetWeightKg,
                         onOpenWeight = { weightNumpad = true },
                         onSwipeUp = { showThisExercise = true },
                     )
@@ -446,7 +443,7 @@ private fun LiveControls(
     if (weightNumpad && exercise != null) {
         com.calistapp.app.ui.common.NumberPadSheet(
             title = "Added weight",
-            initial = exercise.addedWeightKg.toInt(),
+            initial = live.currentSetWeightKg.toInt(),
             unit = "kg",
             onConfirm = { vm.setAddedWeight(it.toDouble()); weightNumpad = false },
             onDismiss = { weightNumpad = false },
@@ -529,25 +526,25 @@ private fun StartControls(
         Text(
             "New workout",
             style = MaterialTheme.typography.headlineLarge,
-            color = Cream,
+            color = Chalk,
             modifier = Modifier.padding(top = 12.dp),
         )
 
         when {
-            !plan.isEmpty -> GlassCard(accent = Emerald) {
+            !plan.isEmpty -> GlassCard(accent = Flame) {
                 SectionHeading(plan.name.ifBlank { "Workout ready" }, count = plan.exercises.size)
-                Text("${plan.totalSets} sets planned", style = MaterialTheme.typography.labelMedium, color = Emerald)
+                Text("${plan.totalSets} sets planned", style = MaterialTheme.typography.labelMedium, color = Flame)
                 plan.exercises.forEach { slot ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(slot.name, style = MaterialTheme.typography.bodyMedium, color = Cream, modifier = Modifier.weight(1f))
-                        Text(slot.targetLabel, style = MaterialTheme.typography.bodySmall, color = CreamMuted)
+                        Text(slot.name, style = MaterialTheme.typography.bodyMedium, color = Chalk, modifier = Modifier.weight(1f))
+                        Text(slot.targetLabel, style = MaterialTheme.typography.bodySmall, color = Ash)
                     }
                 }
             }
 
-            plannedName != null -> GlassCard(accent = Emerald) {
+            plannedName != null -> GlassCard(accent = Flame) {
                 SectionHeading("Single exercise")
-                Text(plannedName, style = MaterialTheme.typography.displaySmall, color = Cream)
+                Text(plannedName, style = MaterialTheme.typography.displaySmall, color = Chalk)
             }
 
             !hasWorkout -> GlassCard {
@@ -556,7 +553,7 @@ private fun StartControls(
                     "Pick the movements first — the tracker scores every set against the exercise " +
                         "you're doing, so a workout needs at least one.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = CreamMuted,
+                    color = Ash,
                 )
             }
         }
@@ -570,7 +567,7 @@ private fun StartControls(
                 onClick = onBuildWorkout,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = Capsule,
-                colors = ButtonDefaults.buttonColors(containerColor = Emerald),
+                colors = ButtonDefaults.buttonColors(containerColor = Flame),
             ) {
                 Text("Build a workout", fontWeight = FontWeight.Bold)
             }
@@ -590,7 +587,7 @@ private fun StartControls(
             enabled = hasWorkout,
             modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = Capsule,
-            colors = ButtonDefaults.buttonColors(containerColor = Emerald),
+            colors = ButtonDefaults.buttonColors(containerColor = Flame),
         ) {
             Text("Start", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         }
@@ -598,7 +595,7 @@ private fun StartControls(
             Text(
                 "Add at least one exercise to start.",
                 style = MaterialTheme.typography.labelMedium,
-                color = CreamMuted,
+                color = Ash,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
             )

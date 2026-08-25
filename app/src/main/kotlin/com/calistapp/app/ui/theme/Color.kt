@@ -3,69 +3,20 @@ package com.calistapp.app.ui.theme
 import androidx.compose.ui.graphics.Color
 
 /**
- * Calistapp's palette.
+ * Calistapp's palette — **onyx and orange**.
  *
- * Emerald is the signature — the app is deliberately green-led, and every accent below is tuned to
- * sit against near-black rather than against a mid-grey Material surface. Screens are washed with a
- * soft ambient tint (see `AmbientScreen`), so surfaces are kept translucent and nearly colourless;
- * the colour in the UI comes from the wash showing through the glass, not from painted panels.
+ * The app is led by a hot-orange accent ([Flame]) on a neutral near-black ([Onyx]). It reads as
+ * athletic rather than editorial, and every accent below is tuned to sit against warm near-black.
+ * (The emerald/"glass" era's token names — `Emerald`, `Cream`, `Ink`, `Glass*` — were retired in the
+ * final sweep; everything now names the onyx/orange tokens directly.)
  */
 
-// ---- Accents ---------------------------------------------------------------------------------
+// ---- Onyx / orange (the real palette) --------------------------------------------------------
 
-/** Primary. Work, progress, "good". */
-val Emerald = Color(0xFF3DDC97)
-val EmeraldDeep = Color(0xFF0F7D5B)
-
-/** Secondary. Rest, recovery, neutral data. */
-val Sky = Color(0xFF4FB8F5)
-
-/** Effort, heart rate, destructive. */
-val Coral = Color(0xFFFF6B6B)
-
-/** Highlight and warning. */
-val Amber = Color(0xFFF5C242)
-
-/** Tertiary categorical accent — the exercise library. */
-val Violet = Color(0xFF9B8CFF)
-
-// ---- Ink surfaces ----------------------------------------------------------------------------
-
-/** Page base. Near-black so the ambient wash has room to read. */
-val Ink = Color(0xFF07090D)
-
-/** Solid surface for the rare opaque element (menus, dialogs). */
-val InkElevated = Color(0xFF10141B)
-
-/** Warm off-white for display type — pure white reads cold and cheap against these darks. */
-val Cream = Color(0xFFF6F2E9)
-val CreamMuted = Color(0xFFA9A49A)
-val CreamFaint = Color(0xFF6F6B64)
-
-// ---- Glass -----------------------------------------------------------------------------------
-
-/** Card fill: barely-there white so the ambient gradient shows through. */
-val GlassFill = Color(0x0DFFFFFF)
-
-/** Slightly stronger fill for nested/pressed surfaces. */
-val GlassFillStrong = Color(0x14FFFFFF)
-
-/** Hairline border that gives glass its edge. */
-val GlassBorder = Color(0x1FFFFFFF)
-
-// ---- Live-workout skin -----------------------------------------------------------------------
-
-/**
- * The ongoing-workout screen wears its own skin — a neutral near-black with a single hot-orange
- * accent, taken from the reference training app. It deliberately drops the app-wide emerald/serif
- * "cyber" look for something more athletic; the rest of the app migrates onto this later. These
- * tokens are used locally on the live screen and its sheets, so nothing else is disturbed.
- */
-
-/** Live-screen page base — neutral near-black (no blue tint, unlike [Ink]). */
+/** Page base — neutral near-black, giving the orange room to read. */
 val Onyx = Color(0xFF0B0B0C)
 
-/** Slightly raised near-black, for the control dock and sheets. */
+/** Slightly raised near-black, for docks, sheets and opaque surfaces. */
 val OnyxRaised = Color(0xFF141416)
 
 /** Primary accent: work, progress, primary actions, calories. */
@@ -73,11 +24,49 @@ val Flame = Color(0xFFEE6C2B)
 val FlameDeep = Color(0xFFC0521C)
 val FlameSoft = Color(0x26EE6C2B)
 
-/** Near-white text on the live screen — neutral, athletic (vs. the warm [Cream]). */
+/** Near-white text — neutral and athletic. */
 val Chalk = Color(0xFFF4F4F5)
 val Ash = Color(0xFF8A8A8E)
+val AshFaint = Color(0xFF5C5C60)
 
-/** Flat card fill + border for the live skin — less translucent than the glass tokens. */
+/** Flat card fill + border for the onyx skin — less translucent than the old glass tokens. */
 val OnyxFill = Color(0x0DFFFFFF)
 val OnyxFillStrong = Color(0x14FFFFFF)
 val OnyxBorder = Color(0x1AFFFFFF)
+
+// ---- Semantic accents ------------------------------------------------------------------------
+
+/** Effort, heart rate, destructive. Kept red, nudged to sit on warm onyx. */
+val Coral = Color(0xFFFF6B6B)
+
+/** Highlight and warning. */
+val Amber = Color(0xFFF5C242)
+
+/**
+ * Rest / recovery / neutral data. A cool counterpoint to the orange — still useful as a "not-work"
+ * signal on a warm palette. (Explicit categorical uses of [Sky]/[Violet] get a per-screen judgement
+ * in the final sweep; for now they're retuned to coexist with orange-on-onyx.)
+ */
+val Sky = Color(0xFF57B7E6)
+
+/** Tertiary categorical accent — the exercise library. */
+val Violet = Color(0xFF9B8CFF)
+
+// ---- Stat-card gradients ---------------------------------------------------------------------
+
+/**
+ * Colour pairs for the statistics metric grid, where colour carries meaning per-tile. Each is a
+ * (top-left → bottom-right) gradient tuned to glow on onyx without going neon. Consumed by
+ * `GradientStatCard`.
+ */
+data class StatGradient(val start: Color, val end: Color, val accent: Color)
+
+val StatRed = StatGradient(Color(0xFF7A241C), Color(0xFF3A1512), Color(0xFFFF7A6B))
+val StatAmber = StatGradient(Color(0xFF7A5410), Color(0xFF3A2A0C), Color(0xFFF5C242))
+val StatOlive = StatGradient(Color(0xFF4E5A18), Color(0xFF232A0E), Color(0xFFC6D65A))
+val StatGreen = StatGradient(Color(0xFF175A3C), Color(0xFF0E2A20), Color(0xFF4FD8A0))
+val StatTeal = StatGradient(Color(0xFF14565A), Color(0xFF0C2A2C), Color(0xFF52D6D0))
+val StatBlue = StatGradient(Color(0xFF1C4A7A), Color(0xFF12233A), Color(0xFF6FB6F5))
+
+/** The grid's default cycle, in reading order. */
+val StatGradients = listOf(StatRed, StatAmber, StatOlive, StatGreen, StatTeal, StatBlue)

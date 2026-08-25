@@ -23,20 +23,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.Capsule
 import com.calistapp.app.ui.theme.CardShape
-import com.calistapp.app.ui.theme.Cream
-import com.calistapp.app.ui.theme.CreamMuted
-import com.calistapp.app.ui.theme.GlassBorder
-import com.calistapp.app.ui.theme.GlassFill
-import com.calistapp.app.ui.theme.GlassFillStrong
+import com.calistapp.app.ui.theme.Chalk
+import com.calistapp.app.ui.theme.OnyxBorder
+import com.calistapp.app.ui.theme.OnyxFill
+import com.calistapp.app.ui.theme.OnyxFillStrong
+import com.calistapp.app.ui.theme.NumericMedium
+import com.calistapp.app.ui.theme.StatGradient
 
 /**
  * The app's one card.
  *
- * Barely-tinted white over a hairline border, so the screen's ambient wash reads straight through
- * it. That translucency is the point — an opaque panel on a dark background is what made the old
- * layout look like stacked grey boxes.
+ * A flat onyx fill with a faint top sheen over a hairline border, so the screen's warm ambient wash
+ * still reads gently through it. Kept near-transparent on purpose — an opaque panel on a dark
+ * background is what made the old layout look like stacked grey boxes.
  */
 @Composable
 fun GlassCard(
@@ -69,7 +71,7 @@ fun GlassCard(
                     Modifier
                 },
             )
-            .border(BorderStroke(1.dp, accent?.copy(alpha = 0.45f) ?: GlassBorder), shape)
+            .border(BorderStroke(1.dp, accent?.copy(alpha = 0.45f) ?: OnyxBorder), shape)
             .then(clickable),
     ) {
         Column(
@@ -94,8 +96,8 @@ fun GlassRow(
         modifier
             .fillMaxWidth()
             .clip(Capsule)
-            .background(if (selected) GlassFillStrong else GlassFill)
-            .border(BorderStroke(1.dp, accent?.copy(alpha = 0.4f) ?: GlassBorder), Capsule)
+            .background(if (selected) OnyxFillStrong else OnyxFill)
+            .border(BorderStroke(1.dp, accent?.copy(alpha = 0.4f) ?: OnyxBorder), Capsule)
             .then(clickable)
             .padding(horizontal = 18.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -121,7 +123,7 @@ fun SectionHeading(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(title, style = MaterialTheme.typography.titleLarge, color = Cream)
+        Text(title, style = MaterialTheme.typography.titleLarge, color = Chalk)
         if (count != null) {
             Text(
                 "$count",
@@ -132,6 +134,40 @@ fun SectionHeading(
         }
         Box(Modifier.weight(1f))
         trailing?.invoke()
+    }
+}
+
+/**
+ * A colour-coded metric tile for the statistics grid: a big value, a label in the tile's accent, and
+ * an optional caption, over a meaning-carrying gradient (see [StatGradient]). Unlike [GlassCard] this
+ * one is deliberately solid — the colour _is_ the information.
+ */
+@Composable
+fun GradientStatCard(
+    value: String,
+    label: String,
+    gradient: StatGradient,
+    modifier: Modifier = Modifier,
+    caption: String? = null,
+) {
+    Column(
+        modifier
+            .clip(CardShape)
+            .background(Brush.linearGradient(listOf(gradient.start, gradient.end)))
+            .border(BorderStroke(1.dp, gradient.accent.copy(alpha = 0.28f)), CardShape)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text(value, style = NumericMedium, color = Chalk)
+        Text(
+            label.uppercase(),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = gradient.accent,
+        )
+        if (caption != null) {
+            Text(caption, style = MaterialTheme.typography.bodySmall, color = Ash)
+        }
     }
 }
 
@@ -149,8 +185,8 @@ fun PillChip(
     Row(
         modifier
             .clip(Capsule)
-            .background(if (selected) accent.copy(alpha = 0.18f) else GlassFill)
-            .border(BorderStroke(1.dp, if (selected) accent.copy(alpha = 0.55f) else GlassBorder), Capsule)
+            .background(if (selected) accent.copy(alpha = 0.18f) else OnyxFill)
+            .border(BorderStroke(1.dp, if (selected) accent.copy(alpha = 0.55f) else OnyxBorder), Capsule)
             .then(clickable)
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -160,7 +196,7 @@ fun PillChip(
         Text(
             label,
             style = MaterialTheme.typography.labelLarge,
-            color = if (selected) accent else CreamMuted,
+            color = if (selected) accent else Ash,
         )
     }
 }
@@ -178,8 +214,8 @@ fun SegmentedToggle(
         modifier
             .fillMaxWidth()
             .clip(Capsule)
-            .background(GlassFill)
-            .border(BorderStroke(1.dp, GlassBorder), Capsule)
+            .background(OnyxFill)
+            .border(BorderStroke(1.dp, OnyxBorder), Capsule)
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -197,7 +233,7 @@ fun SegmentedToggle(
                 Text(
                     label,
                     style = MaterialTheme.typography.labelLarge,
-                    color = if (active) accent else CreamMuted,
+                    color = if (active) accent else Ash,
                 )
             }
         }

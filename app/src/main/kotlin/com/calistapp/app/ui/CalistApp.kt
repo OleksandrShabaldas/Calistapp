@@ -34,13 +34,14 @@ import com.calistapp.app.ui.exercises.ExerciseEditScreen
 import com.calistapp.app.ui.exercises.ExerciseGalleryScreen
 import com.calistapp.app.ui.history.HistoryScreen
 import com.calistapp.app.ui.navigation.Routes
+import com.calistapp.app.ui.planner.SavedWorkoutDetailScreen
 import com.calistapp.app.ui.planner.WorkoutPlannerScreen
 import com.calistapp.app.ui.profile.ProfileScreen
 import com.calistapp.app.ui.session.ActiveSessionScreen
+import com.calistapp.app.ui.session.SessionSetupScreen
 import com.calistapp.app.ui.theme.Amber
-import com.calistapp.app.ui.theme.Emerald
+import com.calistapp.app.ui.theme.Flame
 import com.calistapp.app.ui.theme.Sky
-import com.calistapp.app.ui.theme.Violet
 
 private val bottomItems = listOf(
     NavItem(Routes.DASHBOARD, "Home", Icons.Filled.Home),
@@ -54,10 +55,11 @@ private val bottomItems = listOf(
  * rather than swapping content in a static frame.
  */
 private fun tintFor(route: String?): Color = when (route) {
-    Routes.EXERCISES, Routes.EXERCISE_DETAIL, Routes.EXERCISE_EDIT -> Violet
+    // The library gets a warm gold; stats/history keep a cool blue as a deliberate "data" counterpoint
+    // to the orange; everything else (home, session, profile) glows in the signature Flame.
+    Routes.EXERCISES, Routes.EXERCISE_DETAIL, Routes.EXERCISE_EDIT -> Amber
     Routes.HISTORY, Routes.DETAIL -> Sky
-    Routes.PROFILE -> Amber
-    else -> Emerald
+    else -> Flame
 }
 
 /** Room for the floating nav bar so content never slides underneath it. */
@@ -112,6 +114,7 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
                             popUpTo(Routes.EXERCISES)
                         }
                     },
+                    onOpenSession = { id -> navController.navigate(Routes.detail(id)) },
                 )
             }
             composable(
@@ -167,14 +170,35 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
             }
             composable(Routes.PLANNER) {
                 WorkoutPlannerScreen(
-                    // Starting from the planner hands the plan straight to the live session.
+                    // Building leads to the pre-flight setup screen, not straight into the session.
+                    onStarted = { navController.navigate(Routes.SETUP) },
+                    onBack = { navController.popBackStack() },
+                    onOpenExercise = { id -> navController.navigate(Routes.exerciseDetail(id)) },
+                    onOpenSavedWorkout = { id -> navController.navigate(Routes.savedWorkout(id)) },
+                )
+            }
+            composable(Routes.SETUP) {
+                SessionSetupScreen(
+                    // Starting from setup hands the finished plan straight to the live session, and
+                    // clears the planner (and any setup/detail step) off the back stack.
                     onStarted = {
                         navController.navigate(Routes.active()) {
                             popUpTo(Routes.PLANNER) { inclusive = true }
                         }
                     },
                     onBack = { navController.popBackStack() },
+                )
+            }
+            composable(Routes.SAVED_WORKOUT) {
+                SavedWorkoutDetailScreen(
+                    // Start loads the plan into the draft (in the VM) then heads to the setup screen;
+                    // Edit and Delete both drop back to the planner, which reflects the loaded draft.
+                    onStart = { navController.navigate(Routes.SETUP) },
+                    onEdit = { navController.popBackStack() },
+                    onOpenSession = { id -> navController.navigate(Routes.detail(id)) },
                     onOpenExercise = { id -> navController.navigate(Routes.exerciseDetail(id)) },
+                    onDeleted = { navController.popBackStack() },
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable(Routes.DETAIL) {

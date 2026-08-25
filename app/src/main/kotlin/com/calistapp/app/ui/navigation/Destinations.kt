@@ -14,6 +14,14 @@ object Routes {
     /** Build the workout — pick exercises, sets and reps — before starting a session. */
     const val PLANNER = "planner"
 
+    /** Pre-flight: warm-up, stretch, session settings and timers, then start. */
+    const val SETUP = "setup"
+
+    /** A saved workout on its own screen — exercises, history, start, edit. */
+    const val SAVED_WORKOUT = "savedWorkout/{id}"
+    const val SAVED_WORKOUT_ARG = "id"
+    fun savedWorkout(id: String) = "savedWorkout/$id"
+
     const val DETAIL = "detail/{sessionId}"
     fun detail(sessionId: String) = "detail/$sessionId"
 

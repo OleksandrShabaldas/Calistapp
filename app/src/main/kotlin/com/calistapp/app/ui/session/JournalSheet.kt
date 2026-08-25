@@ -213,8 +213,19 @@ private fun JournalExerciseRow(
                             EditCell(if (s.weightKg > 0) "${formatKg(s.weightKg)}kg" else "—", filled = s.weightKg > 0, Modifier.weight(1f)) {
                                 onEdit(JournalEdit.Weight(s.slotId, s.setIndex, s.weightKg.toInt()))
                             }
-                            EditCell(s.effortLabel ?: "—", filled = s.effortLabel != null, Modifier.weight(1f)) {
-                                onEdit(JournalEdit.Effort(s.slotId, s.setIndex, s.effortScale, s.effortValue?.toInt()))
+                            // Show the logged effort, or — until it's rated — the plan's target for
+                            // this set as a dim "→ 8 RPE" hint, which also pre-fills the editor.
+                            val planned = slot.sets().getOrNull(s.setIndex - 1)?.effort
+                            val effortText = s.effortLabel ?: planned?.let { "→ ${it.label}" } ?: "—"
+                            EditCell(effortText, filled = s.effortLabel != null, Modifier.weight(1f)) {
+                                onEdit(
+                                    JournalEdit.Effort(
+                                        s.slotId,
+                                        s.setIndex,
+                                        s.effortScale ?: planned?.scale,
+                                        s.effortValue?.toInt() ?: planned?.value?.toInt(),
+                                    ),
+                                )
                             }
                         }
                         if (s.note.isNotBlank()) {

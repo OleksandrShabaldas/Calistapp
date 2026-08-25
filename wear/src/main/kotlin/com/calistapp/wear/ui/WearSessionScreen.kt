@@ -406,7 +406,16 @@ private fun RunningScreen(
                         }
                         append("Set ${state.setIndex} of ${state.plan.targetSetsFor(exercise.slotId)}")
                         append(" · ")
-                        append(targetOf(exercise.measure, exercise.targetReps, exercise.targetSeconds))
+                        // Per-set target when the plan carries one; the single value serves for reps
+                        // or seconds, since a timed set overloads "reps" to hold its seconds.
+                        val setValue = exercise.sets().getOrNull(state.setIndex - 1)?.reps
+                        append(
+                            targetOf(
+                                exercise.measure,
+                                setValue ?: exercise.targetReps,
+                                setValue ?: exercise.targetSeconds,
+                            ),
+                        )
                     },
                     style = MaterialTheme.typography.caption2,
                     color = MaterialTheme.colors.onSurfaceVariant,

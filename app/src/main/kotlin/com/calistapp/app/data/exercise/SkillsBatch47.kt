@@ -1,0 +1,42 @@
+package com.calistapp.app.data.exercise
+
+import com.calistapp.core.model.Skills
+
+/** Hand-authored [Skills] profiles, batch 47 — covers [videoLibraryBatch28] (glutes, part 2 of 12). See [ExerciseSkills]. */
+internal val skillsBatch47: Map<String, Skills> = mapOf(
+    "mw_glutes_barbell_barbell_figure_four_heels_elevated_hip_thrust" to Skills(strength = 55, endurance = 25, skill = 50, mobility = 20, cardio = 10),
+    "mw_glutes_barbell_barbell_figure_four_hip_thrust" to Skills(strength = 55, endurance = 25, skill = 35, mobility = 20, cardio = 10),
+    "mw_glutes_barbell_barbell_front_rack_deficit_lunge" to Skills(strength = 45, endurance = 25, skill = 50, mobility = 20, cardio = 15),
+    "mw_glutes_barbell_barbell_front_rack_step_up_knee_drive" to Skills(strength = 40, endurance = 25, skill = 45, mobility = 15, cardio = 15),
+    "mw_glutes_barbell_barbell_front_squat_bodybuilding" to Skills(strength = 60, endurance = 25, skill = 35, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_barbell_front_squat_olympic" to Skills(strength = 60, endurance = 25, skill = 50, mobility = 20, cardio = 10),
+    "mw_glutes_barbell_barbell_front_squat_with_straps" to Skills(strength = 60, endurance = 25, skill = 30, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_barbell_hang_clean_and_press" to Skills(strength = 55, endurance = 25, skill = 75, mobility = 20, cardio = 20),
+    "mw_glutes_barbell_barbell_heels_elevated_hip_thrust" to Skills(strength = 55, endurance = 25, skill = 25, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_barbell_high_bar_good_morning" to Skills(strength = 45, endurance = 25, skill = 35, mobility = 20, cardio = 10),
+    "mw_glutes_barbell_barbell_high_bar_squat" to Skills(strength = 65, endurance = 25, skill = 30, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_barbell_high_pull" to Skills(strength = 50, endurance = 20, skill = 60, mobility = 15, cardio = 15),
+    "mw_glutes_barbell_barbell_jefferson_deadlift" to Skills(strength = 60, endurance = 20, skill = 55, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_barbell_kickstand_squat" to Skills(strength = 45, endurance = 25, skill = 35, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_barbell_low_bar_good_morning" to Skills(strength = 45, endurance = 25, skill = 35, mobility = 20, cardio = 10),
+    "mw_glutes_barbell_barbell_low_bar_squat" to Skills(strength = 70, endurance = 25, skill = 30, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_barbell_quad_stomp" to Skills(strength = 35, endurance = 30, skill = 30, mobility = 15, cardio = 15),
+    "mw_glutes_barbell_barbell_romanian_deadlift" to Skills(strength = 60, endurance = 25, skill = 30, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_barbell_single_leg_deadlift" to Skills(strength = 45, endurance = 25, skill = 60, mobility = 20, cardio = 10),
+    "mw_glutes_barbell_barbell_single_leg_heels_elevated_hip_thrust" to Skills(strength = 50, endurance = 25, skill = 45, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_barbell_single_leg_hip_thrust" to Skills(strength = 50, endurance = 25, skill = 35, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_barbell_snatch_grip_high_pull" to Skills(strength = 55, endurance = 20, skill = 65, mobility = 15, cardio = 15),
+    "mw_glutes_barbell_barbell_staggered_deadlift" to Skills(strength = 55, endurance = 25, skill = 35, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_barbell_step_up_knee_drive" to Skills(strength = 40, endurance = 25, skill = 40, mobility = 15, cardio = 15),
+    "mw_glutes_barbell_barbell_suitcase_carry" to Skills(strength = 45, endurance = 40, skill = 25, mobility = 10, cardio = 15),
+    "mw_glutes_barbell_barbell_sumo_pause_deadlift" to Skills(strength = 65, endurance = 20, skill = 35, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_barbell_zercher_deficit_lunge" to Skills(strength = 45, endurance = 25, skill = 50, mobility = 20, cardio = 15),
+    "mw_glutes_barbell_coan_deadlift" to Skills(strength = 65, endurance = 20, skill = 40, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_ez_bar_romanian_deadlift" to Skills(strength = 45, endurance = 25, skill = 20, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_ez_bar_zercher_squat" to Skills(strength = 55, endurance = 25, skill = 40, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_feet_elevated_figure_four_glute_bridge" to Skills(strength = 35, endurance = 30, skill = 30, mobility = 20, cardio = 5),
+    "mw_glutes_barbell_feet_elevated_glute_bridge" to Skills(strength = 35, endurance = 30, skill = 15, mobility = 15, cardio = 5),
+    "mw_glutes_barbell_feet_elevated_single_leg_glute_bridge" to Skills(strength = 35, endurance = 25, skill = 35, mobility = 15, cardio = 10),
+    "mw_glutes_barbell_feet_elevated_staggered_glute_bridge" to Skills(strength = 35, endurance = 30, skill = 25, mobility = 15, cardio = 5),
+    "mw_glutes_barbell_forward_lunge" to Skills(strength = 35, endurance = 30, skill = 25, mobility = 15, cardio = 15),
+)

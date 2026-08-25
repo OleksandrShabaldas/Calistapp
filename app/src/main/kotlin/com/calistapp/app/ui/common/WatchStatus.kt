@@ -33,12 +33,12 @@ import com.calistapp.app.data.sync.WatchLinkState
 import com.calistapp.app.data.sync.WatchLinkStatus
 import com.calistapp.app.ui.theme.Amber
 import com.calistapp.app.ui.theme.Coral
-import com.calistapp.app.ui.theme.CreamMuted
-import com.calistapp.app.ui.theme.Emerald
+import com.calistapp.app.ui.theme.Ash
+import com.calistapp.app.ui.theme.Flame
 import com.calistapp.app.ui.theme.Sky
 
 private fun accentFor(status: WatchLinkStatus): Color = when (status) {
-    WatchLinkStatus.STREAMING -> Emerald
+    WatchLinkStatus.STREAMING -> Flame
     WatchLinkStatus.READY -> Sky
     WatchLinkStatus.APP_UNREACHABLE -> Amber
     WatchLinkStatus.NO_DEVICE -> Coral
@@ -94,7 +94,7 @@ fun WatchStatusCard(
                 Text(
                     detailFor(state),
                     style = MaterialTheme.typography.bodySmall,
-                    color = CreamMuted,
+                    color = Ash,
                 )
             }
             if (state.refreshing) {

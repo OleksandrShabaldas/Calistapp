@@ -1,0 +1,42 @@
+package com.calistapp.app.data.exercise
+
+import com.calistapp.core.model.Skills
+
+/** Hand-authored [Skills] profiles, batch 32 — covers [videoLibraryBatch13] (lats, part 1 of 4). See [ExerciseSkills]. */
+internal val skillsBatch32: Map<String, Skills> = mapOf(
+    "mw_lats_band_band_bent_over_row" to Skills(strength = 20, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_lats_band_band_half_kneeling_single_arm_pulldown" to Skills(strength = 20, endurance = 30, skill = 20, mobility = 10, cardio = 5),
+    "mw_lats_band_band_kneeling_pulldown" to Skills(strength = 20, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_lats_band_band_kneeling_row" to Skills(strength = 20, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_lats_band_band_overhead_fly" to Skills(strength = 20, endurance = 30, skill = 20, mobility = 15, cardio = 5),
+    "mw_lats_band_band_pull_around" to Skills(strength = 20, endurance = 30, skill = 25, mobility = 15, cardio = 5),
+    "mw_lats_band_band_pullover" to Skills(strength = 20, endurance = 30, skill = 15, mobility = 15, cardio = 5),
+    "mw_lats_band_band_row" to Skills(strength = 20, endurance = 30, skill = 10, mobility = 5, cardio = 5),
+    "mw_lats_band_band_seated_pulldown" to Skills(strength = 20, endurance = 30, skill = 10, mobility = 10, cardio = 5),
+    "mw_lats_band_band_seated_single_arm_pulldown" to Skills(strength = 20, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_lats_band_band_single_arm_bent_over_row" to Skills(strength = 20, endurance = 30, skill = 20, mobility = 10, cardio = 5),
+    "mw_lats_band_band_single_arm_pulldown" to Skills(strength = 20, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_lats_band_band_single_arm_row" to Skills(strength = 20, endurance = 30, skill = 15, mobility = 10, cardio = 5),
+    "mw_lats_band_band_squat_hold_row" to Skills(strength = 25, endurance = 35, skill = 30, mobility = 15, cardio = 15),
+    "mw_lats_band_band_squat_hold_single_arm_row" to Skills(strength = 25, endurance = 35, skill = 35, mobility = 15, cardio = 15),
+    "mw_lats_band_kneeling_single_arm_pulldown" to Skills(strength = 20, endurance = 30, skill = 20, mobility = 10, cardio = 5),
+    "mw_lats_barbell_barbell_pullover" to Skills(strength = 35, endurance = 25, skill = 20, mobility = 15, cardio = 5),
+    "mw_lats_barbell_barbell_shoulder_extension" to Skills(strength = 30, endurance = 25, skill = 20, mobility = 15, cardio = 5),
+    "mw_lats_barbell_landmine_row" to Skills(strength = 35, endurance = 30, skill = 20, mobility = 10, cardio = 10),
+    "mw_lats_barbell_landmine_t_bar_rows" to Skills(strength = 40, endurance = 30, skill = 20, mobility = 10, cardio = 10),
+    "mw_lats_barbell_long_landmine_row" to Skills(strength = 35, endurance = 30, skill = 25, mobility = 10, cardio = 10),
+    "mw_lats_barbell_meadows_row" to Skills(strength = 35, endurance = 30, skill = 25, mobility = 10, cardio = 5),
+    "mw_lats_barbell_pronated_pendlay_row" to Skills(strength = 45, endurance = 25, skill = 25, mobility = 10, cardio = 10),
+    "mw_lats_barbell_pronated_row" to Skills(strength = 45, endurance = 30, skill = 20, mobility = 10, cardio = 10),
+    "mw_lats_barbell_supinated_pendlay_row" to Skills(strength = 45, endurance = 25, skill = 25, mobility = 10, cardio = 10),
+    "mw_lats_barbell_supinated_row" to Skills(strength = 45, endurance = 30, skill = 20, mobility = 10, cardio = 10),
+    "mw_lats_bodyweight_assisted_chin_up" to Skills(strength = 35, endurance = 25, skill = 25, mobility = 10, cardio = 10),
+    "mw_lats_bodyweight_assisted_gironda_chin_up" to Skills(strength = 35, endurance = 25, skill = 30, mobility = 10, cardio = 10),
+    "mw_lats_bodyweight_assisted_mixed_grip_pullup" to Skills(strength = 35, endurance = 25, skill = 30, mobility = 10, cardio = 10),
+    "mw_lats_bodyweight_assisted_pull_up" to Skills(strength = 35, endurance = 25, skill = 25, mobility = 10, cardio = 10),
+    "mw_lats_bodyweight_overhand_inverted_row" to Skills(strength = 35, endurance = 30, skill = 25, mobility = 10, cardio = 10),
+    "mw_lats_bodyweight_standing_inverted_row" to Skills(strength = 25, endurance = 30, skill = 20, mobility = 10, cardio = 5),
+    "mw_lats_bodyweight_underhand_inverted_row" to Skills(strength = 35, endurance = 30, skill = 25, mobility = 10, cardio = 10),
+    "mw_lats_bosu_ball_ball_pullover" to Skills(strength = 30, endurance = 25, skill = 45, mobility = 15, cardio = 10),
+    "mw_lats_bosu_ball_ball_row" to Skills(strength = 30, endurance = 30, skill = 45, mobility = 10, cardio = 10),
+)

@@ -19,17 +19,16 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import com.calistapp.app.ui.theme.Ink
+import com.calistapp.app.ui.theme.Onyx
 
 /**
  * The soft coloured glow that sits behind every screen, bleeding from the top edge and falling away
- * to near-black.
+ * to near-black onyx.
  *
- * This is the backbone of the whole look: cards are kept translucent precisely so this wash reads
- * through them, which is what stops a dark UI feeling like flat grey boxes on black. Each screen
- * carries its own hue so moving between tabs feels like moving somewhere, and during a workout the
- * tint is driven by whether you're working or resting — an ambient cue you can read from across the
- * room without focusing on any number.
+ * This is the backbone of the look: it stops a dark UI from feeling like flat grey boxes on black.
+ * Each screen carries its own (warm) hue so moving between tabs feels like moving somewhere, and
+ * during a workout the tint is driven by whether you're working or resting — an ambient cue you can
+ * read from across the room without focusing on any number.
  */
 /**
  * Lets a screen take over the app-wide ambient hue.
@@ -77,40 +76,40 @@ fun AmbientScreen(
     Box(
         modifier
             .fillMaxSize()
-            .background(Ink)
+            .background(Onyx)
             .drawBehind {
                 // Main glow, offset above the top edge so only its lower falloff is visible.
-                // Kept deliberately restrained — this should read as light spilling into the
+                // Kept deliberately restrained — this should read as warm light spilling into the
                 // frame, not as a coloured panel behind the content.
                 drawRect(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            animated.copy(alpha = 0.20f),
-                            animated.copy(alpha = 0.05f),
+                            animated.copy(alpha = 0.22f),
+                            animated.copy(alpha = 0.06f),
                             Color.Transparent,
                         ),
                         center = Offset(size.width * 0.62f, -size.height * 0.06f),
                         radius = size.height * 0.58f,
                     ),
                 )
-                // Cooler counter-glow on the opposite side; keeps the wash from looking like a
+                // Faint counter-glow on the opposite side; keeps the wash from looking like a
                 // single flat vignette.
                 drawRect(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            animated.copy(alpha = 0.06f),
+                            animated.copy(alpha = 0.07f),
                             Color.Transparent,
                         ),
                         center = Offset(size.width * 0.02f, size.height * 0.26f),
                         radius = size.height * 0.34f,
                     ),
                 )
-                // Settle to black well before the bottom so content there stays high-contrast.
+                // Settle to onyx well before the bottom so content there stays high-contrast.
                 drawRect(
                     brush = Brush.verticalGradient(
                         0.24f to Color.Transparent,
-                        0.72f to Ink.copy(alpha = 0.82f),
-                        1f to Ink,
+                        0.72f to Onyx.copy(alpha = 0.82f),
+                        1f to Onyx,
                     ),
                 )
             },
