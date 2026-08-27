@@ -31,7 +31,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -55,32 +55,31 @@ fun ExerciseEditScreen(
     val initial by viewModel.initial.collectAsStateWithLifecycle()
     val aiState by viewModel.aiState.collectAsStateWithLifecycle()
 
-    // The loaded exercise (or blank template) whose non-editable fields we preserve on save.
-    var base by remember { mutableStateOf(ExerciseEditViewModel.BLANK) }
-
-    var name by remember { mutableStateOf("") }
-    var bodyPart by remember { mutableStateOf(BodyPart.OTHER) }
-    var difficulty by remember { mutableStateOf(Difficulty.BEGINNER) }
-    var equipment by remember { mutableStateOf("") }
-    var primary by remember { mutableStateOf("") }
-    var secondary by remember { mutableStateOf("") }
-    var force by remember { mutableStateOf<String?>(null) }
-    var mechanic by remember { mutableStateOf<String?>(null) }
-    var efficiency by remember { mutableStateOf(0) }
-    var problematic by remember { mutableStateOf("") }
-    var imageUrl by remember { mutableStateOf("") }
-    var instructions by remember { mutableStateOf("") }
-    var overview by remember { mutableStateOf("") }
-    var mistakes by remember { mutableStateOf("") }
-    var tips by remember { mutableStateOf("") }
-    var populated by remember { mutableStateOf(false) }
+    // rememberSaveable throughout so a rotation or process death doesn't wipe a half-filled form —
+    // the fields survive, and the non-editable ones we preserve on save come from [initial], which
+    // rides on the ViewModel and outlives the config change too (so no `base` snapshot is needed).
+    var name by rememberSaveable { mutableStateOf("") }
+    var bodyPart by rememberSaveable { mutableStateOf(BodyPart.OTHER) }
+    var difficulty by rememberSaveable { mutableStateOf(Difficulty.BEGINNER) }
+    var equipment by rememberSaveable { mutableStateOf("") }
+    var primary by rememberSaveable { mutableStateOf("") }
+    var secondary by rememberSaveable { mutableStateOf("") }
+    var force by rememberSaveable { mutableStateOf<String?>(null) }
+    var mechanic by rememberSaveable { mutableStateOf<String?>(null) }
+    var efficiency by rememberSaveable { mutableStateOf(0) }
+    var problematic by rememberSaveable { mutableStateOf("") }
+    var imageUrl by rememberSaveable { mutableStateOf("") }
+    var instructions by rememberSaveable { mutableStateOf("") }
+    var overview by rememberSaveable { mutableStateOf("") }
+    var mistakes by rememberSaveable { mutableStateOf("") }
+    var tips by rememberSaveable { mutableStateOf("") }
+    var populated by rememberSaveable { mutableStateOf(false) }
 
     // Populate the form once the exercise (or blank template) is available.
     LaunchedEffect(initial) {
         val e = initial ?: return@LaunchedEffect
         if (populated) return@LaunchedEffect
         populated = true
-        base = e
         name = e.name
         bodyPart = e.bodyPart
         difficulty = e.difficulty
@@ -98,7 +97,7 @@ fun ExerciseEditScreen(
         tips = e.tips.joinToString("\n")
     }
 
-    fun draft(): Exercise = base.copy(
+    fun draft(): Exercise = (initial ?: ExerciseEditViewModel.BLANK).copy(
         name = name.trim(),
         bodyPart = bodyPart,
         difficulty = difficulty,

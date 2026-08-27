@@ -15,12 +15,15 @@ import com.calistapp.core.model.SetLog
 import com.calistapp.core.model.UserProfile
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.WorkoutSession
+import com.calistapp.core.progress.PersonalRecord
+import com.calistapp.core.progress.personalRecords
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -59,6 +62,11 @@ class SessionDetailViewModel @Inject constructor(
     val audit: StateFlow<CalorieAudit?> = combine(session, profile) { s, p ->
         s?.let { engine.explain(it, p) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Records this session beat, judged against everything performed before it. */
+    val records: StateFlow<List<PersonalRecord>> = sessionRepository.observePerformed()
+        .map { personalRecords(it, sessionId) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _aiState = MutableStateFlow<AiUiState>(AiUiState.Idle)
     val aiState: StateFlow<AiUiState> = _aiState.asStateFlow()

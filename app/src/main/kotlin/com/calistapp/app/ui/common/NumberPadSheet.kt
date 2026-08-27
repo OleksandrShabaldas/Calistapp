@@ -36,7 +36,6 @@ import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Flame
 import com.calistapp.app.ui.theme.FlameSoft
 import com.calistapp.app.ui.theme.NumericLarge
-import com.calistapp.app.ui.theme.OnyxBorder
 import com.calistapp.app.ui.theme.OnyxFillStrong
 import com.calistapp.app.ui.theme.OnyxRaised
 
@@ -68,8 +67,56 @@ fun NumberPadSheet(
     maxValue: Int? = null,
     help: String? = null,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    Sheet(onDismiss, modifier) {
+        NumberPadBody(
+            title = title,
+            initialText = if (initial > 0) initial.toString() else "",
+            unit = unit,
+            tabs = tabs,
+            selectedTab = selectedTab,
+            onSelectTab = onSelectTab,
+            maxValue = maxValue,
+            decimal = false,
+            help = help,
+            onConfirm = { onConfirm(it.toInt()) },
+        )
+    }
+}
 
+/**
+ * The same keypad, but for a fractional value — added weight, where 2.5 / 7.5 / 12.5 kg are the
+ * everyday increments. It swaps the `MAX` corner for a decimal point and commits a [Double].
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DecimalPadSheet(
+    title: String,
+    initial: Double,
+    onConfirm: (Double) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    unit: String? = "kg",
+) {
+    Sheet(onDismiss, modifier) {
+        NumberPadBody(
+            title = title,
+            initialText = if (initial > 0) trimNum(initial) else "",
+            unit = unit,
+            tabs = emptyList(),
+            selectedTab = 0,
+            onSelectTab = {},
+            maxValue = null,
+            decimal = true,
+            help = null,
+            onConfirm = onConfirm,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun Sheet(onDismiss: () -> Unit, modifier: Modifier, content: @Composable () -> Unit) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -77,43 +124,43 @@ fun NumberPadSheet(
         scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f),
         dragHandle = null,
         modifier = modifier,
-    ) {
-        NumberPadBody(
-            title = title,
-            initial = initial,
-            unit = unit,
-            tabs = tabs,
-            selectedTab = selectedTab,
-            onSelectTab = onSelectTab,
-            maxValue = maxValue,
-            help = help,
-            onConfirm = onConfirm,
-        )
-    }
+        content = { content() },
+    )
 }
 
 @Composable
 private fun NumberPadBody(
     title: String,
-    initial: Int,
+    initialText: String,
     unit: String?,
     tabs: List<String>,
     selectedTab: Int,
     onSelectTab: (Int) -> Unit,
     maxValue: Int?,
+    decimal: Boolean,
     help: String?,
-    onConfirm: (Int) -> Unit,
+    onConfirm: (Double) -> Unit,
 ) {
     // The running entry, as a string so leading edits behave like a real keypad; "" reads as 0.
-    var entry by remember(initial) { mutableStateOf(if (initial > 0) initial.toString() else "") }
+    var entry by remember(initialText) { mutableStateOf(initialText) }
     var showHelp by remember { mutableStateOf(false) }
 
+    val maxLen = if (decimal) 6 else 4
     fun press(digit: Int) {
-        if (entry.length >= 4) return
-        entry = (entry + digit).trimStart('0').ifEmpty { "0" }
+        if (entry.length >= maxLen) return
+        entry = if (entry.contains('.')) {
+            // Past the decimal point, keep the digit verbatim (no leading-zero trimming).
+            entry + digit
+        } else {
+            (entry + digit).trimStart('0').ifEmpty { "0" }
+        }
+    }
+    fun dot() {
+        if (!decimal || entry.contains('.')) return
+        entry = entry.ifEmpty { "0" } + "."
     }
     fun backspace() { entry = entry.dropLast(1) }
-    val value = entry.toIntOrNull() ?: 0
+    val value = entry.toDoubleOrNull() ?: 0.0
 
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 22.dp),
@@ -176,14 +223,16 @@ private fun NumberPadBody(
                 }
             }
         }
-        // Last row: MAX (or blank) · 0 · backspace.
+        // Last row: decimal point (or MAX, or blank) · 0 · backspace.
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (maxValue != null) {
-                PadKey(Modifier.weight(1f), onClick = { onConfirm(maxValue) }) {
+            when {
+                decimal -> PadKey(Modifier.weight(1f), onClick = { dot() }) {
+                    Text(".", style = MaterialTheme.typography.headlineMedium, color = Chalk)
+                }
+                maxValue != null -> PadKey(Modifier.weight(1f), onClick = { onConfirm(maxValue.toDouble()) }) {
                     Text("MAX", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Ash)
                 }
-            } else {
-                Box(Modifier.weight(1f))
+                else -> Box(Modifier.weight(1f))
             }
             PadKey(Modifier.weight(1f), onClick = { press(0) }) {
                 Text("0", style = MaterialTheme.typography.headlineMedium, color = Chalk)
@@ -209,6 +258,10 @@ private fun NumberPadBody(
         }
     }
 }
+
+/** Trim a trailing ".0" so 20.0 reads as "20" but 2.5 stays "2.5". */
+private fun trimNum(v: Double): String =
+    if (v % 1.0 == 0.0) v.toInt().toString() else ((v * 10).toLong() / 10.0).toString()
 
 @Composable
 private fun PadKey(
@@ -255,9 +308,6 @@ private fun SegmentTabs(tabs: List<String>, selected: Int, onSelect: (Int) -> Un
                     color = if (active) com.calistapp.app.ui.theme.Onyx else Ash,
                     modifier = Modifier.padding(horizontal = 4.dp),
                 )
-                if (!active) {
-                    Box(Modifier) // keep layout stable
-                }
             }
         }
     }

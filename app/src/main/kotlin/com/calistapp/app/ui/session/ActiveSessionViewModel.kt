@@ -129,7 +129,6 @@ class ActiveSessionViewModel @Inject constructor(
     fun setSound(on: Boolean) = viewModelScope.launch { sessionPrefs.setSound(on) }
     fun setVibration(on: Boolean) = viewModelScope.launch { sessionPrefs.setVibration(on) }
     fun setAutoplay(on: Boolean) = viewModelScope.launch { sessionPrefs.setAutoplay(on) }
-    fun setHandsFree(on: Boolean) = viewModelScope.launch { sessionPrefs.setHandsFree(on) }
 
     fun finish(onDone: (String) -> Unit) {
         viewModelScope.launch { controller.stop()?.let(onDone) }

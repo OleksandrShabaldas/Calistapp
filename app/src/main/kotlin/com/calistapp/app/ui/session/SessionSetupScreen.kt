@@ -38,7 +38,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.calistapp.app.ui.common.EditableStepper
 import com.calistapp.app.ui.common.GlassCard
 import com.calistapp.app.ui.common.NoHeartRateDialog
 import com.calistapp.app.ui.common.SectionHeading
@@ -66,7 +65,6 @@ fun SessionSetupScreen(
     val plan by viewModel.plan.collectAsStateWithLifecycle()
     val warmUpId by viewModel.warmUpId.collectAsStateWithLifecycle()
     val stretchId by viewModel.stretchId.collectAsStateWithLifecycle()
-    val defaultRest by viewModel.defaultRest.collectAsStateWithLifecycle()
     val prefs by viewModel.prefs.collectAsStateWithLifecycle()
     val watchLink by viewModel.watchLink.collectAsStateWithLifecycle()
     var confirmNoWatch by rememberSaveable { mutableStateOf(false) }
@@ -94,12 +92,7 @@ fun SessionSetupScreen(
         ) {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        "Back",
-                        tint = Ash,
-                        modifier = Modifier.size(30.dp).clip(Capsule).clickable(onClick = onBack).padding(3.dp),
-                    )
+                    com.calistapp.app.ui.common.BackButton(onBack)
                     Column(Modifier.padding(start = 8.dp)) {
                         Text(
                             plan.name.ifBlank { "Your workout" },
@@ -146,35 +139,12 @@ fun SessionSetupScreen(
                 }
             }
 
-            item { SectionHeading("Timers") }
-            item {
-                GlassCard {
-                    EditableStepper(
-                        label = "Rest between sets",
-                        value = defaultRest,
-                        onChange = viewModel::setDefaultRest,
-                        step = 15,
-                        format = { if (it <= 0) "per exercise" else "${it / 60}:${(it % 60).toString().padStart(2, '0')}" },
-                    )
-                    Text(
-                        if (defaultRest <= 0) {
-                            "Each exercise keeps the rest you gave it."
-                        } else {
-                            "Overrides every exercise's rest for this session."
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Ash,
-                    )
-                }
-            }
-
             item { SectionHeading("During the session") }
             item {
                 GlassCard {
                     SettingToggle("Cue sounds", "Tick and go tones on countdowns", prefs.sound, viewModel::setSound)
-                    SettingToggle("Vibration", "Buzz on rest-over and phase changes", prefs.vibration, viewModel::setVibration)
+                    SettingToggle("Vibration", "Buzz when you bank a set", prefs.vibration, viewModel::setVibration)
                     SettingToggle("Autoplay video", "Start the demo automatically", prefs.autoplayVideo, viewModel::setAutoplay)
-                    SettingToggle("Hands-free cues", "Speak cues aloud, no need to touch the phone", prefs.handsFree, viewModel::setHandsFree)
                 }
             }
         }

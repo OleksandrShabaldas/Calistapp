@@ -1,6 +1,5 @@
 package com.calistapp.app.ui.exercises
 
-import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -12,19 +11,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
-import androidx.media3.datasource.cache.SimpleCache
-import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import com.calistapp.app.data.exercise.ExerciseVideoAuth
-import java.io.File
+import com.calistapp.app.data.exercise.ExerciseMediaStore
 
 /**
  * Plays one looping, muted exercise-demonstration video (an MP4 streamed from the CDN).
@@ -42,10 +35,18 @@ fun ExerciseVideoPlayer(
 ) {
     val context = LocalContext.current
     val exoPlayer = remember(url) {
+        val retries = intArrayOf(0)
         ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(ExerciseVideoCache.dataSourceFactory(context)))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(ExerciseMediaStore.dataSourceFactory(context)))
             .build()
             .apply {
+                // A transient network/CDN error shouldn't leave a blank frame — re-prepare a few
+                // times before giving up. Bounded so a genuinely missing clip doesn't spin forever.
+                addListener(object : Player.Listener {
+                    override fun onPlayerError(error: PlaybackException) {
+                        if (retries[0] < MAX_RETRIES) { retries[0]++; prepare() }
+                    }
+                })
                 setMediaItem(MediaItem.fromUri(url))
                 repeatMode = Player.REPEAT_MODE_ALL
                 volume = 0f
@@ -104,10 +105,16 @@ fun ExerciseVideoPlaylist(
 ) {
     val context = LocalContext.current
     val exoPlayer = remember(urls) {
+        val retries = intArrayOf(0)
         ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(ExerciseVideoCache.dataSourceFactory(context)))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(ExerciseMediaStore.dataSourceFactory(context)))
             .build()
             .apply {
+                addListener(object : Player.Listener {
+                    override fun onPlayerError(error: PlaybackException) {
+                        if (retries[0] < MAX_RETRIES) { retries[0]++; prepare() }
+                    }
+                })
                 setMediaItems(urls.map { MediaItem.fromUri(it) })
                 repeatMode = Player.REPEAT_MODE_ALL
                 volume = 0f
@@ -146,38 +153,5 @@ fun ExerciseVideoPlaylist(
     )
 }
 
-/**
- * Process-wide disk cache for exercise videos, so a clip streams from the network at most once and
- * replays instantly afterwards. [SimpleCache] permits only one instance per directory, hence the
- * lazy singleton.
- */
-@UnstableApi
-private object ExerciseVideoCache {
-    private const val MAX_BYTES = 512L * 1024 * 1024 // 512 MB LRU ceiling
-
-    @Volatile
-    private var cache: SimpleCache? = null
-
-    private fun cache(context: Context): SimpleCache {
-        val app = context.applicationContext
-        return cache ?: synchronized(this) {
-            cache ?: SimpleCache(
-                File(app.cacheDir, "exercise_video"),
-                LeastRecentlyUsedCacheEvictor(MAX_BYTES),
-                StandaloneDatabaseProvider(app),
-            ).also { cache = it }
-        }
-    }
-
-    fun dataSourceFactory(context: Context): CacheDataSource.Factory {
-        val upstream = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            // Authenticates against the private video repo; empty when no token is configured.
-            .setDefaultRequestProperties(ExerciseVideoAuth.headers)
-        return CacheDataSource.Factory()
-            .setCache(cache(context))
-            .setUpstreamDataSourceFactory(upstream)
-            // A network hiccup falls back to the network instead of failing outright.
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-    }
-}
+/** How many times a player re-prepares after a transient playback error before giving up. */
+private const val MAX_RETRIES = 3

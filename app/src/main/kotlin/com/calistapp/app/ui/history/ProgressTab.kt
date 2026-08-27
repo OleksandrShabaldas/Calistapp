@@ -46,6 +46,7 @@ import com.calistapp.core.progress.StatsPeriod
 import com.calistapp.core.progress.StatsSummary
 import com.calistapp.core.progress.TrainingLoad
 import com.calistapp.core.progress.TrainingProgress
+import com.calistapp.core.model.formatKg
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
@@ -382,7 +383,7 @@ private fun ExerciseProgressRow(exercise: ExerciseProgress) {
                 most?.let {
                     RecordChip(
                         label = "Most reps",
-                        value = "${it.reps}" + if (it.addedWeightKg > 0) " · +${it.addedWeightKg.toInt()} kg" else "",
+                        value = "${it.reps}" + if (it.addedWeightKg > 0) " · +${formatKg(it.addedWeightKg)} kg" else "",
                         atMs = it.atMs,
                         accent = Flame,
                     )
@@ -390,7 +391,7 @@ private fun ExerciseProgressRow(exercise: ExerciseProgress) {
                 heaviest?.let {
                     RecordChip(
                         label = "Heaviest",
-                        value = "+${it.addedWeightKg.toInt()} kg × ${it.reps}",
+                        value = "+${formatKg(it.addedWeightKg)} kg × ${it.reps}",
                         atMs = it.atMs,
                         accent = Violet,
                     )

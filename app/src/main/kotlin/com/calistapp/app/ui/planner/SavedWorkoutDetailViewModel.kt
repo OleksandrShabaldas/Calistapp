@@ -72,9 +72,12 @@ class SavedWorkoutDetailViewModel @Inject constructor(
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Copy this workout into the draft — the shared step behind both Start and Edit. */
+    /**
+     * Copy this workout into the draft — the shared step behind both Start and Edit. Threads the
+     * workout's id through as the draft origin, so an Edit that follows auto-syncs back to this row.
+     */
     fun loadIntoDraft() {
-        workout.value?.let { drafts.replaceWith(it.plan) }
+        workout.value?.let { drafts.replaceWith(it.plan, originSavedId = it.id) }
     }
 
     /** Remember it was used, when starting a session from it. */

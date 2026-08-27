@@ -17,8 +17,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.calistapp.app.ui.common.AiActionCard
 import com.calistapp.app.ui.common.HeartRateChart
 import com.calistapp.app.ui.common.KeyValueRow
 import com.calistapp.app.ui.common.PillChip
@@ -63,6 +65,7 @@ import com.calistapp.core.model.HrZone
 import com.calistapp.core.model.Segment
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionSummary
+import com.calistapp.core.progress.PersonalRecord
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,7 +76,9 @@ fun SessionDetailScreen(
     val session by viewModel.session.collectAsStateWithLifecycle()
     val aiState by viewModel.aiState.collectAsStateWithLifecycle()
     val audit by viewModel.audit.collectAsStateWithLifecycle()
+    val records by viewModel.records.collectAsStateWithLifecycle()
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
+    var showShare by rememberSaveable { mutableStateOf(false) }
 
     if (confirmDelete) {
         AlertDialog(
@@ -103,6 +108,13 @@ fun SessionDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (session != null) {
+                        IconButton(onClick = { showShare = true }) {
+                            Icon(Icons.Filled.Share, contentDescription = "Share workout")
+                        }
                     }
                 },
             )
@@ -142,6 +154,10 @@ fun SessionDetailScreen(
                     StatTile("Rest burn", "${s.restKcal.toInt()} kcal", accent = Sky)
                     StatTile("Work ratio", "${(s.activeRatio * 100).toInt()}%", accent = Amber)
                 }
+            }
+
+            if (records.isNotEmpty()) {
+                PersonalRecordsCard(records)
             }
 
             // Directly under the number it explains: the whole point is that the figure above isn't
@@ -188,10 +204,12 @@ fun SessionDetailScreen(
                 SectionCard(title = "Planned vs performed") {
                     current.plan.exercises.forEach { slot ->
                         val done = current.setLogs.filter { it.slotId == slot.slotId }
+                        // Use the plan's effective set count — in a circuit that's the round count, not
+                        // the slot's raw `targetSets`, which would read "2/3 sets" as if you quit early.
+                        val target = current.plan.targetSetsFor(slot.slotId)
                         KeyValueRow(
                             slot.name,
-                            "${done.size}/${slot.targetSets} sets · ${done.sumOf { it.reps }} reps " +
-                                "(target ${slot.targetLabel})",
+                            "${done.size}/$target sets · ${done.sumOf { it.reps }} reps",
                         )
                     }
                 }
@@ -242,6 +260,15 @@ fun SessionDetailScreen(
             TextButton(onClick = { confirmDelete = true }) {
                 Text("Delete session", color = Coral)
             }
+        }
+
+        if (showShare) {
+            SessionShareSheet(
+                session = current,
+                summary = s,
+                records = records,
+                onDismiss = { showShare = false },
+            )
         }
     }
 }
@@ -458,6 +485,36 @@ private fun RecoveryCard(recovery: HrRecovery) {
     }
 }
 
+/** The wins. Shown at the top of a summary when a set beat a previous best — the reason to keep going. */
+@Composable
+private fun PersonalRecordsCard(records: List<PersonalRecord>) {
+    SectionCard(accent = Amber) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Filled.EmojiEvents, contentDescription = null, tint = Amber)
+            Text(
+                if (records.size == 1) "New personal best" else "${records.size} new personal bests",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        records.forEach { r ->
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    r.exerciseName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                )
+                Text(r.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Amber)
+            }
+        }
+    }
+}
+
 @Composable
 private fun HrZoneBars(s: SessionSummary) {
     val zoneColors = mapOf(
@@ -495,44 +552,22 @@ private fun AiCoachCard(
     aiState: AiUiState,
     onGenerate: () -> Unit,
 ) {
-    SectionCard {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Text("AI Coach", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        }
-
-        when (aiState) {
-            is AiUiState.Loading -> Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                CircularProgressIndicator(modifier = Modifier.height(20.dp).width(20.dp))
-                Text("Analyzing your session…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-
-            is AiUiState.Error -> Text(
-                aiState.message,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-
-            AiUiState.Idle -> Unit
-        }
-
+    AiActionCard(
+        title = "AI Coach",
+        loading = aiState is AiUiState.Loading,
+        loadingLabel = "Analyzing your session…",
+        error = (aiState as? AiUiState.Error)?.message,
+        actionLabel = if (insight == null) "Analyze with AI" else "Regenerate analysis",
+        onAction = onGenerate,
+    ) {
         if (insight != null) {
-            Text(insight, style = MaterialTheme.typography.bodyMedium)
-        } else if (aiState !is AiUiState.Loading) {
+            Text(insight, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+        } else {
             Text(
                 "Get personalized feedback and recommendations based on this session's heart-rate and effort data.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-
-        if (aiState !is AiUiState.Loading) {
-            Button(onClick = onGenerate, modifier = Modifier.fillMaxWidth()) {
-                Text(if (insight == null) "Analyze with AI" else "Regenerate analysis")
-            }
         }
     }
 }

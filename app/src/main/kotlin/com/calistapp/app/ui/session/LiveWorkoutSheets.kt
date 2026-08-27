@@ -3,29 +3,20 @@ package com.calistapp.app.ui.session
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.calistapp.app.ui.common.NumberPadSheet
 import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Flame
-import com.calistapp.app.ui.theme.OnyxRaised
 import com.calistapp.core.model.EffortScale
 import com.calistapp.core.model.Exercise
 import com.calistapp.core.model.PlannedExercise
@@ -57,78 +48,64 @@ fun EffortInputSheet(
 }
 
 /**
- * The read-only "this exercise" panel, opened by swiping up on the rep counter: the target for the
+ * The read-only "this exercise" detail, revealed by dragging the live sheet up: the target for the
  * set, how you did it last time, your best, and the movement's form cues. Everything here is context
- * to help the set you're about to do — nothing on it is editable (that's the Journal's job).
+ * to help the set you're about to do — nothing is editable (that's the Journal's job). Rendered inline
+ * inside the sheet now, rather than as a separate modal, so the pull-up expands one card in place.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ThisExercisePanel(
+fun ThisExerciseContent(
     exercise: Exercise?,
     planned: PlannedExercise?,
     history: ExerciseHistoryStat?,
     nowMs: Long,
-    onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = OnyxRaised) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .heightIn(max = 560.dp)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 22.dp)
-                .padding(bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
+    Text(
+        planned?.displayName ?: exercise?.name ?: "Exercise",
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Bold,
+        color = Chalk,
+    )
+    if (planned != null) {
+        Text("Target · ${planned.targetLabel}", style = MaterialTheme.typography.bodyMedium, color = Flame)
+    }
+
+    if (history != null) {
+        Section("Last time") {
             Text(
-                planned?.displayName ?: exercise?.name ?: "Exercise",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
+                history.lastSets.joinToString("   ") { s ->
+                    buildString {
+                        append(s.reps)
+                        if (s.weightKg > 0) append(" · ${formatKg(s.weightKg)}kg")
+                        s.effortLabel?.let { append(" · $it") }
+                    }
+                },
+                style = MaterialTheme.typography.bodyMedium,
                 color = Chalk,
             )
-            if (planned != null) {
-                Text("Target · ${planned.targetLabel}", style = MaterialTheme.typography.bodyMedium, color = Flame)
-            }
+            Text(relativeDays(history.lastWhenMs, nowMs), style = MaterialTheme.typography.labelMedium, color = Ash)
+        }
+        Section("Best") {
+            Text(
+                buildString {
+                    append("${history.bestReps} reps")
+                    if (history.bestWeightKg > 0) append("  ·  +${formatKg(history.bestWeightKg)} kg")
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = Chalk,
+            )
+        }
+    }
 
-            if (history != null) {
-                Section("Last time") {
-                    Text(
-                        history.lastSets.joinToString("   ") { s ->
-                            buildString {
-                                append(s.reps)
-                                if (s.weightKg > 0) append(" · ${formatKg(s.weightKg)}kg")
-                                s.effortLabel?.let { append(" · $it") }
-                            }
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Chalk,
-                    )
-                    Text(relativeDays(history.lastWhenMs, nowMs), style = MaterialTheme.typography.labelMedium, color = Ash)
-                }
-                Section("Best") {
-                    Text(
-                        buildString {
-                            append("${history.bestReps} reps")
-                            if (history.bestWeightKg > 0) append("  ·  +${formatKg(history.bestWeightKg)} kg")
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Chalk,
-                    )
-                }
-            }
-
-            exercise?.tips?.takeIf { it.isNotEmpty() }?.let { tips ->
-                Section("Form cues") { tips.forEach { Bullet(it) } }
-            }
-            exercise?.commonMistakes?.takeIf { it.isNotEmpty() }?.let { mistakes ->
-                Section("Common mistakes") { mistakes.forEach { Bullet(it) } }
-            }
-            exercise?.primaryMuscles?.takeIf { it.isNotEmpty() }?.let { muscles ->
-                Section("Primary muscles") {
-                    Text(muscles.joinToString(", "), style = MaterialTheme.typography.bodyMedium, color = Chalk)
-                }
-            }
+    exercise?.tips?.takeIf { it.isNotEmpty() }?.let { tips ->
+        Section("Form cues") { tips.forEach { Bullet(it) } }
+    }
+    exercise?.commonMistakes?.takeIf { it.isNotEmpty() }?.let { mistakes ->
+        Section("Common mistakes") { mistakes.forEach { Bullet(it) } }
+    }
+    exercise?.primaryMuscles?.takeIf { it.isNotEmpty() }?.let { muscles ->
+        Section("Primary muscles") {
+            Text(muscles.joinToString(", "), style = MaterialTheme.typography.bodyMedium, color = Chalk)
         }
     }
 }

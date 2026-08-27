@@ -72,20 +72,6 @@ data class LiveSession(
     /** How long the current block has run. */
     val segmentElapsedMs: Long get() = (nowMs - segmentStartMs).coerceAtLeast(0)
 
-    /**
-     * Seconds left of the prescribed rest, negative once it's overrun, or null when resting isn't
-     * what's happening or this movement's rest is untimed.
-     *
-     * Deliberately allowed to go negative rather than stopping at zero: knowing you're forty
-     * seconds over is the information that gets you back to the bar.
-     */
-    val restRemainingSeconds: Int?
-        get() {
-            if (isWorking || countdownUntilMs != null) return null
-            val target = currentExercise?.takeIf { it.isRestTimed }?.restSeconds ?: return null
-            return target - (segmentElapsedMs / 1000).toInt()
-        }
-
     /** Round in progress, for a circuit. Always 1 for an exercise-by-exercise split. */
     val currentRound: Int get() = plan.roundOf(completedSets)
 

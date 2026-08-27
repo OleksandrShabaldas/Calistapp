@@ -52,10 +52,6 @@ class SessionSetupViewModel @Inject constructor(
     private val _stretchId = MutableStateFlow<String?>(null)
     val stretchId: StateFlow<String?> = _stretchId.asStateFlow()
 
-    /** A session-wide rest applied to every working exercise. Zero keeps each exercise's own rest. */
-    private val _defaultRest = MutableStateFlow(0)
-    val defaultRest: StateFlow<Int> = _defaultRest.asStateFlow()
-
     val prefs: StateFlow<SessionPrefs> =
         prefsRepo.prefs.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionPrefs())
 
@@ -66,12 +62,10 @@ class SessionSetupViewModel @Inject constructor(
     /** Tap a chosen routine again to clear it — a warm-up is optional. */
     fun selectWarmUp(id: String) = _warmUpId.update { if (it == id) null else id }
     fun selectStretch(id: String) = _stretchId.update { if (it == id) null else id }
-    fun setDefaultRest(seconds: Int) = _defaultRest.update { seconds.coerceIn(0, 600) }
 
     fun setSound(on: Boolean) = viewModelScope.launch { prefsRepo.setSound(on) }
     fun setVibration(on: Boolean) = viewModelScope.launch { prefsRepo.setVibration(on) }
     fun setAutoplay(on: Boolean) = viewModelScope.launch { prefsRepo.setAutoplay(on) }
-    fun setHandsFree(on: Boolean) = viewModelScope.launch { prefsRepo.setHandsFree(on) }
 
     /**
      * Build the final plan and start. Warm-up runs first, then the working plan, then the stretch —
@@ -87,10 +81,7 @@ class SessionSetupViewModel @Inject constructor(
         val warm = if (canRoutine) _warmUpId.value?.let(routines::byId)?.toBlocks().orEmpty() else emptyList()
         val stretch = if (canRoutine) _stretchId.value?.let(routines::byId)?.toBlocks().orEmpty() else emptyList()
 
-        val rest = _defaultRest.value
-        val working = if (rest > 0) base.exercises.map { it.copy(restSeconds = rest) } else base.exercises
-
-        val finalPlan = base.copy(exercises = warm + working + stretch)
+        val finalPlan = base.copy(exercises = warm + base.exercises + stretch)
         controller.start(typeFor(base), finalPlan)
         drafts.clear()
     }

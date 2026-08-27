@@ -242,7 +242,8 @@ private fun BrandMark() {
     }
 }
 
-private suspend fun sharePicture(context: Context, picture: Picture, exerciseName: String) {
+/** Rasterise a recorded [Picture] to a PNG and fire the system share sheet. Shared by every share card. */
+internal suspend fun sharePicture(context: Context, picture: Picture, caption: String) {
     val uri = withContext(Dispatchers.IO) {
         val bitmap = Bitmap.createBitmap(
             picture.width.coerceAtLeast(1),
@@ -261,7 +262,7 @@ private suspend fun sharePicture(context: Context, picture: Picture, exerciseNam
     val send = Intent(Intent.ACTION_SEND).apply {
         type = "image/png"
         putExtra(Intent.EXTRA_STREAM, uri)
-        putExtra(Intent.EXTRA_TEXT, "$exerciseName · Calistapp")
+        putExtra(Intent.EXTRA_TEXT, "$caption · Calistapp")
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     context.startActivity(Intent.createChooser(send, "Share").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

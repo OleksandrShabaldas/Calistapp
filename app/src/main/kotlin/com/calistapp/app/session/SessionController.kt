@@ -594,7 +594,16 @@ class SessionController @Inject constructor(
         var slotId = cur.currentSlotId
         var setIndex = cur.setIndex
         if (type == SegmentType.ACTIVE) {
-            cur.plan.nextUp(slotId, completed)?.let { slotId = it.slotId; setIndex = it.setIndex }
+            // The very first work block works the slot that's on screen. nextUp's circuit branch
+            // steps *forward* from the current position — correct when advancing after a banked
+            // set, but at the opening it would skip the selected exercise and start the whole
+            // workout on exercise 2. No ACTIVE segment yet == this is that opening block.
+            val opening = segments.none { it.type == SegmentType.ACTIVE }
+            if (opening && cur.plan.slot(slotId) != null) {
+                setIndex = (completed[slotId] ?: 0) + 1
+            } else {
+                cur.plan.nextUp(slotId, completed)?.let { slotId = it.slotId; setIndex = it.setIndex }
+            }
         }
 
         val slot = cur.plan.slot(slotId)

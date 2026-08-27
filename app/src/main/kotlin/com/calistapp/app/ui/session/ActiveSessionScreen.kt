@@ -1,5 +1,14 @@
 package com.calistapp.app.ui.session
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -9,15 +18,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -28,17 +36,20 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -50,7 +61,6 @@ import com.calistapp.app.session.LiveSession
 import com.calistapp.app.ui.common.GlassCard
 import com.calistapp.app.ui.common.NoHeartRateDialog
 import com.calistapp.app.ui.common.PillChip
-import com.calistapp.app.ui.common.RestAlert
 import com.calistapp.app.ui.common.SectionHeading
 import com.calistapp.app.ui.common.WatchStatusCard
 import com.calistapp.app.ui.common.formatClock
@@ -61,7 +71,6 @@ import com.calistapp.app.ui.theme.Capsule
 import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Coral
 import com.calistapp.app.ui.theme.Flame
-import com.calistapp.app.ui.theme.NumericLarge
 import com.calistapp.app.ui.theme.Onyx
 import com.calistapp.app.ui.theme.TitleSans
 import com.calistapp.core.model.Exercise
@@ -70,6 +79,7 @@ import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionStatus
+import com.calistapp.core.model.SetLog
 import com.calistapp.core.model.WorkoutPlan
 
 @Composable
@@ -155,14 +165,11 @@ private fun LiveControls(
     val s = live.summary
     val isHold = exercise?.measure == ExerciseMeasure.SECONDS
 
-    // Cue tones and haptics, each gated by the pause-screen toggle.
+    // Cue tones and haptics, each gated by the pause-screen toggle. Rest is a count-up stopwatch with
+    // no target now, so there's no "rest over" buzz — which also puts paid to the phantom buzz that
+    // used to fire on rotate.
     val haptics = rememberHaptics()
     val fx = rememberSoundEffects()
-    RestAlert(
-        remainingSeconds = if (live.isOpeningWarmup) null else live.restRemainingSeconds,
-        resetKey = live.segmentStartMs,
-        onElapsed = { if (prefs.vibration) haptics.restOver() },
-    )
     LaunchedEffect(countdown) { countdown?.let { if (it in 1..3 && prefs.sound) fx.tick() } }
     val wasActive = remember { mutableStateOf<Boolean?>(null) }
     LaunchedEffect(isActive) {
@@ -191,10 +198,19 @@ private fun LiveControls(
     }
 
     var showJournal by remember { mutableStateOf(false) }
-    var showThisExercise by remember { mutableStateOf(false) }
     var hudExpanded by remember { mutableStateOf(false) }
     var repsNumpad by remember { mutableStateOf(false) }
     var weightNumpad by remember { mutableStateOf(false) }
+    // The set being rated from the rest-state "Rate that set" chip (the set you just banked).
+    var ratingSet by remember { mutableStateOf<SetLog?>(null) }
+
+    // How far the sheet is pulled up (0 = resting low, 1 = detail open). Drives both the sheet and
+    // the video fading down behind it. Owned here so the two stay in lockstep frame-for-frame.
+    val sheetExpand = remember { Animatable(0f) }
+    val density = LocalDensity.current
+    val heroShiftPx = with(density) { 36.dp.toPx() }
+    // The lead-in should read on the video, not through a half-open detail sheet — tuck it away.
+    LaunchedEffect(countdown != null) { if (countdown != null) sheetExpand.animateTo(0f) }
 
     if (confirming != null) {
         val pending = confirming!!
@@ -228,7 +244,8 @@ private fun LiveControls(
         }
         isActive -> {
             primaryLabel = if (live.bankingEndsWorkout) "Done — log last set" else "Done — log & rest"
-            primaryClick = { guard(PendingAction("Bank it anyway") { vm.toggleSegment() }) { vm.toggleSegment() } }
+            val bank = { if (prefs.vibration) haptics.setBanked(); vm.toggleSegment(); Unit }
+            primaryClick = { guard(PendingAction("Bank it anyway", bank)) { bank() } }
         }
         live.allSetsDone -> {
             primaryLabel = "Finish & save workout"; primaryClick = { vm.finish(onFinished) }
@@ -240,161 +257,210 @@ private fun LiveControls(
 
     val canSkip = live.nextExercise != null && !live.allSetsDone && !live.isOpeningWarmup &&
         (isActive || !live.nextIsNewExercise)
+    val canReveal = (heroExercise != null || heroPlanned != null) && countdown == null
+    // The set you just banked — offered for a quick effort rating while you rest, so logging effort
+    // is a natural one-tap step here rather than something hidden away in the Journal.
+    val justBankedSet = if (!isActive && countdown == null && !live.isOpeningWarmup) live.setLogs.lastOrNull() else null
     val kcalInt = s.totalKcal.toInt()
     val elapsedMin = live.elapsedMs / 60_000.0
     val kcalPerMin = if (elapsedMin > 0.1) s.totalKcal / elapsedMin else 0.0
 
     Box(Modifier.fillMaxSize().background(Onyx)) {
-        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        // Full-bleed demonstration behind everything; it fades and sinks as the sheet rises.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = 1f - 0.5f * sheetExpand.value
+                    translationY = sheetExpand.value * heroShiftPx
+                },
+        ) {
+            LiveExerciseHero(heroExercise, autoplay = prefs.autoplayVideo, modifier = Modifier.fillMaxSize())
+        }
+
+        // Base legibility scrim so overlaid text reads over any frame.
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(0.35f to Color.Transparent, 1f to Onyx.copy(alpha = 0.92f)),
+            ),
+        )
+        // Extra darkening that fades in as the detail opens, so the reading surface wins over the video.
+        Box(Modifier.fillMaxSize().background(Onyx).graphicsLayer { alpha = 0.6f * sheetExpand.value })
+
+        // Top chrome: minimise / round / pause, then the progress dashes, then clock + HUD chip.
+        Column(Modifier.fillMaxWidth().statusBarsPadding()) {
             LiveTopBar(
                 roundLabel = if (live.plan.isCircuit) "Round ${live.currentRound} / ${live.plan.rounds}" else "",
                 onCollapse = onCollapse,
                 onPause = { vm.pause() },
             )
-
             SegmentBar(
                 states = segmentStates(live),
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
-
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                LiveExerciseHero(heroExercise, autoplay = prefs.autoplayVideo, modifier = Modifier.fillMaxSize())
-
-                // Legibility scrim so overlaid text reads over any frame.
-                Box(
-                    Modifier.fillMaxSize().background(
-                        Brush.verticalGradient(0.45f to Color.Transparent, 1f to Onyx.copy(alpha = 0.9f)),
-                    ),
-                )
-
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
                     formatClock(live.elapsedMs),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = Chalk,
-                    modifier = Modifier.align(Alignment.TopStart).padding(16.dp),
                 )
+                LiveHudChip(bpm = live.lastBpm, kcal = kcalInt, onClick = { hudExpanded = true })
+            }
+        }
 
-                LiveHudChip(
-                    bpm = live.lastBpm,
-                    kcal = kcalInt,
-                    onClick = { hudExpanded = true },
-                    modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
-                )
+        // The lead-in number, front and centre on the video.
+        if (countdown != null) {
+            CountdownOverlay(countdown, Modifier.align(Alignment.Center))
+        }
 
-                Column(
-                    Modifier.align(Alignment.BottomStart).padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    heroPlanned?.let { Text(heroTargetLabel(it), style = MaterialTheme.typography.titleMedium, color = Flame, fontWeight = FontWeight.Bold) }
-                    Text(heroPlanned?.displayName ?: exercise?.displayName ?: "", style = TitleSans, color = Chalk)
-                    heroPlanned?.exerciseId?.let { exId ->
-                        Row(
-                            Modifier.clip(Capsule).clickable { onOpenExercise(exId) }.padding(vertical = 3.dp, horizontal = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Icon(Icons.Filled.Info, null, tint = Flame, modifier = Modifier.size(15.dp))
-                            Text("Exercise info", style = MaterialTheme.typography.labelLarge, color = Flame)
-                        }
-                    }
-                }
-
-                if (countdown != null) {
-                    Column(
-                        Modifier.align(Alignment.Center),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Text("GET READY", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Chalk)
-                        Text("$countdown", style = NumericLarge, color = Flame)
-                    }
-                }
-
-                if (hudExpanded) {
-                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)).clickable { hudExpanded = false })
-                    LiveHudPanel(
-                        bpm = live.lastBpm,
-                        avgHr = s.avgHr,
-                        peakHr = s.peakHr,
-                        maxHr = live.maxHr,
-                        recentBpm = live.recentBpm,
-                        kcal = kcalInt,
-                        kcalPerMin = kcalPerMin,
-                        elapsedMs = live.elapsedMs,
-                        watchLabel = if (live.receivingHr) "Watch streaming" else if (watchLink.isUsable) "Watch connected" else "Watch offline",
-                        showReconnect = !live.receivingHr,
-                        onReconnect = vm::reconnectWatch,
-                        onClose = { hudExpanded = false },
-                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+        // Hero labels + the draggable sheet, anchored to the bottom. The labels ride just above the
+        // card and fade as it opens (the detail repeats them).
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 8.dp)
+                    .graphicsLayer { alpha = 1f - sheetExpand.value },
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                heroPlanned?.let {
+                    Text(
+                        heroTargetLabel(it),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Flame,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
+                Text(
+                    heroPlanned?.displayName ?: exercise?.displayName ?: "",
+                    style = TitleSans,
+                    color = Chalk,
+                )
             }
 
-            Column(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                when {
-                    countdown != null -> Unit
-                    isActive && exercise != null -> RepCounterDock(
-                        reps = live.currentReps,
-                        target = live.currentSet?.reps ?: if (isHold) exercise.targetSeconds else exercise.targetReps,
-                        isHold = isHold,
-                        touched = counterTouched,
-                        onDelta = { counterTouched = true; vm.adjustReps(it) },
-                        onOpenNumpad = { repsNumpad = true },
-                        weightKg = live.currentSetWeightKg,
-                        onOpenWeight = { weightNumpad = true },
-                        onSwipeUp = { showThisExercise = true },
+            LiveSheet(
+                expand = sheetExpand,
+                canReveal = canReveal,
+                reveal = {
+                    ThisExerciseContent(
+                        exercise = heroExercise,
+                        planned = heroPlanned,
+                        history = heroHistory,
+                        nowMs = live.nowMs,
                     )
-                    live.allSetsDone -> AllDoneDock()
-                    else -> {
-                        val restElapsed = live.restElapsedSeconds ?: 0
-                        val restTarget = exercise?.takeIf { it.isRestTimed }?.restSeconds
-                        val reached = restTarget != null && restElapsed >= restTarget
-                        RestDock(
-                            elapsedSeconds = restElapsed,
-                            statusText = when {
-                                live.isOpeningWarmup -> "warm-up — start the first set when ready"
-                                reached -> "rested ${exercise?.restLabel} — back to it"
-                                restTarget != null -> "resting · target ${exercise?.restLabel}"
-                                else -> "resting"
-                            },
-                            upNextText = live.upNextExercise?.let { "Up next: ${it.displayName}" },
-                            reached = reached,
+                    heroPlanned?.exerciseId?.let { exId ->
+                        TextButton(onClick = { onOpenExercise(exId) }) {
+                            Text("Open full exercise details", color = Flame)
+                        }
+                    }
+                },
+                peek = {
+                    when {
+                        countdown != null -> Unit
+                        isActive && exercise != null -> RepCounterContent(
+                            reps = live.currentReps,
+                            target = live.currentSet?.reps ?: if (isHold) exercise.targetSeconds else exercise.targetReps,
+                            isHold = isHold,
+                            touched = counterTouched,
+                            onDelta = { counterTouched = true; vm.adjustReps(it) },
+                            onOpenNumpad = { repsNumpad = true },
+                            weightKg = live.currentSetWeightKg,
+                            onOpenWeight = { weightNumpad = true },
+                        )
+                        live.allSetsDone -> AllDoneContent()
+                        else -> RestContent(
+                            elapsedSeconds = live.restElapsedSeconds ?: 0,
+                            isWarmup = live.isOpeningWarmup,
+                            upNextName = live.upNextExercise?.displayName,
+                            upNextIsNew = live.nextIsNewExercise,
                         )
                     }
-                }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    if (isActive) TextButton(onClick = { vm.restartCurrentSet(); counterTouched = false }) { Text("Restart set", color = Ash) }
-                    if (countdown != null) TextButton(onClick = { vm.toggleSegment() }) { Text("Cancel", color = Ash) }
-                    if (canSkip) live.nextExercise?.let { next ->
-                        TextButton(onClick = { guard(PendingAction("Skip anyway") { vm.advanceToNext() }) { vm.advanceToNext() } }) {
-                            Text("Skip to ${next.name}", color = Ash)
+                    // Rate the set you just did — effort logging where it's natural, not in the Journal.
+                    justBankedSet?.let { set ->
+                        RateSetChip(effortLabel = set.effortLabel, onClick = { ratingSet = set })
+                    }
+
+                    if (isActive || countdown != null || canSkip) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(20.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (isActive) {
+                                TextButton(onClick = { vm.restartCurrentSet(); counterTouched = false }) {
+                                    Text("Restart set", color = Ash)
+                                }
+                            }
+                            if (countdown != null) {
+                                TextButton(onClick = { vm.toggleSegment() }) { Text("Cancel", color = Ash) }
+                            }
+                            if (canSkip) live.nextExercise?.let { next ->
+                                TextButton(
+                                    onClick = { guard(PendingAction("Skip anyway") { vm.advanceToNext() }) { vm.advanceToNext() } },
+                                ) {
+                                    Text("Skip to ${next.name}", color = Ash)
+                                }
+                            }
                         }
                     }
-                }
 
-                Button(
-                    onClick = primaryClick,
-                    modifier = Modifier.fillMaxWidth().height(60.dp),
-                    shape = Capsule,
-                    colors = ButtonDefaults.buttonColors(containerColor = Flame, contentColor = Onyx),
-                ) {
-                    Text(primaryLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                }
+                    Button(
+                        onClick = primaryClick,
+                        modifier = Modifier.fillMaxWidth().height(58.dp),
+                        shape = Capsule,
+                        colors = ButtonDefaults.buttonColors(containerColor = Flame, contentColor = Onyx),
+                    ) {
+                        Text(primaryLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
 
-                Row(
-                    Modifier.fillMaxWidth().clip(Capsule).clickable { showJournal = true }.padding(vertical = 10.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Journal", style = MaterialTheme.typography.labelLarge, color = Ash)
-                }
-                Box(Modifier.navigationBarsPadding())
-            }
+                    Row(
+                        Modifier.fillMaxWidth().clip(Capsule).clickable { showJournal = true }.padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Journal", style = MaterialTheme.typography.labelLarge, color = Ash)
+                    }
+                    Box(Modifier.navigationBarsPadding())
+                },
+            )
+        }
+
+        // HUD detail — dims the screen and springs open from the chip's corner.
+        AnimatedVisibility(
+            visible = hudExpanded,
+            enter = fadeIn(tween(150)),
+            exit = fadeOut(tween(150)),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)).clickable { hudExpanded = false })
+        }
+        AnimatedVisibility(
+            visible = hudExpanded,
+            enter = fadeIn(tween(120)) +
+                scaleIn(initialScale = 0.85f, transformOrigin = TransformOrigin(1f, 0f), animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow)),
+            exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.85f, transformOrigin = TransformOrigin(1f, 0f)),
+            modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 92.dp, end = 12.dp),
+        ) {
+            LiveHudPanel(
+                bpm = live.lastBpm,
+                avgHr = s.avgHr,
+                peakHr = s.peakHr,
+                maxHr = live.maxHr,
+                recentBpm = live.recentBpm,
+                kcal = kcalInt,
+                kcalPerMin = kcalPerMin,
+                elapsedMs = live.elapsedMs,
+                watchLabel = if (live.receivingHr) "Watch streaming" else if (watchLink.isUsable) "Watch connected" else "Watch offline",
+                showReconnect = !live.receivingHr,
+                onReconnect = vm::reconnectWatch,
+                onClose = { hudExpanded = false },
+            )
         }
 
         if (live.status == SessionStatus.PAUSED) {
@@ -423,15 +489,6 @@ private fun LiveControls(
             onDismiss = { showJournal = false },
         )
     }
-    if (showThisExercise) {
-        ThisExercisePanel(
-            exercise = heroExercise,
-            planned = heroPlanned,
-            history = heroHistory,
-            nowMs = live.nowMs,
-            onDismiss = { showThisExercise = false },
-        )
-    }
     if (repsNumpad && exercise != null) {
         com.calistapp.app.ui.common.NumberPadSheet(
             title = if (isHold) "Seconds" else "Reps",
@@ -441,12 +498,24 @@ private fun LiveControls(
         )
     }
     if (weightNumpad && exercise != null) {
-        com.calistapp.app.ui.common.NumberPadSheet(
+        com.calistapp.app.ui.common.DecimalPadSheet(
             title = "Added weight",
-            initial = live.currentSetWeightKg.toInt(),
-            unit = "kg",
-            onConfirm = { vm.setAddedWeight(it.toDouble()); weightNumpad = false },
+            initial = live.currentSetWeightKg,
+            onConfirm = { vm.setAddedWeight(it); weightNumpad = false },
             onDismiss = { weightNumpad = false },
+        )
+    }
+    ratingSet?.let { rating ->
+        // Pre-fill from what's already logged, else the plan's target effort for that set.
+        val planTarget = live.plan.slot(rating.slotId)?.sets()?.getOrNull(rating.setIndex - 1)?.effort
+        EffortInputSheet(
+            initialScale = rating.effortScale ?: planTarget?.scale,
+            initialValue = rating.effortValue?.toInt() ?: planTarget?.value?.toInt(),
+            onConfirm = { scale, value ->
+                vm.setSetEffort(rating.slotId, rating.setIndex, scale, value.toDouble())
+                ratingSet = null
+            },
+            onDismiss = { ratingSet = null },
         )
     }
 }

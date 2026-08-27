@@ -8,15 +8,25 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -47,7 +57,7 @@ private val bottomItems = listOf(
     NavItem(Routes.DASHBOARD, "Home", Icons.Filled.Home),
     NavItem(Routes.EXERCISES, "Exercises", Icons.Filled.FitnessCenter),
     NavItem(Routes.HISTORY, "History", Icons.Filled.History),
-    NavItem(Routes.PROFILE, "Profile", Icons.Filled.Person),
+    NavItem(Routes.PROFILE, "Settings", Icons.Filled.Settings),
 )
 
 /**
@@ -84,10 +94,29 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
     val showBar = currentRoute in Routes.bottomBarRoutes
     val sessionRunning by viewModel.sessionRunning.collectAsStateWithLifecycle()
 
+    // Reopening the app drops you back into a running workout. We act on every foreground (and on a
+    // cold start once crash-recovery revives the session), but only from a top-level tab — so the
+    // build→start flow and an intentional minimise (which stays in-app, firing no lifecycle event)
+    // are never hijacked.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner, sessionRunning) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            if (sessionRunning && navController.currentDestination?.route in Routes.bottomBarRoutes) {
+                navController.navigate(Routes.active()) { launchSingleTop = true }
+            }
+        }
+    }
+
     AmbientHost(routeTint = tintFor(currentRoute)) {
         NavHost(
             navController = navController,
             startDestination = Routes.DASHBOARD,
+            // A soft crossfade with a hair of scale, so moving between screens reads as depth rather
+            // than a hard cut — the same "feels considered" the rest of the redesign is going for.
+            enterTransition = { fadeIn(tween(220)) + scaleIn(initialScale = 0.985f, animationSpec = tween(220)) },
+            exitTransition = { fadeOut(tween(150)) },
+            popEnterTransition = { fadeIn(tween(220)) },
+            popExitTransition = { fadeOut(tween(150)) + scaleOut(targetScale = 0.985f, animationSpec = tween(150)) },
             modifier = Modifier
                 .statusBarsPadding()
                 .padding(bottom = if (showBar) NavBarInset else 0.dp),
@@ -219,6 +248,7 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
                 },
                 onAction = { navController.navigate(startDestination(sessionRunning)) },
                 actionDescription = if (sessionRunning) "Open running workout" else "Build a workout",
+                actionIcon = if (sessionRunning) Icons.Filled.PlayArrow else Icons.Filled.FitnessCenter,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding(),

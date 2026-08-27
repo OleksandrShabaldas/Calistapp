@@ -24,7 +24,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -162,8 +161,8 @@ fun DashboardScreen(
 }
 
 /**
- * Editorial title with the first word set in accented italic serif — the reference's signature
- * opening move, and what stops the screen starting with a flat greeting.
+ * A greeting that opens on an accented first word — enough to stop the screen starting flat, in the
+ * app's athletic bold sans rather than the retired editorial serif/italic.
  */
 @Composable
 private fun Greeting(name: String, hasTrained: Boolean) {
@@ -177,7 +176,7 @@ private fun Greeting(name: String, hasTrained: Boolean) {
 
     Text(
         buildAnnotatedString {
-            withStyle(SpanStyle(color = Flame, fontStyle = FontStyle.Italic)) { append(lead) }
+            withStyle(SpanStyle(color = Flame)) { append(lead) }
             append(rest)
         },
         style = MaterialTheme.typography.headlineLarge,

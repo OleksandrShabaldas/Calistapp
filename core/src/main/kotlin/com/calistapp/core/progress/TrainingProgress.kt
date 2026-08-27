@@ -3,7 +3,9 @@ package com.calistapp.core.progress
 import com.calistapp.core.model.SetLog
 import com.calistapp.core.model.UserProfile
 import com.calistapp.core.model.WorkoutPlan
+import com.calistapp.core.model.formatKg
 import com.calistapp.core.time.startOfWeekMs
+import kotlinx.serialization.Serializable
 import java.time.ZoneId
 
 /**
@@ -13,6 +15,7 @@ import java.time.ZoneId
  * what was performed and what it scored, so the query that feeds this deliberately leaves them in
  * the database.
  */
+@Serializable
 data class PerformedSession(
     val id: String,
     val startMs: Long,
@@ -136,6 +139,68 @@ fun summarizeProgress(
         ramp = profile?.let { TrainingLoad.ramp(dailyLoads(sessions, nowMs, it, zone)) },
         recentDays = recentDays,
     )
+}
+
+/** A record beaten in a session — the reason to celebrate on the summary screen. */
+data class PersonalRecord(
+    val exerciseName: String,
+    val kind: RecordKind,
+    /** Human label for the new best: "12 reps", "+22.5 kg", "270 kg volume". */
+    val label: String,
+)
+
+enum class RecordKind { REPS, WEIGHT, VOLUME }
+
+/**
+ * The personal records set in [sessionId], judged against everything performed *before* it — so
+ * re-opening an old session shows the records it set at the time, and the just-finished one shows what
+ * you beat today. A movement's first-ever appearance is not a "record" (there was nothing to beat),
+ * warm-up sets don't count, and each movement contributes at most one headline (weight, else reps,
+ * else volume) so the card stays a short list of wins rather than a wall of near-duplicates.
+ */
+fun personalRecords(allSessions: List<PerformedSession>, sessionId: String): List<PersonalRecord> {
+    val current = allSessions.firstOrNull { it.id == sessionId } ?: return emptyList()
+    val prior = allSessions.filter { it.id != sessionId && it.startMs < current.startMs }
+
+    val currentBests = bestsByExercise(listOf(current))
+    val priorBests = bestsByExercise(prior)
+
+    return currentBests.mapNotNull { (key, cur) ->
+        val prev = priorBests[key] ?: return@mapNotNull null // first time isn't a record
+        when {
+            cur.weightKg > 0.0 && cur.weightKg > prev.weightKg ->
+                PersonalRecord(cur.name, RecordKind.WEIGHT, "+${formatKg(cur.weightKg)} kg")
+            cur.reps > prev.reps ->
+                PersonalRecord(cur.name, RecordKind.REPS, "${cur.reps} reps")
+            cur.volume > 0.0 && cur.volume > prev.volume ->
+                PersonalRecord(cur.name, RecordKind.VOLUME, "${formatKg(cur.volume)} kg volume")
+            else -> null
+        }
+    }
+}
+
+private class Best(val name: String) {
+    var reps = 0
+    var weightKg = 0.0
+    var volume = 0.0
+}
+
+private fun bestsByExercise(sessions: List<PerformedSession>): Map<String, Best> {
+    val byExercise = LinkedHashMap<String, Best>()
+    for (session in sessions) {
+        for (log in session.setLogs) {
+            val key = log.exerciseId.ifBlank { log.exerciseName }
+            if (key.isBlank()) continue
+            val slot = session.plan.slot(log.slotId)
+            if (slot?.isWarmup(log.setIndex) == true) continue
+            val best = byExercise.getOrPut(key) { Best(log.exerciseName) }
+            val kg = slot?.addedWeightKg ?: 0.0
+            best.reps = maxOf(best.reps, log.reps)
+            best.weightKg = maxOf(best.weightKg, kg)
+            best.volume = maxOf(best.volume, kg * log.reps)
+        }
+    }
+    return byExercise
 }
 
 /** Length of the day-dot strip on the stats screen. */

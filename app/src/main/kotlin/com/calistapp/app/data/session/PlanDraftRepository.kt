@@ -1,14 +1,21 @@
 package com.calistapp.app.data.session
 
+import com.calistapp.app.di.ApplicationScope
 import com.calistapp.core.calorie.ExerciseIntensity
 import com.calistapp.core.model.Exercise
 import com.calistapp.core.model.ExerciseMeasure
 import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.WorkoutPlan
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -18,14 +25,33 @@ import javax.inject.Singleton
  *
  * Held in memory rather than persisted: a draft only needs to survive navigation between the
  * planner, the gallery and the active screen. The plan itself *is* persisted once a session runs —
- * [com.calistapp.core.model.WorkoutSession.plan] carries it into history. Reusable saved workouts
- * are the natural next step and would slot in behind this same interface.
+ * [com.calistapp.core.model.WorkoutSession.plan] carries it into history.
+ *
+ * When the draft was opened from a saved workout (see [originId]), edits are **streamed back** to
+ * that workout automatically — editing a programme you tapped in the list shouldn't feel like it
+ * forks a new copy and then nag you to "save" it again.
  */
 @Singleton
-class PlanDraftRepository @Inject constructor() {
+class PlanDraftRepository @Inject constructor(
+    @ApplicationScope private val scope: CoroutineScope,
+    private val savedWorkouts: SavedWorkoutRepository,
+) {
 
     private val _draft = MutableStateFlow(WorkoutPlan(id = UUID.randomUUID().toString()))
     val draft: StateFlow<WorkoutPlan> = _draft.asStateFlow()
+
+    /** The saved workout this draft is backed by, or null for a scratch draft. */
+    private val _originId = MutableStateFlow<String?>(null)
+    val originId: StateFlow<String?> = _originId.asStateFlow()
+
+    @OptIn(FlowPreview::class)
+    private val autoSync = scope.launch {
+        // Persist edits back to the backing workout, debounced so a run of stepper taps is one write.
+        combine(_draft, _originId) { plan, origin -> origin?.takeIf { !plan.isEmpty }?.let { it to plan } }
+            .distinctUntilChanged()
+            .debounce(500)
+            .collect { pair -> pair?.let { (origin, plan) -> savedWorkouts.syncPlan(origin, plan) } }
+    }
 
     /**
      * Append a gallery exercise. Its physical profile is derived once, here, and baked into the
@@ -76,17 +102,23 @@ class PlanDraftRepository @Inject constructor() {
     fun rename(name: String) = _draft.update { it.copy(name = name) }
 
     /**
-     * Replace the draft wholesale — loading a saved workout.
-     *
-     * Given a fresh id so the loaded copy is a new plan rather than the stored one: editing what you
-     * loaded must not write back to the saved workout unless you deliberately save again.
+     * Replace the draft wholesale — loading a saved workout. Pass [originSavedId] when the draft is
+     * backed by a stored workout, so subsequent edits sync straight back to it. The plan itself gets a
+     * fresh id (it's a working copy); the origin is what ties it to the saved row.
      */
-    fun replaceWith(plan: WorkoutPlan) {
+    fun replaceWith(plan: WorkoutPlan, originSavedId: String? = null) {
+        _originId.value = originSavedId
         _draft.value = plan.copy(id = UUID.randomUUID().toString())
     }
 
-    /** Start a fresh draft — called once a workout has been handed to the session controller. */
+    /** Mark the current draft as backed by saved workout [id] — set right after a first Save. */
+    fun markSavedAs(id: String) {
+        _originId.value = id
+    }
+
+    /** Start a fresh, unbacked draft — called once a workout has been handed to the session controller. */
     fun clear() {
+        _originId.value = null
         _draft.value = WorkoutPlan(id = UUID.randomUUID().toString())
     }
 }

@@ -20,7 +20,7 @@ class InsightsRepository @Inject constructor(
         session: WorkoutSession,
         summary: SessionSummary,
         profile: UserProfile,
-    ): AiResult = gemini.generate(buildSessionPrompt(session, summary, profile))
+    ): AiResult = gemini.generate(buildSessionPrompt(session, summary, profile), AiModelTier.THINKING)
 
     private fun buildSessionPrompt(
         session: WorkoutSession,

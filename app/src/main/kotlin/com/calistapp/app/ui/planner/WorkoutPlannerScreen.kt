@@ -48,6 +48,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.calistapp.app.ui.common.DecimalPadSheet
 import com.calistapp.app.ui.common.EditableStepper
 import com.calistapp.app.ui.common.GlassCard
 import com.calistapp.app.ui.common.NumberPadSheet
@@ -92,6 +94,7 @@ import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.PlannedSet
 import com.calistapp.core.model.SavedWorkout
 import com.calistapp.core.model.WorkoutStyle
+import com.calistapp.core.model.formatKg
 
 /**
  * Build a workout up front: pick the exercises, set sets and reps, order them. What you build here
@@ -239,7 +242,6 @@ fun WorkoutPlannerScreen(
                             imageUrls = thumbnails[slot.exerciseId].orEmpty(),
                             onOpen = { onOpenExercise(slot.exerciseId) },
                             onTarget = { viewModel.setTarget(slot.slotId, it) },
-                            onRest = { viewModel.setRest(slot.slotId, it) },
                             onToggleMeasure = { viewModel.toggleMeasure(slot.slotId) },
                             onToggleWeighted = { viewModel.toggleWeighted(slot.slotId) },
                             onWeight = { viewModel.setAddedWeight(slot.slotId, it) },
@@ -430,7 +432,6 @@ private fun PlannedExerciseCard(
     imageUrls: List<String>,
     onOpen: () -> Unit,
     onTarget: (Int) -> Unit,
-    onRest: (Int) -> Unit,
     /** False for the first exercise and inside a circuit, where a superset means nothing. */
     canSuperset: Boolean,
     inSuperset: Boolean,
@@ -490,8 +491,17 @@ private fun PlannedExerciseCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                // In a circuit, sets-per-exercise is the round count (shown in the plan header), so the
+                // per-exercise line is just the rep/second target and any load — not the slot's unused
+                // `targetSets`, which is what used to read as a mysterious "3 ×".
+                val detail = if (showSets) {
+                    slot.targetLabel
+                } else {
+                    val unit = if (slot.measure == ExerciseMeasure.SECONDS) "s" else " reps"
+                    if (slot.isWeighted) "$target$unit · +${formatKg(slot.addedWeightKg)} kg" else "$target$unit"
+                }
                 Text(
-                    "${slot.bodyPart.displayName} · ${slot.targetLabel}",
+                    "${slot.bodyPart.displayName} · $detail",
                     style = MaterialTheme.typography.bodySmall,
                     color = Ash,
                     maxLines = 1,
@@ -565,16 +575,6 @@ private fun PlannedExerciseCard(
                         )
                     }
                 }
-
-                // Rest belongs to the movement: heavy pulling wants minutes, a finisher wants seconds.
-                // Stepping to zero turns the timer off for this exercise.
-                Stepper(
-                    label = "Rest",
-                    value = slot.restSeconds,
-                    onChange = onRest,
-                    step = 15,
-                    format = { if (it <= 0) "off" else "${it / 60}:${(it % 60).toString().padStart(2, '0')}" },
-                )
 
                 // Superset is offered only where it means something — it needs a movement above it to
                 // pair with, and a circuit already rotates everything.
@@ -665,11 +665,10 @@ private fun PerSetEditor(
             onConfirm = { onSetReps(e.index, it); editing = null },
             onDismiss = { editing = null },
         )
-        is SetField.Weight -> NumberPadSheet(
+        is SetField.Weight -> DecimalPadSheet(
             title = "Added weight",
-            initial = e.value.toInt(),
-            unit = "kg",
-            onConfirm = { onSetWeight(e.index, it.toDouble()); editing = null },
+            initial = e.value,
+            onConfirm = { onSetWeight(e.index, it); editing = null },
             onDismiss = { editing = null },
         )
         is SetField.Effort -> EffortPad(
@@ -829,6 +828,11 @@ private fun ExercisePicker(
     val plan by viewModel.plan.collectAsStateWithLifecycle()
     val favourites by viewModel.favourites.collectAsStateWithLifecycle()
     var showFilters by remember { mutableStateOf(false) }
+    val resultsState = rememberLazyListState()
+
+    // A new search should show its best matches, which are at the top — the list used to keep the old
+    // scroll offset, landing you in the middle of results you hadn't seen the start of.
+    LaunchedEffect(filters.query) { resultsState.scrollToItem(0) }
 
     // The picker is a step *inside* the planner, not a destination of its own, so back closes it and
     // returns to the plan rather than popping the planner off the stack entirely.
@@ -882,6 +886,7 @@ private fun ExercisePicker(
 
         LazyColumn(
             Modifier.weight(1f),
+            state = resultsState,
             verticalArrangement = Arrangement.spacedBy(6.dp),
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {

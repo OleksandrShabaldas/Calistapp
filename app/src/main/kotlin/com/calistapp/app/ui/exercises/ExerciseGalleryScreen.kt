@@ -14,35 +14,31 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
-import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -83,10 +79,14 @@ fun ExerciseGalleryScreen(
     val recent by viewModel.recent.collectAsStateWithLifecycle()
     val filters by viewModel.filters.collectAsStateWithLifecycle()
     val total by viewModel.totalCount.collectAsStateWithLifecycle()
-    val enrichment by viewModel.enrichmentProgress.collectAsStateWithLifecycle()
     val facets by viewModel.facets.collectAsStateWithLifecycle()
     val favourites by viewModel.favourites.collectAsStateWithLifecycle()
     var showFilters by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+
+    // A new search should land on its best matches at the top; the shared scroll position used to
+    // leave you halfway down results you never saw the start of.
+    LaunchedEffect(filters.query) { listState.scrollToItem(0) }
 
     // Recent belongs to the default browse view — it shouldn't compete with a search or a filter.
     val showRecent = recent.isNotEmpty() && filters.query.isBlank() && filters.activeCount == 0
@@ -103,6 +103,7 @@ fun ExerciseGalleryScreen(
     Box(Modifier.fillMaxSize()) {
     LazyColumn(
         Modifier.fillMaxSize(),
+        state = listState,
         contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -174,13 +175,6 @@ fun ExerciseGalleryScreen(
                 )
             }
         }
-        item {
-            EnrichAllCard(
-                progress = enrichment,
-                onStart = viewModel::startEnrichAll,
-                onStop = viewModel::stopEnrichAll,
-            )
-        }
         items(exercises, key = { it.id }) { exercise ->
             ExerciseCard(
                 exercise = exercise,
@@ -213,54 +207,6 @@ fun ExerciseGalleryScreen(
                 .navigationBarsPadding()
                 .padding(end = 16.dp, bottom = 84.dp),
         )
-    }
-}
-
-@Composable
-private fun EnrichAllCard(
-    progress: com.calistapp.app.data.exercise.ExerciseEnrichmentManager.Progress,
-    onStart: () -> Unit,
-    onStop: () -> Unit,
-) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        androidx.compose.foundation.layout.Column(
-            Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Text("AI coaching for the whole library", fontWeight = FontWeight.SemiBold)
-            }
-            if (progress.running) {
-                Text(
-                    "Enriching ${progress.done} / ${progress.total}…",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                LinearProgressIndicator(
-                    progress = { if (progress.total > 0) progress.done.toFloat() / progress.total else 0f },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) { Text("Stop") }
-            } else {
-                Text(
-                    "Generate an overview, mistakes and tips for every exercise. Runs in the background and " +
-                        "uses your Gemini quota; results are cached so it only runs once each.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (progress.done > 0) "Continue enriching" else "Enrich all with AI")
-                }
-            }
-            progress.lastError?.let {
-                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-            }
-        }
     }
 }
 

@@ -45,6 +45,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -101,7 +102,7 @@ fun ExerciseDetailScreen(
     val aiState by viewModel.aiState.collectAsStateWithLifecycle()
 
     val e = exercise
-    var tab by remember { mutableStateOf(DetailTab.GUIDE) }
+    var tab by rememberSaveable { mutableStateOf(DetailTab.GUIDE) }
     var showShare by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
@@ -193,7 +194,7 @@ private fun TopBar(
         Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RoundIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack)
+        com.calistapp.app.ui.common.BackButton(onBack)
         Spacer(Modifier.weight(1f))
         RoundIcon(Icons.Filled.Edit, "Edit", onEdit)
         Spacer(Modifier.size(6.dp))
@@ -514,33 +515,24 @@ private fun HistoryRow(entry: ExerciseHistoryEntry, onOpenSession: (String) -> U
 
 @Composable
 private fun AiCard(aiState: ExerciseAiState, onEnrich: () -> Unit) {
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(FlameSoft).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+    com.calistapp.app.ui.common.AiActionCard(
+        title = "AI coaching notes",
+        loading = aiState is ExerciseAiState.Loading,
+        error = (aiState as? ExerciseAiState.Error)?.message,
+        actionLabel = "Generate",
+        onAction = onEnrich,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(Icons.Filled.AutoAwesome, null, tint = Flame, modifier = Modifier.size(18.dp))
-            Text("AI coaching notes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Chalk)
-        }
-        when (aiState) {
-            is ExerciseAiState.Loading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Flame)
-                Text("Generating…", color = Ash, style = MaterialTheme.typography.bodyMedium)
-            }
-            is ExerciseAiState.Error -> Text(aiState.message, color = com.calistapp.app.ui.theme.Coral, style = MaterialTheme.typography.bodyMedium)
-            ExerciseAiState.Idle -> Text("Generate an overview, mistakes and tips for this movement.", color = Ash, style = MaterialTheme.typography.bodyMedium)
-        }
-        if (aiState !is ExerciseAiState.Loading) {
-            Box(Modifier.clip(Capsule).background(Flame).clickable(onClick = onEnrich).padding(horizontal = 18.dp, vertical = 10.dp)) {
-                Text("Generate", color = Onyx, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
-            }
-        }
+        Text(
+            "Generate an overview, mistakes and tips for this movement.",
+            color = Ash,
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
 
 @Composable
 private fun TrendChart(trend: List<ExerciseTrendPoint>, weighted: Boolean) {
-    var window by remember { mutableStateOf(TrendWindow.ALL) }
+    var window by rememberSaveable { mutableStateOf(TrendWindow.ALL) }
     val now = System.currentTimeMillis()
     val cutoff = when (window) {
         TrendWindow.D30 -> now - 30L * 86_400_000

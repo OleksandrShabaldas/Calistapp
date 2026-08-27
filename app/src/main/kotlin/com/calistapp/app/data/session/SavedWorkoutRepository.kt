@@ -43,6 +43,16 @@ class SavedWorkoutRepository @Inject constructor(
 
     suspend fun markUsed(id: String) = dao.markUsed(id, System.currentTimeMillis())
 
+    /**
+     * Stream an edit back onto an existing saved workout, keeping its created/last-used timestamps —
+     * the auto-sync behind editing a workout you opened from the list, as opposed to [save], which
+     * mints a fresh row and resets its history.
+     */
+    suspend fun syncPlan(id: String, plan: WorkoutPlan) {
+        val name = plan.name.ifBlank { "Workout" }
+        dao.updateContent(id, name, json.encodeToString(WorkoutPlan.serializer(), plan.copy(name = name)))
+    }
+
     suspend fun delete(id: String) = dao.delete(id)
 
     /**

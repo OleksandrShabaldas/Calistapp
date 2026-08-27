@@ -128,37 +128,45 @@ class WorkoutPlannerViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
-     * Whether the draft as it stands is already stored — drives the Save button's "Saved" state.
-     * Compared ignoring the plan id (a loaded copy gets a fresh one), so it flips back to unsaved the
-     * moment you change anything.
+     * Whether the draft is backed by a saved workout — drives the Save button's "Saved" state. Once
+     * a draft is backed (loaded from the list, or saved once), edits stream back automatically, so
+     * this stays lit through editing rather than flipping to "Save" and implying a fresh copy.
      */
     val isSaved: StateFlow<Boolean> =
-        combine(drafts.draft, savedWorkouts) { plan, saved ->
-            !plan.isEmpty && saved.any { samePlan(it.plan, plan) }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        drafts.originId.map { it != null }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /**
-     * Store the draft. Overwrites a saved workout with the same name — or the one this draft already
-     * matches — instead of piling up a duplicate every time Save is tapped. Renaming the draft to the
-     * saved name is what lets [isSaved] light up straight afterwards.
+     * First-time Save for a scratch draft: store it, and back the draft with it so every later edit
+     * auto-syncs (no re-tapping Save, no duplicate). Re-saving an already-backed draft (e.g. to
+     * rename) overwrites the same row via its origin id rather than minting a new one.
      */
     fun saveCurrentWorkout(name: String) {
         val plan = drafts.draft.value
         if (plan.isEmpty) return
         val trimmed = name.trim().ifBlank { "Workout" }
-        val existingId = savedWorkouts.value.firstOrNull {
-            it.name.equals(trimmed, ignoreCase = true) || samePlan(it.plan, plan)
-        }?.id
+        // Re-save the same row (origin, or a name/plan match) keeping its history; otherwise a new one.
+        val existingId = drafts.originId.value
+            ?: savedWorkouts.value.firstOrNull {
+                it.name.equals(trimmed, ignoreCase = true) || samePlan(it.plan, plan)
+            }?.id
         drafts.rename(trimmed)
-        viewModelScope.launch { savedWorkouts0.save(trimmed, plan.copy(name = trimmed), existingId) }
+        if (existingId != null) {
+            drafts.markSavedAs(existingId)
+            viewModelScope.launch { savedWorkouts0.syncPlan(existingId, plan.copy(name = trimmed)) }
+        } else {
+            val id = UUID.randomUUID().toString()
+            drafts.markSavedAs(id)
+            viewModelScope.launch { savedWorkouts0.save(trimmed, plan.copy(name = trimmed), id) }
+        }
     }
 
     /** Two plans are "the same saved workout" when they match apart from the plan id. */
     private fun samePlan(a: WorkoutPlan, b: WorkoutPlan): Boolean = a.copy(id = "") == b.copy(id = "")
 
-    /** Load a saved workout into the draft, and remember that it was used. */
+    /** Load a saved workout into the draft (backed by it, so edits sync), and mark it used. */
     fun loadWorkout(saved: SavedWorkout) {
-        drafts.replaceWith(saved.plan)
+        drafts.replaceWith(saved.plan, originSavedId = saved.id)
         viewModelScope.launch { savedWorkouts0.markUsed(saved.id) }
     }
 
@@ -212,10 +220,6 @@ class WorkoutPlannerViewModel @Inject constructor(
             ExerciseMeasure.SECONDS -> it.copy(targetSeconds = value.coerceIn(5, 600))
         }
     }
-
-    /** Rest after a set of this movement. Zero turns the timer off for it. */
-    fun setRest(slotId: String, seconds: Int) =
-        drafts.update(slotId) { it.copy(restSeconds = seconds.coerceIn(0, 600)) }
 
     /**
      * Pair this exercise with the one above it into a superset, or split it back out.
