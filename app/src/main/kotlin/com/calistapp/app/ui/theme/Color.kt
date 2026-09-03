@@ -24,6 +24,15 @@ val Flame = Color(0xFFEE6C2B)
 val FlameDeep = Color(0xFFC0521C)
 val FlameSoft = Color(0x26EE6C2B)
 
+/**
+ * The hotter *display* orange pair from the home-screen prototype — a touch brighter and more
+ * saturated than [Flame]. Used only for the dashboard's hero elements (the weekly bars, the Start
+ * button, the goal/gauge rings and the streak pill), where a vivid vertical [FlameGlow] → [FlameHot]
+ * gradient reads as energy. [Flame] stays the app-wide accent everywhere else.
+ */
+val FlameHot = Color(0xFFFF6A1A)
+val FlameGlow = Color(0xFFFF8A3D)
+
 /** Near-white text — neutral and athletic. */
 val Chalk = Color(0xFFF4F4F5)
 val Ash = Color(0xFF8A8A8E)

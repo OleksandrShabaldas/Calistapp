@@ -1,6 +1,7 @@
 package com.calistapp.app.ui.profile
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -54,6 +55,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.health.connect.client.PermissionController
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.calistapp.app.data.ai.AiSettings
@@ -78,7 +80,7 @@ private enum class SettingsCategory(
     val icon: ImageVector,
 ) {
     PROFILE("Profile & body", "The metrics that personalise every calorie estimate", Icons.Filled.Person),
-    GOALS("Weekly goals", "Calories and sessions you're aiming for each week", Icons.Filled.Flag),
+    GOALS("Goals", "Your daily step goal (drives the streak) and weekly targets", Icons.Filled.Flag),
     AI("AI", "API key, and the models for analysis and coaching", Icons.Filled.AutoAwesome),
     OFFLINE("Offline media", "Download exercise videos to use the app with no connection", Icons.Filled.CloudDownload),
     FITPAL("FitPal sync", "Send workouts to FitPal and import your steps", Icons.Filled.Sync),
@@ -302,7 +304,54 @@ private fun ProfileDetail(viewModel: ProfileViewModel) {
 @Composable
 private fun GoalsDetail(viewModel: ProfileViewModel) {
     val goals by viewModel.goals.collectAsStateWithLifecycle()
+    val sleepConnected by viewModel.sleepConnected.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) { viewModel.refreshSleepConnected() }
+
     GoalsSection(goals = goals, onSave = viewModel::saveGoals)
+    SleepConnectSection(
+        available = viewModel.sleepAvailable(),
+        connected = sleepConnected,
+        permissions = viewModel.sleepPermissions,
+        onResult = viewModel::onSleepPermissionResult,
+    )
+}
+
+/**
+ * The "connect sleep" control behind the home screen's readiness gauge. Health Connect gates the
+ * last-night sleep read behind its own permission dialog; granting it lets the AI factor sleep into
+ * readiness. It's optional — without it, readiness reads training load alone.
+ */
+@Composable
+private fun SleepConnectSection(
+    available: Boolean,
+    connected: Boolean,
+    permissions: Set<String>,
+    onResult: () -> Unit,
+) {
+    val launcher = rememberLauncherForActivityResult(
+        PermissionController.createRequestPermissionResultContract(),
+    ) { onResult() }
+
+    SectionCard(title = "Training readiness") {
+        Text(
+            "The home screen's readiness gauge is sharper when it can see last night's sleep. " +
+                "Calistapp reads it from Health Connect — nothing is stored or sent anywhere.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        when {
+            !available -> Text(
+                "Health Connect isn't available on this device, so readiness uses training load only.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            connected -> Text("Sleep connected ✓", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+            else -> Button(onClick = { launcher.launch(permissions) }, modifier = Modifier.fillMaxWidth()) {
+                Text("Connect sleep")
+            }
+        }
+    }
 }
 
 /**
@@ -713,19 +762,28 @@ private fun GoalsSection(goals: TrainingGoals?, onSave: (TrainingGoals) -> Unit)
 
     var kcal by rememberSaveable(goals) { mutableStateOf(goals.weeklyKcal.toString()) }
     var sessions by rememberSaveable(goals) { mutableStateOf(goals.weeklySessions.toString()) }
+    var steps by rememberSaveable(goals) { mutableStateOf(goals.dailyStepGoal.toString()) }
 
     val edited = TrainingGoals(
         weeklyKcal = kcal.toIntOrNull() ?: -1,
         weeklySessions = sessions.toIntOrNull() ?: -1,
+        dailyStepGoal = steps.toIntOrNull() ?: -1,
     )
     val changed = edited != goals
 
-    SectionCard(title = "Weekly goals") {
+    SectionCard(title = "Goals") {
         Text(
-            "What the ring on the home screen fills against. A calendar week, Monday to Sunday.",
+            "The daily step goal drives your streak: the app turns it into a calorie goal and counts " +
+                "walking and workouts against it, so a training day needs fewer steps. The weekly goals " +
+                "feed the stats screen. A calendar week, Monday to Sunday.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        NumberField(
+            label = "Steps per day",
+            value = steps,
+            error = "Enter 1,000–50,000".takeIf { edited.dailyStepGoal !in TrainingGoals.DAILY_STEP_GOAL_RANGE },
+        ) { steps = it }
         NumberField(
             label = "Calories per week",
             value = kcal,

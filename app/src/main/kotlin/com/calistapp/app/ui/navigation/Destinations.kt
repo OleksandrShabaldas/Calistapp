@@ -17,6 +17,9 @@ object Routes {
     /** Pre-flight: warm-up, stretch, session settings and timers, then start. */
     const val SETUP = "setup"
 
+    /** Plan the week — assign saved workouts to weekdays and reschedule this week. */
+    const val SCHEDULE = "schedule"
+
     /** A saved workout on its own screen — exercises, history, start, edit. */
     const val SAVED_WORKOUT = "savedWorkout/{id}"
     const val SAVED_WORKOUT_ARG = "id"

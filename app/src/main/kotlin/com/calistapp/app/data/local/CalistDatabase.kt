@@ -12,8 +12,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         WorkoutTemplateEntity::class,
         WeightEntryEntity::class,
         StepDayEntity::class,
+        ScheduledWorkoutEntity::class,
+        ScheduleOverrideEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 abstract class CalistDatabase : RoomDatabase() {
@@ -22,6 +24,37 @@ abstract class CalistDatabase : RoomDatabase() {
     abstract fun workoutTemplateDao(): WorkoutTemplateDao
     abstract fun weightDao(): WeightDao
     abstract fun stepDayDao(): StepDayDao
+    abstract fun scheduleDao(): ScheduleDao
+}
+
+/**
+ * Adds workout scheduling: recurring weekly rules (`scheduled_workouts`) and per-week reschedules
+ * (`schedule_overrides`). Two new tables only — nothing existing is touched.
+ */
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS scheduled_workouts (
+                id TEXT NOT NULL PRIMARY KEY,
+                savedWorkoutId TEXT NOT NULL,
+                dayOfWeek INTEGER NOT NULL
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS schedule_overrides (
+                id TEXT NOT NULL PRIMARY KEY,
+                weekStartMs INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                sourceDayOfWeek INTEGER NOT NULL,
+                targetDayOfWeek INTEGER,
+                savedWorkoutId TEXT NOT NULL
+            )
+            """.trimIndent(),
+        )
+    }
 }
 
 /**

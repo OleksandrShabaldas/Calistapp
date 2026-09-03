@@ -9,6 +9,8 @@ import com.calistapp.app.data.local.MIGRATION_4_5
 import com.calistapp.app.data.local.MIGRATION_5_6
 import com.calistapp.app.data.local.MIGRATION_6_7
 import com.calistapp.app.data.local.MIGRATION_7_8
+import com.calistapp.app.data.local.MIGRATION_8_9
+import com.calistapp.app.data.local.ScheduleDao
 import com.calistapp.app.data.local.SessionDao
 import com.calistapp.app.data.local.StepDayDao
 import com.calistapp.app.data.local.WeightDao
@@ -28,7 +30,10 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): CalistDatabase =
         Room.databaseBuilder(context, CalistDatabase::class.java, "calistapp.db")
-            .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+            .addMigrations(
+                MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
+                MIGRATION_8_9,
+            )
             // Still a backstop for the older dev-only schema jumps that never had migrations.
             .fallbackToDestructiveMigration()
             .build()
@@ -47,4 +52,7 @@ object DatabaseModule {
 
     @Provides
     fun provideStepDayDao(db: CalistDatabase): StepDayDao = db.stepDayDao()
+
+    @Provides
+    fun provideScheduleDao(db: CalistDatabase): ScheduleDao = db.scheduleDao()
 }

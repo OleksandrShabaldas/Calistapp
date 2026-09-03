@@ -15,6 +15,8 @@ import com.calistapp.app.data.fitpal.PushOutcome
 import com.calistapp.app.data.fitpal.StepsImportRepository
 import com.calistapp.app.data.profile.ProfileRepository
 import com.calistapp.app.data.profile.WeightRepository
+import com.calistapp.app.data.recommend.RecommendationsRepository
+import com.calistapp.app.data.recommend.SleepRepository
 import com.calistapp.app.data.session.SessionRepository
 import com.calistapp.core.model.Exercise
 import com.calistapp.core.model.TrainingGoals
@@ -44,6 +46,8 @@ class ProfileViewModel @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val fitPalExportManager: FitPalExportManager,
     private val stepsImportRepository: StepsImportRepository,
+    private val sleepRepository: SleepRepository,
+    private val recommendationsRepository: RecommendationsRepository,
     private val json: Json,
     exerciseRepository: ExerciseRepository,
 ) : ViewModel() {
@@ -75,6 +79,29 @@ class ProfileViewModel @Inject constructor(
 
     fun saveGoals(goals: TrainingGoals) {
         viewModelScope.launch { profileRepository.saveGoals(goals) }
+    }
+
+    // ---- Training readiness: last-night sleep via Health Connect --------------------------------
+
+    /** The Health Connect read permission the readiness widget asks for. */
+    val sleepPermissions: Set<String> = sleepRepository.permissions
+
+    /** Whether Health Connect is installed/usable on this device. */
+    fun sleepAvailable(): Boolean = sleepRepository.isAvailable()
+
+    private val _sleepConnected = MutableStateFlow(false)
+    val sleepConnected: StateFlow<Boolean> = _sleepConnected.asStateFlow()
+
+    fun refreshSleepConnected() {
+        viewModelScope.launch { _sleepConnected.value = sleepRepository.hasPermission() }
+    }
+
+    /** After the user grants sleep access, re-check and rebuild the recommendation with it. */
+    fun onSleepPermissionResult() {
+        viewModelScope.launch {
+            _sleepConnected.value = sleepRepository.hasPermission()
+            runCatching { recommendationsRepository.refresh(force = true) }
+        }
     }
 
     /** The dataset exercises the user has hidden from the library — the restore list. */

@@ -1,14 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- So we can reach FitPal's sync ContentProvider (Android 11+ package visibility). -->
+    <!-- So we can reach FitPal's sync ContentProvider + Health Connect (Android 11+ visibility). -->
     <queries>
         <package android:name="com.fitpal.app" />
+        <package android:name="com.google.android.apps.healthdata" />
     </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Coarse location is enough to look up local weather/UV/air for the training-recommendations
+         widget; it's optional and requested at runtime. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <!-- The rest timer's alert. Mid-set you aren't looking at the screen. -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <!--
@@ -22,6 +27,9 @@
     -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Last night's sleep, read from Health Connect for the training-readiness widget. Optional:
+         denied or unavailable, readiness falls back to training load alone. -->
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
 
     <application
         android:name=".CalistApplication"
@@ -40,7 +48,23 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Health Connect asks the app to explain why it wants sleep (pre-Android 14). -->
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
         </activity>
+
+        <!-- Health Connect permission-usage entry point (Android 14+). -->
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity=".MainActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- Holds the process open for the duration of a workout. -->
         <service

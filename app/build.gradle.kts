@@ -34,8 +34,8 @@ android {
         // after 0.9.x is 1.0.0, never 0.10.0. Keeps :app and :wear in lockstep since they always
         // ship together. versionCode = major*100 + minor*10 + patch, so it's derived from
         // versionName rather than tracked separately.
-        versionCode = 60
-        versionName = "0.6.0"
+        versionCode = 70
+        versionName = "0.7.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -115,6 +115,10 @@ dependencies {
 
     implementation(libs.coil.compose)
     implementation(libs.coil.gif)
+
+    // Training-recommendations widget: last-night sleep + weather by location.
+    implementation(libs.androidx.health.connect)
+    implementation(libs.play.services.location)
 
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)

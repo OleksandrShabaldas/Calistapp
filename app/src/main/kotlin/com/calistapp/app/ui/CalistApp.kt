@@ -47,6 +47,7 @@ import com.calistapp.app.ui.navigation.Routes
 import com.calistapp.app.ui.planner.SavedWorkoutDetailScreen
 import com.calistapp.app.ui.planner.WorkoutPlannerScreen
 import com.calistapp.app.ui.profile.ProfileScreen
+import com.calistapp.app.ui.schedule.ScheduleScreen
 import com.calistapp.app.ui.session.ActiveSessionScreen
 import com.calistapp.app.ui.session.SessionSetupScreen
 import com.calistapp.app.ui.theme.Amber
@@ -124,8 +125,9 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
             composable(Routes.DASHBOARD) {
                 DashboardScreen(
                     onStartWorkout = { navController.navigate(startDestination(sessionRunning)) },
-                    onOpenSession = { id -> navController.navigate(Routes.detail(id)) },
+                    onOpenWorkout = { id -> navController.navigate(Routes.savedWorkout(id)) },
                     onOpenProfile = { navController.navigate(Routes.PROFILE) },
+                    onOpenSchedule = { navController.navigate(Routes.SCHEDULE) },
                 )
             }
             composable(Routes.EXERCISES) {
@@ -204,6 +206,12 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
                     onBack = { navController.popBackStack() },
                     onOpenExercise = { id -> navController.navigate(Routes.exerciseDetail(id)) },
                     onOpenSavedWorkout = { id -> navController.navigate(Routes.savedWorkout(id)) },
+                )
+            }
+            composable(Routes.SCHEDULE) {
+                ScheduleScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenPlanner = { navController.navigate(Routes.PLANNER) },
                 )
             }
             composable(Routes.SETUP) {
