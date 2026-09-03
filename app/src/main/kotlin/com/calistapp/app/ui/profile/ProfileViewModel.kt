@@ -9,6 +9,10 @@ import com.calistapp.app.data.exercise.ExerciseEnrichmentManager
 import com.calistapp.app.data.exercise.ExercisePrefsRepository
 import com.calistapp.app.data.exercise.ExerciseRepository
 import com.calistapp.app.data.exercise.MediaDownloadManager
+import com.calistapp.app.data.fitpal.FitPalExportManager
+import com.calistapp.app.data.fitpal.ImportOutcome
+import com.calistapp.app.data.fitpal.PushOutcome
+import com.calistapp.app.data.fitpal.StepsImportRepository
 import com.calistapp.app.data.profile.ProfileRepository
 import com.calistapp.app.data.profile.WeightRepository
 import com.calistapp.app.data.session.SessionRepository
@@ -17,8 +21,10 @@ import com.calistapp.core.model.TrainingGoals
 import com.calistapp.core.model.UserProfile
 import com.calistapp.core.progress.PerformedSession
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
@@ -36,6 +42,8 @@ class ProfileViewModel @Inject constructor(
     private val mediaDownloads: MediaDownloadManager,
     private val enrichmentManager: ExerciseEnrichmentManager,
     private val sessionRepository: SessionRepository,
+    private val fitPalExportManager: FitPalExportManager,
+    private val stepsImportRepository: StepsImportRepository,
     private val json: Json,
     exerciseRepository: ExerciseRepository,
 ) : ViewModel() {
@@ -109,6 +117,57 @@ class ProfileViewModel @Inject constructor(
     fun stopMediaDownload() = mediaDownloads.stop()
     fun clearMediaDownload() = mediaDownloads.clear()
     fun refreshMediaSize() = mediaDownloads.refreshSize()
+
+    // ---- FitPal sync ------------------------------------------------------------------------------
+
+    /** Transient state for the two manual buttons in the FitPal section. */
+    data class FitPalSyncState(val busy: Boolean = false, val message: String? = null)
+
+    private val _fitPalSync = MutableStateFlow(FitPalSyncState())
+    val fitPalSync: StateFlow<FitPalSyncState> = _fitPalSync.asStateFlow()
+
+    /** Finished workouts still waiting to reach FitPal. */
+    val unsyncedWorkoutCount: StateFlow<Int> = sessionRepository.observeUnsyncedToFitpalCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /** When steps were last imported from FitPal (epoch millis; null = never). */
+    val lastStepImportAt: StateFlow<Long?> = stepsImportRepository.observeLastImportedAt()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Manual "Transfer to FitPal" — resend every finished workout not yet delivered. */
+    fun transferWorkoutsToFitPal() {
+        if (_fitPalSync.value.busy) return
+        viewModelScope.launch {
+            _fitPalSync.value = FitPalSyncState(busy = true)
+            val msg = when (val r = fitPalExportManager.pushAllUnsynced()) {
+                is PushOutcome.Pushed ->
+                    if (r.count > 0) "Sent ${r.count} workout${if (r.count == 1) "" else "s"} to FitPal"
+                    else "Nothing new to send"
+                PushOutcome.NothingToDo -> "All workouts already in FitPal"
+                PushOutcome.Unavailable -> "FitPal isn't installed"
+            }
+            _fitPalSync.value = FitPalSyncState(busy = false, message = msg)
+        }
+    }
+
+    /** Manual "Import steps from FitPal" — re-pull the recent window of days. */
+    fun importStepsFromFitPal() {
+        if (_fitPalSync.value.busy) return
+        viewModelScope.launch {
+            _fitPalSync.value = FitPalSyncState(busy = true)
+            val msg = when (val r = stepsImportRepository.reconcileRecent()) {
+                is ImportOutcome.Imported ->
+                    if (r.days > 0) "Imported ${r.days} day${if (r.days == 1) "" else "s"} of steps"
+                    else "No step data in FitPal yet"
+                ImportOutcome.Unavailable -> "FitPal isn't installed"
+            }
+            _fitPalSync.value = FitPalSyncState(busy = false, message = msg)
+        }
+    }
+
+    fun clearFitPalSyncMessage() {
+        _fitPalSync.value = _fitPalSync.value.copy(message = null)
+    }
 
     // ---- Data export ------------------------------------------------------------------------------
 

@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- So we can reach FitPal's sync ContentProvider (Android 11+ package visibility). -->
+    <queries>
+        <package android:name="com.fitpal.app" />
+    </queries>
+
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -65,5 +70,17 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- FitPal's end-of-day nudge lands here (an explicit broadcast) and wakes Calistapp to pull
+             the day's steps — even if the app hasn't been opened. Exported because a separate app
+             sends it; it carries no data (we pull through the provider), so it needs no sender
+             permission — see StepPullReceiver. -->
+        <receiver
+            android:name=".sync.StepPullReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.calistapp.sync.action.PULL_STEPS" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

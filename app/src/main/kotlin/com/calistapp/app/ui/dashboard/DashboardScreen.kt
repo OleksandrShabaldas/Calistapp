@@ -43,6 +43,7 @@ import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.Flame
 import com.calistapp.app.ui.theme.Sky
+import kotlin.math.roundToInt
 
 @Composable
 fun DashboardScreen(
@@ -58,6 +59,7 @@ fun DashboardScreen(
     val live by viewModel.live.collectAsStateWithLifecycle()
     val watchLink by viewModel.watchLink.collectAsStateWithLifecycle()
     val goals by viewModel.goals.collectAsStateWithLifecycle()
+    val todaySteps by viewModel.todaySteps.collectAsStateWithLifecycle()
 
     Column(
         Modifier
@@ -142,6 +144,25 @@ fun DashboardScreen(
         }
 
         WatchStatusCard(state = watchLink, onReconnect = viewModel::reconnectWatch)
+
+        // Steps for today, imported from FitPal (its own step-calorie figure — not recomputed here).
+        todaySteps?.let { s ->
+            GlassCard {
+                SectionHeading("Steps today")
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    MetricBlock("Steps", "%,d".format(s.steps), Sky)
+                    MetricBlock("kcal", "${s.calories.roundToInt()}", Amber)
+                }
+                Text(
+                    "Imported from FitPal",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Ash,
+                )
+            }
+        }
 
         if (recent.isNotEmpty()) {
             SectionHeading("Recent", count = recent.size)

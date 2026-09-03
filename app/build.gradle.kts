@@ -34,8 +34,8 @@ android {
         // after 0.9.x is 1.0.0, never 0.10.0. Keeps :app and :wear in lockstep since they always
         // ship together. versionCode = major*100 + minor*10 + patch, so it's derived from
         // versionName rather than tracked separately.
-        versionCode = 50
-        versionName = "0.5.0"
+        versionCode = 60
+        versionName = "0.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -103,6 +103,8 @@ dependencies {
     ksp(libs.androidx.room.compiler)
 
     implementation(libs.androidx.datastore.preferences)
+
+    implementation(libs.androidx.work.runtime)
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.play.services)

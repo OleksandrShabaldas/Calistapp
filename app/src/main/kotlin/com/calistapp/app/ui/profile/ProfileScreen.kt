@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
@@ -80,6 +81,7 @@ private enum class SettingsCategory(
     GOALS("Weekly goals", "Calories and sessions you're aiming for each week", Icons.Filled.Flag),
     AI("AI", "API key, and the models for analysis and coaching", Icons.Filled.AutoAwesome),
     OFFLINE("Offline media", "Download exercise videos to use the app with no connection", Icons.Filled.CloudDownload),
+    FITPAL("FitPal sync", "Send workouts to FitPal and import your steps", Icons.Filled.Sync),
     HIDDEN("Hidden exercises", "Bring back exercises you removed from the library", Icons.Filled.VisibilityOff),
     ABOUT("About & updates", "App version and updates", Icons.Filled.Info),
 }
@@ -120,6 +122,7 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
                 SettingsCategory.GOALS -> GoalsDetail(viewModel)
                 SettingsCategory.AI -> AiSettingsDetail(viewModel)
                 SettingsCategory.OFFLINE -> OfflineDetail(viewModel)
+                SettingsCategory.FITPAL -> FitPalDetail(viewModel)
                 SettingsCategory.HIDDEN -> HiddenExercisesSection(hidden = hidden, onRestore = viewModel::restore)
                 SettingsCategory.ABOUT -> AboutDetail(viewModel)
             }
@@ -512,6 +515,67 @@ private fun formatBytes(b: Long): String = when {
     b < 1024L * 1024 -> "${b / 1024} KB"
     b < 1024L * 1024 * 1024 -> "%.0f MB".format(b / 1024.0 / 1024)
     else -> "%.1f GB".format(b / 1024.0 / 1024 / 1024)
+}
+
+/**
+ * FitPal bridge controls. Everything here also happens automatically (a finished workout is sent
+ * straight away; steps arrive via FitPal's end-of-day nudge + Calistapp's own daily job + an
+ * on-open catch-up). These buttons are the manual fallback for when that automatic path is delayed
+ * — e.g. the phone killed the background job.
+ */
+@Composable
+private fun FitPalDetail(viewModel: ProfileViewModel) {
+    val sync by viewModel.fitPalSync.collectAsStateWithLifecycle()
+    val unsynced by viewModel.unsyncedWorkoutCount.collectAsStateWithLifecycle()
+    val lastImport by viewModel.lastStepImportAt.collectAsStateWithLifecycle()
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        SectionCard(title = "Send workouts to FitPal") {
+            Text(
+                "Each finished workout is sent to FitPal automatically — its duration, calories, " +
+                    "intensity and the exercises you did — so FitPal's daily burn includes your training. " +
+                    "Use this if one didn't make it across.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                if (unsynced > 0) "$unsynced workout${if (unsynced == 1) "" else "s"} waiting to send"
+                else "All finished workouts are in FitPal",
+                style = MaterialTheme.typography.labelLarge,
+                color = if (unsynced > 0) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(
+                onClick = viewModel::transferWorkoutsToFitPal,
+                enabled = !sync.busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Transfer to FitPal now") }
+        }
+
+        SectionCard(title = "Import steps from FitPal") {
+            Text(
+                "Calistapp pulls your daily steps and their calories from FitPal (using FitPal's own " +
+                    "step-calorie formula — nothing is recalculated here).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                lastImport?.let { "Last imported ${android.text.format.DateUtils.getRelativeTimeSpanString(it)}" }
+                    ?: "No steps imported yet",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(
+                onClick = viewModel::importStepsFromFitPal,
+                enabled = !sync.busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Import steps now") }
+        }
+
+        sync.message?.let { msg ->
+            Text(msg, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+        }
+    }
 }
 
 @Composable

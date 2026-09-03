@@ -1,6 +1,7 @@
 package com.calistapp.app.session
 
 import android.content.Context
+import com.calistapp.app.data.fitpal.FitPalExportManager
 import com.calistapp.app.data.profile.ProfileRepository
 import com.calistapp.app.data.session.SessionRepository
 import com.calistapp.app.data.sync.LiveSessionBus
@@ -68,6 +69,7 @@ class SessionController @Inject constructor(
     private val bus: LiveSessionBus,
     private val watch: WatchCommandSender,
     private val watchLauncher: WatchAppLauncher,
+    private val fitPalExportManager: FitPalExportManager,
 ) {
     private val _live = MutableStateFlow<LiveSession?>(null)
     val live: StateFlow<LiveSession?> = _live.asStateFlow()
@@ -399,11 +401,18 @@ class SessionController @Inject constructor(
     /** Score what was recorded and file it, using the last real activity as the end. */
     private suspend fun bankAbandonedSession(saved: WorkoutSession, endMs: Long) {
         val summary = engine.compute(saved.samples, saved.segments, profile, endMs = endMs)
-        runCatching {
-            sessionRepository.saveSession(
-                saved.copy(endMs = endMs, status = SessionStatus.COMPLETED, summary = summary),
-            )
-        }
+        val completed = saved.copy(endMs = endMs, status = SessionStatus.COMPLETED, summary = summary)
+        runCatching { sessionRepository.saveSession(completed) }
+        exportToFitPal(completed)
+    }
+
+    /**
+     * Push a finished workout to FitPal, fire-and-forget on the app scope. Never blocks or fails the
+     * save — if FitPal is closed/not installed the session stays flagged unsynced and is retried on
+     * next app open (and by the manual button).
+     */
+    private fun exportToFitPal(session: WorkoutSession) {
+        scope.launch { runCatching { fitPalExportManager.push(session) } }
     }
 
     /**
@@ -539,21 +548,22 @@ class SessionController @Inject constructor(
         // The engine — not the live accumulator — produces the number we store.
         val summary = engine.compute(samples.toList(), segments.toList(), profile, endMs = now)
         if (persist) {
-            sessionRepository.saveSession(
-                WorkoutSession(
-                    id = cur.id,
-                    exerciseType = cur.exerciseType,
-                    startMs = cur.startMs,
-                    endMs = now,
-                    status = SessionStatus.COMPLETED,
-                    samples = samples.toList(),
-                    segments = segments.toList(),
-                    plan = cur.plan,
-                    setLogs = setLogs.toList(),
-                    exerciseName = cur.plan.exercises.firstOrNull()?.name,
-                    summary = summary,
-                ),
+            val completed = WorkoutSession(
+                id = cur.id,
+                exerciseType = cur.exerciseType,
+                startMs = cur.startMs,
+                endMs = now,
+                status = SessionStatus.COMPLETED,
+                samples = samples.toList(),
+                segments = segments.toList(),
+                plan = cur.plan,
+                setLogs = setLogs.toList(),
+                exerciseName = cur.plan.exercises.firstOrNull()?.name,
+                summary = summary,
             )
+            sessionRepository.saveSession(completed)
+            // Auto-send to FitPal the moment a workout finishes.
+            exportToFitPal(completed)
         }
         clearBuffers()
         _live.value = null

@@ -11,8 +11,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ExerciseEntity::class,
         WorkoutTemplateEntity::class,
         WeightEntryEntity::class,
+        StepDayEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 abstract class CalistDatabase : RoomDatabase() {
@@ -20,6 +21,29 @@ abstract class CalistDatabase : RoomDatabase() {
     abstract fun exerciseDao(): ExerciseDao
     abstract fun workoutTemplateDao(): WorkoutTemplateDao
     abstract fun weightDao(): WeightDao
+    abstract fun stepDayDao(): StepDayDao
+}
+
+/**
+ * The FitPal bridge. Adds `sessions.fitpalSyncedAt` (a nullable "last pushed to FitPal" stamp that
+ * drives the auto-retry + manual transfer) and the `step_days` table that holds steps imported FROM
+ * FitPal (with FitPal's already-trimmed step-calories). Both additive; nothing existing is touched.
+ */
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE sessions ADD COLUMN fitpalSyncedAt INTEGER")
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS step_days (
+                date TEXT NOT NULL PRIMARY KEY,
+                steps INTEGER NOT NULL,
+                calories REAL NOT NULL,
+                reductionPercent INTEGER NOT NULL,
+                importedAtMs INTEGER NOT NULL
+            )
+            """.trimIndent(),
+        )
+    }
 }
 
 /**

@@ -43,9 +43,11 @@ class SessionRepositoryImpl @Inject constructor(
         dao.getUnfinished()?.toDomain()
 
     override suspend fun saveSession(session: WorkoutSession) {
-        // Preserve any previously generated AI insight — @Upsert overwrites the whole row.
+        // Preserve fields that live only on the row (not the domain model) — @Upsert overwrites the
+        // whole row: the AI insight, and the FitPal sync stamp (so an unrelated save doesn't reset
+        // it and force a needless re-push).
         val existing = dao.getById(session.id)
-        dao.upsert(session.toEntity(existing?.aiInsight, existing?.aiInsightAtMs))
+        dao.upsert(session.toEntity(existing?.aiInsight, existing?.aiInsightAtMs, existing?.fitpalSyncedAt))
     }
 
     override suspend fun updateInsight(id: String, insight: String) =
@@ -57,6 +59,14 @@ class SessionRepositoryImpl @Inject constructor(
 
     override suspend fun deleteSession(id: String) = dao.delete(id)
 
+    override suspend fun getUnsyncedToFitpal(): List<WorkoutSession> =
+        dao.getUnsyncedToFitpal().map { it.toDomain() }
+
+    override suspend fun markFitpalSynced(id: String) =
+        dao.markFitpalSynced(id, System.currentTimeMillis())
+
+    override fun observeUnsyncedToFitpalCount(): Flow<Int> = dao.observeUnsyncedToFitpalCount()
+
     // ---- mapping ----
 
     private val sampleListSerializer = ListSerializer(HeartRateSample.serializer())
@@ -66,6 +76,7 @@ class SessionRepositoryImpl @Inject constructor(
     private fun WorkoutSession.toEntity(
         preservedInsight: String? = null,
         preservedInsightAtMs: Long? = null,
+        preservedFitpalSyncedAt: Long? = null,
     ) = SessionEntity(
         id = id,
         exerciseType = exerciseType.name,
@@ -82,6 +93,7 @@ class SessionRepositoryImpl @Inject constructor(
         planJson = if (plan.isEmpty) "" else json.encodeToString(WorkoutPlan.serializer(), plan),
         setLogsJson = if (setLogs.isEmpty()) "" else json.encodeToString(setLogListSerializer, setLogs),
         rpe = rpe,
+        fitpalSyncedAt = preservedFitpalSyncedAt,
     )
 
     private fun SessionOverviewRow.toOverview() = SessionOverview(

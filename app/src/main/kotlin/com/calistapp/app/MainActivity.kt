@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.calistapp.app.data.exercise.ExerciseSyncManager
+import com.calistapp.app.data.fitpal.FitPalSyncCoordinator
 import com.calistapp.app.data.sync.WatchConnectionMonitor
 import com.calistapp.app.data.sync.WatchProfileSync
 import com.calistapp.app.ui.CalistApp
@@ -24,6 +25,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var watchProfileSync: WatchProfileSync
     @Inject lateinit var watchConnectionMonitor: WatchConnectionMonitor
     @Inject lateinit var exerciseSyncManager: ExerciseSyncManager
+    @Inject lateinit var fitPalSyncCoordinator: FitPalSyncCoordinator
 
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -35,6 +37,8 @@ class MainActivity : ComponentActivity() {
         watchProfileSync.start()
         watchConnectionMonitor.start()
         exerciseSyncManager.start()
+        // Reconcile with FitPal on every open: pull any missed step days, retry unsent workouts.
+        fitPalSyncCoordinator.onAppOpen()
         askForNotifications()
         setContent {
             CalistTheme {

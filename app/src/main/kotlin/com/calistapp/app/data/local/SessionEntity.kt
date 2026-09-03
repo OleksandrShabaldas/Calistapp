@@ -58,4 +58,10 @@ data class SessionEntity(
     val setLogsJson: String = "",
     /** Borg CR10 rating of perceived exertion, 1–10. Null when the session wasn't rated. */
     val rpe: Int? = null,
+    /**
+     * When this workout was last successfully pushed to FitPal (epoch millis; null = not yet).
+     * Drives the auto-retry + manual "Transfer to FitPal" — anything completed with this still
+     * null is (re)sent on the next opportunity. Not part of the domain model; storage-only.
+     */
+    val fitpalSyncedAt: Long? = null,
 )

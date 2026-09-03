@@ -31,4 +31,15 @@ interface SessionRepository {
     /** Rating of perceived exertion, 1–10. Null clears it. */
     suspend fun updateRpe(id: String, rpe: Int?)
     suspend fun deleteSession(id: String)
+
+    // ---- FitPal bridge ----
+
+    /** Finished workouts not yet pushed to FitPal (the auto-retry + manual-transfer work list). */
+    suspend fun getUnsyncedToFitpal(): List<WorkoutSession>
+
+    /** Stamp a workout as successfully delivered to FitPal (now). */
+    suspend fun markFitpalSynced(id: String)
+
+    /** Live count of finished workouts still waiting to reach FitPal (for the settings status line). */
+    fun observeUnsyncedToFitpalCount(): Flow<Int>
 }

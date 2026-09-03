@@ -2,6 +2,8 @@ package com.calistapp.app.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.calistapp.app.data.fitpal.StepsImportRepository
+import com.calistapp.app.data.local.StepDayEntity
 import com.calistapp.app.data.profile.ProfileRepository
 import com.calistapp.app.data.session.SessionRepository
 import com.calistapp.app.data.sync.WatchConnectionMonitor
@@ -31,8 +33,18 @@ class DashboardViewModel @Inject constructor(
     profileRepository: ProfileRepository,
     sessionRepository: SessionRepository,
     sessionController: SessionController,
+    stepsImportRepository: StepsImportRepository,
     private val watchConnection: WatchConnectionMonitor,
 ) : ViewModel() {
+
+    /**
+     * Today's steps imported from FitPal (count + FitPal's already-trimmed step-calories), or null
+     * if none imported yet. Date is resolved when the screen opens — fine, since this app is opened
+     * fresh rather than left running across midnight.
+     */
+    val todaySteps: StateFlow<StepDayEntity?> = stepsImportRepository
+        .observeForDate(java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE))
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val watchLink: StateFlow<WatchLinkState> = watchConnection.state
 

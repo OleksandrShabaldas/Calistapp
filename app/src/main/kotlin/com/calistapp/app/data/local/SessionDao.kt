@@ -63,6 +63,17 @@ interface SessionDao {
     @Query("UPDATE sessions SET rpe = :rpe WHERE id = :id")
     suspend fun updateRpe(id: String, rpe: Int?)
 
+    /** Finished workouts not yet pushed to FitPal — the auto-retry + manual transfer work list. */
+    @Query("SELECT * FROM sessions WHERE status NOT IN ('ACTIVE', 'PAUSED') AND endMs IS NOT NULL AND fitpalSyncedAt IS NULL ORDER BY startMs DESC")
+    suspend fun getUnsyncedToFitpal(): List<SessionEntity>
+
+    /** How many finished workouts are still waiting to reach FitPal (for the settings status line). */
+    @Query("SELECT COUNT(*) FROM sessions WHERE status NOT IN ('ACTIVE', 'PAUSED') AND endMs IS NOT NULL AND fitpalSyncedAt IS NULL")
+    fun observeUnsyncedToFitpalCount(): Flow<Int>
+
+    @Query("UPDATE sessions SET fitpalSyncedAt = :atMs WHERE id = :id")
+    suspend fun markFitpalSynced(id: String, atMs: Long)
+
     @Query("DELETE FROM sessions WHERE id = :id")
     suspend fun delete(id: String)
 }
