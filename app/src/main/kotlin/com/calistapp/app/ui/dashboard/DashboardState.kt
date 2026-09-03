@@ -25,11 +25,19 @@ data class DayCell(
     val trained: Boolean,
     /** A workout is scheduled this day → the grey dot (when not [trained]). */
     val planned: Boolean,
+    /** Sunday, drawn red in the strip. */
+    val isSunday: Boolean = false,
 )
 
 data class WeekState(
     val days: List<DayCell> = emptyList(),
     val totalKcal: Int = 0,
+    /** The week total, split for the tap-the-number breakdown popup. */
+    val stepKcal: Int = 0,
+    val workoutKcal: Int = 0,
+    /** "This week" for the current week, otherwise a date range like "1–7 Sep". */
+    val title: String = "This week",
+    val isCurrentWeek: Boolean = true,
 ) {
     /** For scaling bar heights; never zero so an empty week doesn't divide by nothing. */
     val maxKcal: Int get() = (days.maxOfOrNull { it.kcal } ?: 0).coerceAtLeast(1)
@@ -51,6 +59,8 @@ data class NextUpState(
     val name: String,
     /** "7 exercises · 21 sets". */
     val meta: String,
+    /** One demo video per exercise, in plan order, cycled in the card. Empty → fall back to images. */
+    val videoUrls: List<String> = emptyList(),
     val imageUrls: List<String> = emptyList(),
     /** "Today" / "Tomorrow" / "Thursday" / "Saved". */
     val whenLabel: String = "",

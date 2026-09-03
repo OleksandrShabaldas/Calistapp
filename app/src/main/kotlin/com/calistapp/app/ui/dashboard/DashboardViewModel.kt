@@ -16,25 +16,25 @@ import com.calistapp.app.data.sync.WatchConnectionMonitor
 import com.calistapp.app.data.sync.WatchLinkState
 import com.calistapp.app.session.LiveSession
 import com.calistapp.app.session.SessionController
+import com.calistapp.core.model.MediaType
 import com.calistapp.core.model.SavedWorkout
 import com.calistapp.core.model.SessionOverview
 import com.calistapp.core.model.TrainingGoals
 import com.calistapp.core.model.UserProfile
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.progress.DailyEnergyGoal
-import com.calistapp.core.time.startOfWeekMs
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
@@ -56,7 +56,7 @@ class DashboardViewModel @Inject constructor(
     sessionRepository: SessionRepository,
     sessionController: SessionController,
     stepsImportRepository: StepsImportRepository,
-    scheduleRepository: ScheduleRepository,
+    private val scheduleRepository: ScheduleRepository,
     savedWorkoutRepository: SavedWorkoutRepository,
     private val exerciseRepository: ExerciseRepository,
     private val recommendationsRepository: RecommendationsRepository,
@@ -80,7 +80,6 @@ class DashboardViewModel @Inject constructor(
 
     // ---- source flows ----
 
-    /** Today, re-emitting when the day turns over so an app left open keeps up with the clock. */
     private val today: StateFlow<LocalDate> = flow {
         while (true) {
             emit(LocalDate.now(zone))
@@ -91,7 +90,6 @@ class DashboardViewModel @Inject constructor(
     private val sessions: StateFlow<List<SessionOverview>> = sessionRepository.observeSessions()
         .stateIn(viewModelScope, started, emptyList())
 
-    /** A wide window of imported step-days — enough for both the week strip and a long streak. */
     private val stepDays: StateFlow<List<StepDayEntity>> = today.flatMapLatest { t ->
         stepsImportRepository.observeRange(
             t.minusDays(STREAK_WINDOW_DAYS).format(ISO_DATE),
@@ -99,36 +97,59 @@ class DashboardViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, started, emptyList())
 
-    private val weekStartMs: StateFlow<Long> = today
-        .map { startOfWeekMs(it.atStartOfDay(zone).toInstant().toEpochMilli(), zone) }
-        .distinctUntilChanged()
-        .stateIn(viewModelScope, started, startOfWeekMs(System.currentTimeMillis(), zone))
+    /** Walking calories per calendar day (FitPal's already-trimmed figure). */
+    private val stepKcalByDate: StateFlow<Map<LocalDate, Double>> = stepDays.map { days ->
+        days.mapNotNull { d -> runCatching { LocalDate.parse(d.date) }.getOrNull()?.let { it to d.calories } }.toMap()
+    }.stateIn(viewModelScope, started, emptyMap())
 
-    private val weekPlan: StateFlow<Map<DayOfWeek, List<ScheduledItem>>> = weekStartMs
-        .flatMapLatest { scheduleRepository.weekPlan(it) }
-        .stateIn(viewModelScope, started, emptyMap())
+    /** Workout calories per calendar day (Calistapp's HR-based total). */
+    private val workoutKcalByDate: StateFlow<Map<LocalDate, Double>> = sessions.map { list ->
+        val map = HashMap<LocalDate, Double>()
+        list.forEach { o ->
+            val d = Instant.ofEpochMilli(o.startMs).atZone(zone).toLocalDate()
+            map[d] = (map[d] ?: 0.0) + o.totalKcal
+        }
+        map
+    }.stateIn(viewModelScope, started, emptyMap())
 
-    /** Total kcal earned per calendar day (walking + workouts) across the window. */
     private val earnedByDate: StateFlow<Map<LocalDate, Double>> =
-        combine(sessions, stepDays) { s, steps ->
-            val map = HashMap<LocalDate, Double>()
-            steps.forEach { d ->
-                val date = runCatching { LocalDate.parse(d.date) }.getOrNull() ?: return@forEach
-                map[date] = (map[date] ?: 0.0) + d.calories
-            }
-            s.forEach { o ->
-                val date = Instant.ofEpochMilli(o.startMs).atZone(zone).toLocalDate()
-                map[date] = (map[date] ?: 0.0) + o.totalKcal
-            }
+        combine(stepKcalByDate, workoutKcalByDate) { step, workout ->
+            val map = HashMap<LocalDate, Double>(step)
+            workout.forEach { (d, k) -> map[d] = (map[d] ?: 0.0) + k }
             map
         }.stateIn(viewModelScope, started, emptyMap())
 
-    /** kcal earned per step — from the most recent FitPal day, else the formula fallback. */
-    private val perStepRate: StateFlow<Double> = combine(stepDays, profile) { steps, prof ->
-        steps.filter { it.steps > 0 }.maxByOrNull { it.date }
+    private val perStepRate: StateFlow<Double> = combine(stepDays, profile) { days, prof ->
+        days.filter { it.steps > 0 }.maxByOrNull { it.date }
             ?.let { DailyEnergyGoal.perStepRate(it.steps, it.calories) }
             ?: DailyEnergyGoal.fallbackPerStepRate(prof.weightKg)
     }.stateIn(viewModelScope, started, DailyEnergyGoal.fallbackPerStepRate(75.0))
+
+    // ---- week navigation (swipe back/forward through the strip) ----
+
+    private val weekOffset = MutableStateFlow(0)
+    val isCurrentWeek: StateFlow<Boolean> = weekOffset
+        .map { it == 0 }.stateIn(viewModelScope, started, true)
+
+    private val selectedWeekStart: StateFlow<LocalDate> = combine(today, weekOffset) { t, off ->
+        t.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).plusWeeks(off.toLong())
+    }.distinctUntilChanged().stateIn(viewModelScope, started, LocalDate.now(zone).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)))
+
+    private val selectedWeekPlan: StateFlow<Map<DayOfWeek, List<ScheduledItem>>> = selectedWeekStart
+        .map { it.atStartOfDay(zone).toInstant().toEpochMilli() }
+        .distinctUntilChanged()
+        .flatMapLatest { scheduleRepository.weekPlan(it) }
+        .stateIn(viewModelScope, started, emptyMap())
+
+    private val currentWeekPlan: StateFlow<Map<DayOfWeek, List<ScheduledItem>>> = today
+        .map { it.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).atStartOfDay(zone).toInstant().toEpochMilli() }
+        .distinctUntilChanged()
+        .flatMapLatest { scheduleRepository.weekPlan(it) }
+        .stateIn(viewModelScope, started, emptyMap())
+
+    fun previousWeek() { weekOffset.value = (weekOffset.value - 1).coerceAtLeast(-MAX_WEEKS_BACK) }
+    fun nextWeek() { weekOffset.value = (weekOffset.value + 1).coerceAtMost(0) }
+    fun resetToCurrentWeek() { weekOffset.value = 0 }
 
     // ---- derived UI state ----
 
@@ -159,41 +180,64 @@ class DashboardViewModel @Inject constructor(
         }.stateIn(viewModelScope, started, StepsState())
 
     val week: StateFlow<WeekState> =
-        combine(today, earnedByDate, sessions, weekPlan) { t, earned, s, plan ->
-            val weekStart = t.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        combine(selectedWeekStart, stepKcalByDate, workoutKcalByDate, sessions, selectedWeekPlan) { weekStart, stepMap, workoutMap, s, plan ->
+            val todayDate = LocalDate.now(zone)
+            val currentWeekStart = todayDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
             val trained = s.mapTo(HashSet()) { Instant.ofEpochMilli(it.startMs).atZone(zone).toLocalDate() }
+            var stepTotal = 0.0
+            var workoutTotal = 0.0
             val days = (0..6).map { i ->
                 val d = weekStart.plusDays(i.toLong())
+                val stepK = stepMap[d] ?: 0.0
+                val workoutK = workoutMap[d] ?: 0.0
+                stepTotal += stepK
+                workoutTotal += workoutK
                 DayCell(
                     date = d,
                     letter = DAY_LETTERS[i],
-                    kcal = (earned[d] ?: 0.0).roundToInt(),
-                    isToday = d == t,
-                    isFuture = d.isAfter(t),
+                    kcal = (stepK + workoutK).roundToInt(),
+                    isToday = d == todayDate,
+                    isFuture = d.isAfter(todayDate),
                     trained = d in trained,
                     planned = plan[d.dayOfWeek]?.isNotEmpty() == true,
+                    isSunday = i == 6,
                 )
             }
-            WeekState(days, days.sumOf { it.kcal })
+            WeekState(
+                days = days,
+                totalKcal = days.sumOf { it.kcal },
+                stepKcal = stepTotal.roundToInt(),
+                workoutKcal = workoutTotal.roundToInt(),
+                title = weekTitle(weekStart, currentWeekStart),
+                isCurrentWeek = weekStart == currentWeekStart,
+            )
         }.stateIn(viewModelScope, started, WeekState())
 
     val nextUp: StateFlow<NextUpState?> =
-        combine(today, weekPlan, savedWorkoutRepository.saved, sessions) { t, plan, saved, s ->
+        combine(today, currentWeekPlan, savedWorkoutRepository.saved, sessions) { t, plan, saved, s ->
             chooseNextUp(t, plan, saved, s)
-        }.distinctUntilChanged().flatMapLatest { base ->
-            when {
-                base == null -> flowOf(null)
-                base.firstExerciseId == null -> flowOf(base.toState(emptyList()))
-                else -> exerciseRepository.observe(base.firstExerciseId)
-                    .map { ex -> base.toState(ex?.imageUrls ?: emptyList()) }
+        }.distinctUntilChanged().mapLatest { base ->
+            if (base == null) {
+                null
+            } else {
+                val byId = runCatching { exerciseRepository.getByIds(base.exerciseIds) }
+                    .getOrDefault(emptyList()).associateBy { it.id }
+                val ordered = base.exerciseIds.mapNotNull { byId[it] }
+                val videos = ordered.mapNotNull { ex -> ex.media.firstOrNull { it.type == MediaType.VIDEO }?.url }
+                val images = ordered.firstOrNull { it.imageUrls.isNotEmpty() }?.imageUrls ?: emptyList()
+                base.toState(videos, images)
             }
         }.stateIn(viewModelScope, started, null)
 
     init {
         refreshRecommendations()
         viewModelScope.launch {
-            // This-week overrides for past weeks can never fire again.
-            runCatching { scheduleRepository.pruneOldOverrides(startOfWeekMs(System.currentTimeMillis(), zone)) }
+            runCatching {
+                scheduleRepository.pruneOldOverrides(
+                    LocalDate.now(zone).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+                        .atStartOfDay(zone).toInstant().toEpochMilli(),
+                )
+            }
         }
     }
 
@@ -209,12 +253,12 @@ class DashboardViewModel @Inject constructor(
         val savedWorkoutId: String,
         val name: String,
         val meta: String,
-        val firstExerciseId: String?,
+        val exerciseIds: List<String>,
         val whenLabel: String,
         val scheduled: Boolean,
     ) {
-        fun toState(imageUrls: List<String>) =
-            NextUpState(savedWorkoutId, name, meta, imageUrls, whenLabel, scheduled)
+        fun toState(videoUrls: List<String>, imageUrls: List<String>) =
+            NextUpState(savedWorkoutId, name, meta, videoUrls, imageUrls, whenLabel, scheduled)
     }
 
     private fun chooseNextUp(
@@ -226,14 +270,12 @@ class DashboardViewModel @Inject constructor(
         val trainedToday = sessions.any {
             Instant.ofEpochMilli(it.startMs).atZone(zone).toLocalDate() == today
         }
-        // Look from today through the rest of this week for the next planned workout.
         for (offset in 0..(DayOfWeek.SUNDAY.value - today.dayOfWeek.value)) {
             val d = today.plusDays(offset.toLong())
             val item = plan[d.dayOfWeek].orEmpty().firstOrNull() ?: continue
             if (offset == 0 && trainedToday) continue
             return base(item.workout, whenLabel(d, today), scheduled = true)
         }
-        // Nothing planned ahead this week — offer the most-recent saved workout instead.
         return saved.firstOrNull()?.let { base(it, "Saved", scheduled = false) }
     }
 
@@ -241,7 +283,7 @@ class DashboardViewModel @Inject constructor(
         savedWorkoutId = w.id,
         name = w.name,
         meta = metaFor(w.plan),
-        firstExerciseId = w.plan.exercises.firstOrNull()?.exerciseId,
+        exerciseIds = w.plan.exercises.map { it.exerciseId },
         whenLabel = whenLabel,
         scheduled = scheduled,
     )
@@ -266,9 +308,22 @@ class DashboardViewModel @Inject constructor(
         else -> "Good evening"
     }
 
+    private fun weekTitle(weekStart: LocalDate, currentWeekStart: LocalDate): String = when (weekStart) {
+        currentWeekStart -> "This week"
+        currentWeekStart.minusWeeks(1) -> "Last week"
+        else -> {
+            val end = weekStart.plusDays(6)
+            val sm = weekStart.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+            val em = end.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+            if (weekStart.month == end.month) "${weekStart.dayOfMonth}–${end.dayOfMonth} $em"
+            else "${weekStart.dayOfMonth} $sm – ${end.dayOfMonth} $em"
+        }
+    }
+
     private companion object {
         const val TODAY_CHECK_MS = 5 * 60_000L
         const val STREAK_WINDOW_DAYS = 130L
+        const val MAX_WEEKS_BACK = 26
         val ISO_DATE: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
         val DATE_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE · MMM d", Locale.getDefault())
         val DAY_LETTERS = listOf("M", "T", "W", "T", "F", "S", "S")

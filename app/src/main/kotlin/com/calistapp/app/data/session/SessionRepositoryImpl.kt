@@ -120,6 +120,8 @@ class SessionRepositoryImpl @Inject constructor(
                 ?: WorkoutPlan.EMPTY,
             avgHr = summary?.avgHr ?: 0,
             totalDurationMs = summary?.totalDurationMs ?: 0L,
+            rpe = rpe,
+            notes = notes,
         )
     }
 

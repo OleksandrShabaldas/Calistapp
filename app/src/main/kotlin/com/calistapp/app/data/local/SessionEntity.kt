@@ -36,6 +36,8 @@ data class SessionPerformanceRow(
     val summaryJson: String?,
     val setLogsJson: String,
     val planJson: String,
+    val rpe: Int?,
+    val notes: String,
 )
 
 @Entity(tableName = "sessions")

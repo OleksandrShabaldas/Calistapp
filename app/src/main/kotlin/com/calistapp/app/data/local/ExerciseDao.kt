@@ -20,6 +20,9 @@ interface ExerciseDao {
     @Query("SELECT * FROM exercises WHERE id = :id")
     fun observeById(id: String): Flow<ExerciseEntity?>
 
+    @Query("SELECT * FROM exercises WHERE id IN (:ids)")
+    suspend fun getByIds(ids: List<String>): List<ExerciseEntity>
+
     @Upsert
     suspend fun upsertAll(items: List<ExerciseEntity>)
 

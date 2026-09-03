@@ -18,6 +18,9 @@ class ExerciseRepository @Inject constructor(
 
     fun observe(id: String): Flow<Exercise?> = dao.observeById(id).map { it?.let(::toDomain) }
 
+    /** Fetch several exercises at once (unordered) — used to resolve a workout's demo videos. */
+    suspend fun getByIds(ids: List<String>): List<Exercise> = dao.getByIds(ids).map(::toDomain)
+
     suspend fun count(): Int = dao.count()
 
     /** Snapshot of every stored exercise keyed by id — used by sync to merge overlays. */

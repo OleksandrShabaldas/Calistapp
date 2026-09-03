@@ -13,6 +13,15 @@ data class Recommendation(
     val generatedAt: Long,
 )
 
+/** One input that fed a recommendation, normalised for a progress bar in the detail card. */
+data class RecFactor(
+    val label: String,
+    /** The human-readable value, e.g. "7.2 h", "UV 5.1", "AQI 42". */
+    val value: String,
+    /** 0..1 fill for the bar. */
+    val progress: Float,
+)
+
 /** "Should I train today?" — 0 (prioritise rest) … 100 (perfect day to train). */
 data class Readiness(
     val score: Int,
@@ -20,6 +29,8 @@ data class Readiness(
     val label: String,
     /** One or two sentences explaining the score (sleep, recent load, days off). */
     val reason: String,
+    /** The inputs it weighed — sleep, recovery, load — for the detail card's bars. */
+    val factors: List<RecFactor> = emptyList(),
 )
 
 /** "Indoors or out?" — from weather, UV and air quality. */
@@ -31,6 +42,8 @@ data class Conditions(
     val reason: String,
     /** True only for the "location is off" prompt, so the card can offer to enable it. */
     val needsLocation: Boolean = false,
+    /** The inputs it weighed — temperature, UV, air, wind — for the detail card's bars. */
+    val factors: List<RecFactor> = emptyList(),
 )
 
 sealed interface RecommendationState {

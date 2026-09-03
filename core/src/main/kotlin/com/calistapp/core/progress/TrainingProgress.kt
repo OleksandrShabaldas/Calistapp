@@ -28,6 +28,10 @@ data class PerformedSession(
     val avgHr: Int = 0,
     /** Wall-clock length, work and rest together. TRIMP is a function of the whole session. */
     val totalDurationMs: Long = 0,
+    /** Rated perceived exertion, 1–10, if the athlete logged it. */
+    val rpe: Int? = null,
+    /** The athlete's own note on the session — clues the numbers don't carry. */
+    val notes: String = "",
 )
 
 /** A single set worth remembering — the most reps, or the most weight. */

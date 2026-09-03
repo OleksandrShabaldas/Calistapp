@@ -27,9 +27,11 @@
     -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <!-- Last night's sleep, read from Health Connect for the training-readiness widget. Optional:
-         denied or unavailable, readiness falls back to training load alone. -->
+    <!-- Last night's sleep + sleeping heart rate/HRV, read from Health Connect for the training-
+         readiness widget. Optional: denied or unavailable, readiness falls back to training load. -->
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY" />
 
     <application
         android:name=".CalistApplication"

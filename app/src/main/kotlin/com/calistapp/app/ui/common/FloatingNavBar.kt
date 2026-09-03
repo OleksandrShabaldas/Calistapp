@@ -18,7 +18,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -28,23 +27,22 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.calistapp.app.ui.theme.Capsule
 import com.calistapp.app.ui.theme.AshFaint
 import com.calistapp.app.ui.theme.Flame
 import com.calistapp.app.ui.theme.FlameDeep
-import com.calistapp.app.ui.theme.OnyxBorder
 import com.calistapp.app.ui.theme.Onyx
+import com.calistapp.app.ui.theme.OnyxBorder
 
 data class NavItem(val route: String, val label: String, val icon: ImageVector)
 
 /**
  * Detached capsule navigation with the primary action raised out of its centre.
  *
- * Floating it clear of the screen edge — rather than using a stock edge-to-edge `NavigationBar` —
- * lets the ambient wash continue underneath, and gives the one action that matters most (start a
- * workout) a permanent, unmissable home.
+ * Icon-only (the labels are gone): the selected tab lights up and wears an orange glow, and the
+ * centre action is a larger-than-the-bar button that glows too — the one thing that matters most,
+ * unmissable.
  */
 @Composable
 fun FloatingNavBar(
@@ -56,7 +54,6 @@ fun FloatingNavBar(
     actionDescription: String = "Start workout",
     actionIcon: ImageVector = Icons.Filled.FitnessCenter,
 ) {
-    // Split evenly around the raised action button.
     val half = (items.size + 1) / 2
     val left = items.take(half)
     val right = items.drop(half)
@@ -77,14 +74,14 @@ fun FloatingNavBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             NavCluster(left, currentRoute, onSelect, Modifier.weight(1f))
-            // Reserved gap the action button sits in.
-            Box(Modifier.size(78.dp))
+            Box(Modifier.size(86.dp))
             NavCluster(right, currentRoute, onSelect, Modifier.weight(1f))
         }
 
         Box(
             Modifier
-                .size(62.dp)
+                .glow(Flame, spread = 18.dp, alpha = 0.4f)
+                .size(72.dp)
                 .clip(CircleShape)
                 .background(Brush.verticalGradient(listOf(Flame, FlameDeep)))
                 .clickable(onClick = onAction),
@@ -94,7 +91,7 @@ fun FloatingNavBar(
                 actionIcon,
                 contentDescription = actionDescription,
                 tint = Onyx,
-                modifier = Modifier.size(26.dp),
+                modifier = Modifier.size(30.dp),
             )
         }
     }
@@ -114,35 +111,21 @@ private fun NavCluster(
     ) {
         items.forEach { item ->
             val selected = currentRoute == item.route
-            val tint by animateColorAsState(
-                if (selected) MaterialTheme.colorScheme.primary else AshFaint,
-                label = "navTint",
-            )
+            val primary = MaterialTheme.colorScheme.primary
+            val tint by animateColorAsState(if (selected) primary else AshFaint, label = "navTint")
             val interaction = remember { MutableInteractionSource() }
-            androidx.compose.foundation.layout.Column(
+            Box(
                 Modifier
-                    .size(width = 56.dp, height = 52.dp)
+                    .size(width = 52.dp, height = 52.dp)
                     .clip(CircleShape)
-                    .clickable(
-                        interactionSource = interaction,
-                        indication = null,
-                        onClick = { onSelect(item.route) },
-                    ),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
+                    .clickable(interactionSource = interaction, indication = null, onClick = { onSelect(item.route) }),
+                contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     item.icon,
                     contentDescription = item.label,
                     tint = tint,
-                    modifier = Modifier.size(22.dp),
-                )
-                Text(
-                    item.label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = tint,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                    maxLines = 1,
+                    modifier = (if (selected) Modifier.glow(primary, spread = 12.dp, alpha = 0.28f) else Modifier).size(25.dp),
                 )
             }
         }

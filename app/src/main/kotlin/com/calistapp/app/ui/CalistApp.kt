@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
@@ -256,7 +257,7 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
                 },
                 onAction = { navController.navigate(startDestination(sessionRunning)) },
                 actionDescription = if (sessionRunning) "Open running workout" else "Build a workout",
-                actionIcon = if (sessionRunning) Icons.Filled.PlayArrow else Icons.Filled.FitnessCenter,
+                actionIcon = if (sessionRunning) Icons.Filled.PlayArrow else Icons.Filled.Add,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding(),

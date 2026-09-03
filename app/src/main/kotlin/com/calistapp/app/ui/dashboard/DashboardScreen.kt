@@ -3,6 +3,7 @@ package com.calistapp.app.ui.dashboard
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,13 +18,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.background
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,6 +36,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.calistapp.app.data.recommend.RecommendationState
 import com.calistapp.app.ui.common.formatClock
 import com.calistapp.app.ui.theme.Amber
 import com.calistapp.app.ui.theme.Ash
@@ -55,6 +59,9 @@ fun DashboardScreen(
     val onboarded by viewModel.isOnboarded.collectAsStateWithLifecycle()
     val live by viewModel.live.collectAsStateWithLifecycle()
 
+    var expandedGauge by remember { mutableStateOf<GaugeKind?>(null) }
+    var showMonth by remember { mutableStateOf(false) }
+
     val locationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { result -> if (result.values.any { it }) viewModel.refreshRecommendations(force = true) }
@@ -64,7 +71,7 @@ fun DashboardScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         Spacer(Modifier.size(4.dp))
         GreetingHeader(header)
@@ -101,7 +108,14 @@ fun DashboardScreen(
             }
         }
 
-        WeekBarsCard(week)
+        WeekStrip(
+            week = week,
+            onOpenMonth = { showMonth = true },
+            onOpenSchedule = onOpenSchedule,
+            onPreviousWeek = viewModel::previousWeek,
+            onNextWeek = viewModel::nextWeek,
+            onResetWeek = viewModel::resetToCurrentWeek,
+        )
 
         nextUp?.let { NextUpCard(it, onStart = { onOpenWorkout(it.savedWorkoutId) }) } ?: DashCard {
             Text("No workout yet", style = MaterialTheme.typography.titleLarge, color = Chalk)
@@ -115,11 +129,11 @@ fun DashboardScreen(
             }
         }
 
-        StepsGoalCard(steps)
+        StepsWidget(steps)
 
-        RecommendationsCard(
+        RecommendationsRow(
             state = recommendations,
-            onRefresh = { viewModel.refreshRecommendations(force = true) },
+            onTap = { expandedGauge = it },
             onEnableLocation = {
                 locationLauncher.launch(
                     arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION),
@@ -127,13 +141,15 @@ fun DashboardScreen(
             },
         )
 
-        // A quiet way into the planner/schedule from the home screen.
-        TextButton(onClick = onOpenSchedule, modifier = Modifier.fillMaxWidth()) {
-            Text("Plan your week", color = Ash)
-        }
-
         Spacer(Modifier.size(4.dp))
     }
+
+    GaugeDetailOverlay(
+        kind = expandedGauge,
+        rec = (recommendations as? RecommendationState.Ready)?.rec,
+        onDismiss = { expandedGauge = null },
+    )
+    MonthOverlay(visible = showMonth, onDismiss = { showMonth = false })
 }
 
 @Composable

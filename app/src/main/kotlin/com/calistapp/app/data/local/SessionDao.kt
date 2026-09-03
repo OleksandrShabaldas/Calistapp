@@ -33,7 +33,7 @@ interface SessionDao {
     /** Finished sessions with what was performed, for building trends and personal bests. */
     @Query(
         """
-        SELECT id, startMs, summaryJson, setLogsJson, planJson
+        SELECT id, startMs, summaryJson, setLogsJson, planJson, rpe, notes
         FROM sessions
         WHERE status NOT IN ('ACTIVE', 'PAUSED')
         ORDER BY startMs DESC
