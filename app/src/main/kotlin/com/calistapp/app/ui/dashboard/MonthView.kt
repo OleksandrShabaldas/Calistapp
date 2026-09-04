@@ -211,8 +211,14 @@ private fun DayCellView(cell: MonthDayCell?, onSelectDay: (LocalDate) -> Unit) {
     Column(
         Modifier
             .width(40.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .then(if (cell != null && !cell.isFuture) Modifier.clickable { onSelectDay(cell.date) } else Modifier)
+            // No .clip() — it slices the ring's glow off the sides. Null-indication click needs none.
+            .then(
+                if (cell != null && !cell.isFuture) {
+                    Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onSelectDay(cell.date) }
+                } else {
+                    Modifier
+                },
+            )
             .padding(vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp),

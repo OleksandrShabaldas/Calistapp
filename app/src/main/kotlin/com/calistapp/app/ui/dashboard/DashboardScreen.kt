@@ -194,7 +194,8 @@ fun DashboardScreen(
             }
         }
 
-        Spacer(Modifier.size(4.dp))
+        // Clearance so the last card can scroll clear of the floating nav (content passes under it).
+        Spacer(Modifier.size(104.dp))
     }
 
     GaugeDetailOverlay(

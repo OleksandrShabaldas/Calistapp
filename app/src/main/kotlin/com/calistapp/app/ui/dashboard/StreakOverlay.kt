@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,6 +46,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.calistapp.app.ui.common.GlowIcon
@@ -164,7 +166,12 @@ private fun StreakCard(data: StreakData, onJumpToDay: (LocalDate) -> Unit, onDis
     }
 }
 
-/** A GitHub-style column-per-week heatmap, scrolled to the most recent week; scroll left for older. */
+private val DAY_LABELS = listOf("M", "T", "W", "T", "F", "S", "S")
+
+/**
+ * A GitHub-style column-per-week heatmap with weekday labels down the left and month labels along the
+ * bottom, scrolled to the most recent week; scroll left for older days back to your first.
+ */
 @Composable
 private fun Heatmap(cells: List<HeatCell>) {
     if (cells.isEmpty()) {
@@ -172,15 +179,52 @@ private fun Heatmap(cells: List<HeatCell>) {
         return
     }
     // Pad the front so the first column starts on Monday, then chunk into week columns.
-    val leading = cells.first().date.dayOfWeek.value - 1
+    val firstDate = cells.first().date
+    val leading = firstDate.dayOfWeek.value - 1
+    val firstMonday = firstDate.minusDays(leading.toLong())
     val padded: List<HeatCell?> = List(leading) { null } + cells
     val weeks = padded.chunked(7)
     val scroll = rememberScrollState()
     LaunchedEffect(weeks.size) { scroll.scrollTo(scroll.maxValue) }
-    Row(Modifier.fillMaxWidth().horizontalScroll(scroll), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-        weeks.forEach { week ->
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                for (i in 0 until 7) HeatSquare(week.getOrNull(i))
+
+    Row(Modifier.fillMaxWidth()) {
+        // Weekday labels — fixed, aligned to the seven square rows.
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            DAY_LABELS.forEachIndexed { i, l ->
+                Box(Modifier.height(13.dp).width(14.dp), contentAlignment = Alignment.CenterStart) {
+                    Text(l, fontSize = 8.sp, color = if (i == 6) Coral else Ash)
+                }
+            }
+            Spacer(Modifier.height(16.dp)) // room under, aligning with the month-label row
+        }
+        Spacer(Modifier.width(4.dp))
+        Column {
+            Row(Modifier.horizontalScroll(scroll), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                weeks.forEach { week ->
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        for (i in 0 until 7) HeatSquare(week.getOrNull(i))
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            // Month labels — shown under the column where a new month starts.
+            Row(Modifier.horizontalScroll(scroll), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                weeks.forEachIndexed { i, _ ->
+                    val month = firstMonday.plusWeeks(i.toLong()).month
+                    val prev = if (i == 0) null else firstMonday.plusWeeks((i - 1).toLong()).month
+                    Box(Modifier.width(13.dp).height(12.dp)) {
+                        if (month != prev) {
+                            Text(
+                                month.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
+                                fontSize = 8.sp,
+                                color = Ash,
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier.wrapContentWidth(align = Alignment.Start, unbounded = true),
+                            )
+                        }
+                    }
+                }
             }
         }
     }

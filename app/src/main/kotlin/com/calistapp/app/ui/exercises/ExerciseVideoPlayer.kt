@@ -147,5 +147,58 @@ fun ExerciseVideoPlaylist(
     )
 }
 
+/**
+ * The Next Up card's player: the workout's exercise clips as a looping, muted playlist, with the
+ * bottom fade + corner shadow baked into the view (see `next_up_video.xml`) so they actually render
+ * over the video. Always active while composed (the card is only ever on-screen).
+ */
+@Composable
+fun NextUpVideoPlayer(urls: List<String>, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val exoPlayer = remember(urls) {
+        val retries = intArrayOf(0)
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(ExerciseMediaStore.dataSourceFactory(context)))
+            .build()
+            .apply {
+                addListener(object : Player.Listener {
+                    override fun onPlayerError(error: PlaybackException) {
+                        if (retries[0] < MAX_RETRIES) { retries[0]++; prepare() }
+                    }
+                })
+                setMediaItems(urls.map { MediaItem.fromUri(it) })
+                repeatMode = Player.REPEAT_MODE_ALL
+                volume = 0f
+                prepare()
+                playWhenReady = true
+            }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, exoPlayer) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
+                Lifecycle.Event.ON_RESUME -> exoPlayer.play()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            exoPlayer.release()
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            val root = android.view.LayoutInflater.from(ctx).inflate(R.layout.next_up_video, null)
+            root.findViewById<PlayerView>(R.id.nextup_player).player = exoPlayer
+            root
+        },
+        modifier = modifier,
+    )
+}
+
 /** How many times a player re-prepares after a transient playback error before giving up. */
 private const val MAX_RETRIES = 3

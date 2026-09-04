@@ -119,9 +119,10 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
             exitTransition = { fadeOut(tween(150)) },
             popEnterTransition = { fadeIn(tween(220)) },
             popExitTransition = { fadeOut(tween(150)) + scaleOut(targetScale = 0.985f, animationSpec = tween(150)) },
-            modifier = Modifier
-                .statusBarsPadding()
-                .padding(bottom = if (showBar) NavBarInset else 0.dp),
+            // No bottom inset: content scrolls UNDER the floating nav (each bottom-bar screen carries
+            // its own bottom padding so the last item still clears the bar). This is what makes the bar
+            // float over content instead of sitting on a reserved band of flat onyx behind it.
+            modifier = Modifier.statusBarsPadding(),
         ) {
             composable(Routes.DASHBOARD) {
                 DashboardScreen(

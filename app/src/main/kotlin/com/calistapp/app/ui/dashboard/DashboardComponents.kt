@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -40,7 +41,7 @@ import com.calistapp.app.ui.common.GlowIcon
 import com.calistapp.app.ui.common.ProgressRing
 import com.calistapp.app.ui.common.glow
 import com.calistapp.app.ui.exercises.ExerciseImage
-import com.calistapp.app.ui.exercises.ExerciseVideoPlaylist
+import com.calistapp.app.ui.exercises.NextUpVideoPlayer
 import com.calistapp.app.ui.theme.Amber
 import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.AshFaint
@@ -108,41 +109,27 @@ fun NextUpCard(state: NextUpState, onStart: () -> Unit, modifier: Modifier = Mod
     DashCard(modifier, contentPadding = 0.dp) {
         Box(Modifier.fillMaxWidth().height(168.dp)) {
             when {
-                state.videoUrls.isNotEmpty() -> ExerciseVideoPlaylist(
+                // The video bakes its fade + corner shadow into the view (they don't composite as
+                // Compose overlays over the player's texture layer).
+                state.videoUrls.isNotEmpty() -> NextUpVideoPlayer(
                     urls = state.videoUrls,
-                    active = true,
-                    playing = true,
                     modifier = Modifier.fillMaxWidth().height(168.dp),
                 )
+                // Compose content (image / placeholder) takes the scrims via drawWithContent, which
+                // does composite reliably.
                 state.imageUrls.isNotEmpty() -> ExerciseImage(
                     urls = state.imageUrls,
                     contentDescription = null,
                     animate = true,
                     phaseKey = state.savedWorkoutId,
-                    modifier = Modifier.fillMaxWidth().height(168.dp),
+                    modifier = Modifier.fillMaxWidth().height(168.dp).mediaScrims(),
                 )
                 else -> Box(
                     Modifier.fillMaxWidth().height(168.dp)
-                        .background(Brush.linearGradient(listOf(Color(0xFF2A2A2E), Color(0xFF0C0C0E)))),
+                        .background(Brush.linearGradient(listOf(Color(0xFF2A2A2E), Color(0xFF0C0C0E))))
+                        .mediaScrims(),
                 )
             }
-            // A soft diagonal shadow in the top-right corner so the badge always reads over the frame.
-            Box(
-                Modifier.fillMaxWidth().height(168.dp).background(
-                    Brush.linearGradient(
-                        colorStops = arrayOf(0f to Color.Black.copy(alpha = 0.5f), 0.42f to Color.Transparent),
-                        start = Offset(Float.POSITIVE_INFINITY, 0f),
-                        end = Offset(0f, Float.POSITIVE_INFINITY),
-                    ),
-                ),
-            )
-            // Bottom fade — the clip blends into the card so its lower edge (and any seam/watermark)
-            // isn't a hard line; you can't quite tell where the video ends.
-            Box(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(92.dp).background(
-                    Brush.verticalGradient(listOf(Color.Transparent, CardSurface)),
-                ),
-            )
             Badge(if (state.scheduled) state.whenLabel.uppercase() else "NEXT UP", Modifier.align(Alignment.TopEnd).padding(12.dp))
         }
         Column(Modifier.padding(16.dp)) {
@@ -153,6 +140,25 @@ fun NextUpCard(state: NextUpState, onStart: () -> Unit, modifier: Modifier = Mod
             StartButton(onStart)
         }
     }
+}
+
+/** Bottom fade + top-right corner shadow, for the Next Up image/placeholder (Compose content). */
+private fun Modifier.mediaScrims(): Modifier = drawWithContent {
+    drawContent()
+    drawRect(
+        Brush.verticalGradient(
+            listOf(Color.Transparent, CardSurface),
+            startY = size.height - 104.dp.toPx(),
+            endY = size.height,
+        ),
+    )
+    drawRect(
+        Brush.radialGradient(
+            listOf(Color.Black.copy(alpha = 0.5f), Color.Transparent),
+            center = Offset(size.width, 0f),
+            radius = size.maxDimension * 0.62f,
+        ),
+    )
 }
 
 @Composable

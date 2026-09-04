@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A soft diagonal shadow anchored at the top-right corner (angle 225 = top-right → bottom-left), so
+     the "NEXT UP" badge always reads over whatever frame is behind it. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient
+        android:angle="225"
+        android:startColor="#8C000000"
+        android:centerColor="#00000000"
+        android:endColor="#00000000" />
+</shape>

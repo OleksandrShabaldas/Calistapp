@@ -1,7 +1,9 @@
 package com.calistapp.app.ui.common
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -27,9 +29,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.calistapp.app.ui.theme.AshFaint
+import com.calistapp.app.ui.theme.Capsule
 import com.calistapp.app.ui.theme.Flame
 import com.calistapp.app.ui.theme.FlameDeep
 import com.calistapp.app.ui.theme.Onyx
+import com.calistapp.app.ui.theme.OnyxBorder
+import com.calistapp.app.ui.theme.OnyxRaised
 
 data class NavItem(val route: String, val label: String, val icon: ImageVector)
 
@@ -57,16 +62,19 @@ fun FloatingNavBar(
     Box(
         modifier
             .fillMaxWidth()
-            // The bar floats — no capsule box. A soft bottom scrim keeps the icons legible over
-            // whatever content scrolls beneath them.
-            .background(Brush.verticalGradient(listOf(Color.Transparent, Onyx.copy(alpha = 0.65f))))
             .padding(horizontal = 18.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
+        // The floating capsule panel (kept). A frosted, mostly-opaque fill so content scrolling under
+        // it reads as *behind* the bar rather than colliding with the icons — and no dark scrim band
+        // behind it, so the bar floats over the content instead of a black rectangle.
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(64.dp),
+                .height(64.dp)
+                .clip(Capsule)
+                .background(OnyxRaised.copy(alpha = 0.82f))
+                .border(BorderStroke(1.dp, OnyxBorder), Capsule),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             NavCluster(left, currentRoute, onSelect, Modifier.weight(1f))
