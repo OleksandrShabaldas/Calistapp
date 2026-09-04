@@ -271,6 +271,50 @@ class DashboardViewModel @Inject constructor(
             }
         }.stateIn(viewModelScope, started, null)
 
+    /** Streak stats + the day-by-day calorie heatmap, for the streak-badge popup. */
+    val streak: StateFlow<StreakData> =
+        combine(earnedByDate, goals, perStepRate, today) { earned, g, rate, t ->
+            val target = DailyEnergyGoal.dailyTargetKcal(g.dailyStepGoal, rate)
+            val stats = DailyEnergyGoal.stats(earned, target, t)
+            val cells = buildList {
+                stats.firstDay?.let { first ->
+                    var d = first
+                    while (!d.isAfter(t)) {
+                        val e = earned[d] ?: 0.0
+                        add(HeatCell(d, e.roundToInt(), if (target > 0) (e / target).toFloat() else 0f))
+                        d = d.plusDays(1)
+                    }
+                }
+            }
+            StreakData(stats, cells, target)
+        }.stateIn(viewModelScope, started, StreakData())
+
+    /** Steps trends + context, for the steps-widget popup. */
+    val stepsInsights: StateFlow<StepsInsights> =
+        combine(today, stepDays, goals, profile) { t, days, g, prof ->
+            val byDate = days.associateBy { it.date }
+            val last30 = (29 downTo 0).map { i ->
+                val d = t.minusDays(i.toLong())
+                DayStep(d, byDate[d.format(ISO_DATE)]?.steps ?: 0)
+            }
+            val last7 = (1..7).mapNotNull { byDate[t.minusDays(it.toLong()).format(ISO_DATE)]?.steps }
+            val todayStr = t.format(ISO_DATE)
+            val todaySteps = byDate[todayStr]?.steps ?: 0
+            val best = days.filter { it.steps > 0 }.maxByOrNull { it.steps }
+            val strideMetres = prof.heightCm * 0.415 / 100.0
+            StepsInsights(
+                last30 = last30,
+                today = todaySteps,
+                goal = g.dailyStepGoal,
+                avg7d = if (last7.isEmpty()) 0 else last7.average().roundToInt(),
+                bestDaySteps = best?.steps ?: 0,
+                bestDay = best?.let { runCatching { LocalDate.parse(it.date) }.getOrNull() },
+                stepGoalStreak = stepGoalStreak(byDate, g.dailyStepGoal, t),
+                distanceKm = todaySteps * strideMetres / 1000.0,
+                activeKcal = byDate[todayStr]?.calories?.roundToInt() ?: 0,
+            )
+        }.stateIn(viewModelScope, started, StepsInsights())
+
     init {
         refreshRecommendations()
         viewModelScope.launch {
@@ -353,6 +397,14 @@ class DashboardViewModel @Inject constructor(
         else -> "Good evening"
     }
 
+    private fun stepGoalStreak(byDate: Map<String, StepDayEntity>, goal: Int, today: LocalDate): Int {
+        fun stepsOn(d: LocalDate) = byDate[d.format(ISO_DATE)]?.steps ?: 0
+        var cursor = if (stepsOn(today) >= goal) today else today.minusDays(1)
+        var streak = 0
+        while (stepsOn(cursor) >= goal) { streak++; cursor = cursor.minusDays(1) }
+        return streak
+    }
+
     private fun weekTitle(weekStart: LocalDate, currentWeekStart: LocalDate): String = when (weekStart) {
         currentWeekStart -> "This week"
         currentWeekStart.minusWeeks(1) -> "Last week"
@@ -367,7 +419,9 @@ class DashboardViewModel @Inject constructor(
 
     private companion object {
         const val TODAY_CHECK_MS = 5 * 60_000L
-        const val STREAK_WINDOW_DAYS = 130L
+        // A year: enough for the streak heatmap to scroll back to the first logged day and for long
+        // streaks. (Only imported/logged days actually carry data; the rest read as zero.)
+        const val STREAK_WINDOW_DAYS = 370L
         const val MAX_WEEKS_BACK = 26
         val ISO_DATE: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
         val DATE_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE · MMM d", Locale.getDefault())

@@ -1,5 +1,6 @@
 package com.calistapp.core.progress
 
+import java.time.DayOfWeek
 import java.time.LocalDate
 import kotlin.math.roundToInt
 
@@ -63,6 +64,101 @@ object DailyEnergyGoal {
         return streak
     }
 
+    /**
+     * The streak stats the heatmap popup shows, computed across `[firstDay, today]` where firstDay is
+     * the earliest day with any burn. Pure so it can be unit-tested.
+     */
+    fun stats(earnedByDate: Map<LocalDate, Double>, targetKcal: Int, today: LocalDate): StreakStats {
+        val current = currentStreak(earnedByDate, targetKcal, today)
+        val firstDay = earnedByDate.entries.filter { it.value > 0.0 }.minByOrNull { it.key }?.key
+            ?: return StreakStats(current, 0, 0, null, 0, null, 0, 0, 0, emptyMap(), null, 0)
+
+        var longest = 0
+        var run = 0
+        var longestMiss = 0
+        var missRun = 0
+        var hits = 0
+        var totalDays = 0
+        var sumEarned = 0.0
+        var best: LocalDate? = null
+        var bestKcal = 0.0
+        val weekdayHits = HashMap<DayOfWeek, Int>()
+        val weekdayCount = HashMap<DayOfWeek, Int>()
+
+        var d = firstDay
+        while (!d.isAfter(today)) {
+            val earned = earnedByDate[d] ?: 0.0
+            totalDays++
+            sumEarned += earned
+            if (earned > bestKcal) { bestKcal = earned; best = d }
+            val wd = d.dayOfWeek
+            weekdayCount[wd] = (weekdayCount[wd] ?: 0) + 1
+            if (hit(earned, targetKcal)) {
+                hits++; run++; longest = maxOf(longest, run); missRun = 0
+                weekdayHits[wd] = (weekdayHits[wd] ?: 0) + 1
+            } else {
+                missRun++; longestMiss = maxOf(longestMiss, missRun); run = 0
+            }
+            d = d.plusDays(1)
+        }
+
+        // The most recent hit→miss transition — the day the latest streak ended.
+        var lastBroken: LocalDate? = null
+        var back = today
+        while (back.isAfter(firstDay)) {
+            if (!hit(earnedByDate[back] ?: 0.0, targetKcal) && hit(earnedByDate[back.minusDays(1)] ?: 0.0, targetKcal)) {
+                lastBroken = back; break
+            }
+            back = back.minusDays(1)
+        }
+
+        val monthStart = today.withDayOfMonth(1)
+        var daysHitThisMonth = 0
+        var m = monthStart
+        while (!m.isAfter(today)) {
+            if (hit(earnedByDate[m] ?: 0.0, targetKcal)) daysHitThisMonth++
+            m = m.plusDays(1)
+        }
+
+        val weekdayRate = DayOfWeek.entries.associateWith { wd ->
+            val c = weekdayCount[wd] ?: 0
+            if (c == 0) 0f else (weekdayHits[wd] ?: 0).toFloat() / c
+        }
+
+        return StreakStats(
+            current = current,
+            longest = longest,
+            longestMiss = longestMiss,
+            lastBrokenDay = lastBroken,
+            daysHitThisMonth = daysHitThisMonth,
+            bestDay = best,
+            bestDayKcal = bestKcal.roundToInt(),
+            goalHitPercent = if (totalDays == 0) 0 else hits * 100 / totalDays,
+            avgDailyBurn = if (totalDays == 0) 0 else (sumEarned / totalDays).roundToInt(),
+            weekdayHitRate = weekdayRate,
+            firstDay = firstDay,
+            totalDaysTracked = totalDays,
+        )
+    }
+
     /** FitPal's default over-count trim, used only by [fallbackPerStepRate]. */
     const val DEFAULT_TRIM_PERCENT = 15
 }
+
+/** Everything the streak popup shows beyond the day-by-day heatmap. */
+data class StreakStats(
+    val current: Int,
+    val longest: Int,
+    /** Longest run of consecutive days *below* the goal. */
+    val longestMiss: Int,
+    /** The most recent day a streak ended (a hit→miss transition), or null if never broken. */
+    val lastBrokenDay: LocalDate?,
+    val daysHitThisMonth: Int,
+    val bestDay: LocalDate?,
+    val bestDayKcal: Int,
+    val goalHitPercent: Int,
+    val avgDailyBurn: Int,
+    val weekdayHitRate: Map<DayOfWeek, Float>,
+    val firstDay: LocalDate?,
+    val totalDaysTracked: Int,
+)

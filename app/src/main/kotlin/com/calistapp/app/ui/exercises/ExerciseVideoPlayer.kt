@@ -15,8 +15,8 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.calistapp.app.R
 import com.calistapp.app.data.exercise.ExerciseMediaStore
 
 /**
@@ -75,13 +75,10 @@ fun ExerciseVideoPlayer(
     }
 
     AndroidView(
+        // Inflated (rather than `PlayerView(ctx)`) so it uses a TextureView surface — see the layout.
         factory = { ctx ->
-            PlayerView(ctx).apply {
-                player = exoPlayer
-                useController = false
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-            }
+            (android.view.LayoutInflater.from(ctx).inflate(R.layout.exercise_player_view, null) as PlayerView)
+                .apply { player = exoPlayer }
         },
         modifier = modifier,
     )
@@ -141,13 +138,10 @@ fun ExerciseVideoPlaylist(
     }
 
     AndroidView(
+        // Inflated (rather than `PlayerView(ctx)`) so it uses a TextureView surface — see the layout.
         factory = { ctx ->
-            PlayerView(ctx).apply {
-                player = exoPlayer
-                useController = false
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-            }
+            (android.view.LayoutInflater.from(ctx).inflate(R.layout.exercise_player_view, null) as PlayerView)
+                .apply { player = exoPlayer }
         },
         modifier = modifier,
     )

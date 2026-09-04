@@ -2,6 +2,7 @@ package com.calistapp.app.ui.dashboard
 
 import com.calistapp.core.model.SessionOverview
 import com.calistapp.core.model.TrainingGoals
+import com.calistapp.core.progress.StreakStats
 import java.time.LocalDate
 
 /** The greeting header + streak pill. */
@@ -52,6 +53,39 @@ data class StepsState(
     val targetKcal: Int = 0,
     val progress: Float = 0f,
     val goalMet: Boolean = false,
+)
+
+/** One square in the streak heatmap: a day, its burn, and how it compares to the goal. */
+data class HeatCell(
+    val date: LocalDate,
+    val kcal: Int,
+    /** earned ÷ target — ≥1 hit the goal, >1 over it (up to 2 = full red), <1 under (fades out). */
+    val fraction: Float,
+)
+
+/** Everything the streak popup renders. */
+data class StreakData(
+    val stats: StreakStats = StreakStats(0, 0, 0, null, 0, null, 0, 0, 0, emptyMap(), null, 0),
+    /** firstDay → today, one per day, for the scrollable heatmap. */
+    val cells: List<HeatCell> = emptyList(),
+    val targetKcal: Int = 0,
+)
+
+/** One bar in the steps popup's 30-day chart. */
+data class DayStep(val date: LocalDate, val steps: Int)
+
+/** Everything the steps popup renders. */
+data class StepsInsights(
+    val last30: List<DayStep> = emptyList(),
+    val today: Int = 0,
+    val goal: Int = TrainingGoals.DEFAULT_DAILY_STEP_GOAL,
+    val avg7d: Int = 0,
+    val bestDaySteps: Int = 0,
+    val bestDay: LocalDate? = null,
+    /** Consecutive days that hit the raw step goal, counting back from today. */
+    val stepGoalStreak: Int = 0,
+    val distanceKm: Double = 0.0,
+    val activeKcal: Int = 0,
 )
 
 /** A past day the user tapped to inspect — its steps, energy and the workouts logged that day. */

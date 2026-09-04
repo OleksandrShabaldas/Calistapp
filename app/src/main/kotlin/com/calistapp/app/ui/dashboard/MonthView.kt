@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,14 +40,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import android.os.Build
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -60,6 +66,21 @@ import com.calistapp.app.ui.theme.FlameHot
 import java.time.LocalDate
 
 private val DAY_HEADERS = listOf("M", "T", "W", "T", "F", "S", "S")
+private val CAN_BLUR = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+/** The orange (goal) + red (over-goal) progress arcs of one day cell. Shared by the sharp + glow passes. */
+private fun DrawScope.drawRingArcs(cell: MonthDayCell, strokeWidth: Dp) {
+    val sw = strokeWidth.toPx()
+    val inset = sw / 2f
+    val arcSize = Size(size.width - sw, size.height - sw)
+    val tl = Offset(inset, inset)
+    if (cell.orangeFraction > 0f) {
+        drawArc(FlameHot, -90f, 360f * cell.orangeFraction, false, tl, arcSize, style = Stroke(sw, cap = StrokeCap.Round))
+    }
+    if (cell.redFraction > 0f) {
+        drawArc(Coral, -90f, 360f * cell.redFraction, false, tl, arcSize, style = Stroke(sw, cap = StrokeCap.Round))
+    }
+}
 
 /**
  * The near-fullscreen monthly calendar. Each date wears a ring — orange for the day's calorie goal,
@@ -100,14 +121,14 @@ fun MonthOverlay(
                 enter = fadeIn(tween(220)) + scaleIn(tween(260), initialScale = 0.92f),
                 exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = 0.92f),
             ) {
-                MonthCard(month, viewModel::previousMonth, viewModel::nextMonth, onDismiss, onSelectDay)
+                MonthCard(month, viewModel::previousMonth, viewModel::nextMonth, viewModel::resetToCurrentMonth, onDismiss, onSelectDay)
             }
         }
     }
 }
 
 @Composable
-private fun MonthCard(month: MonthView, onPrev: () -> Unit, onNext: () -> Unit, onClose: () -> Unit, onSelectDay: (LocalDate) -> Unit) {
+private fun MonthCard(month: MonthView, onPrev: () -> Unit, onNext: () -> Unit, onReset: () -> Unit, onClose: () -> Unit, onSelectDay: (LocalDate) -> Unit) {
     val maxHeight = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.9f).dp
     Box(
         Modifier
@@ -137,6 +158,25 @@ private fun MonthCard(month: MonthView, onPrev: () -> Unit, onNext: () -> Unit, 
                     Icon(Icons.Filled.ChevronRight, "Next month", tint = if (month.isCurrentMonth) AshFaint else Chalk)
                 }
                 IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Close", tint = Ash) }
+            }
+
+            // "This month" — jump back when browsing other months.
+            if (!month.isCurrentMonth) {
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Row(
+                        Modifier
+                            .glow(FlameHot, spread = 12.dp, alpha = 0.36f)
+                            .clip(CircleShape)
+                            .background(emberBrush)
+                            .clickable(onClick = onReset)
+                            .padding(horizontal = 14.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(Icons.Filled.Today, contentDescription = null, tint = OnOrange, modifier = Modifier.size(15.dp))
+                        Text("This month", style = MaterialTheme.typography.labelMedium, color = OnOrange, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
 
             // Weekday header.
@@ -182,26 +222,23 @@ private fun DayCellView(cell: MonthDayCell?, onSelectDay: (LocalDate) -> Unit) {
             Spacer(Modifier.size(5.dp))
             return@Column
         }
-        val glowColor = if (cell.redFraction > 0f) Coral else FlameHot
-        val glowAlpha = 0.32f * maxOf(cell.orangeFraction, cell.redFraction)
-        Box(
-            Modifier
-                .then(if (glowAlpha > 0.02f) Modifier.glow(glowColor, spread = 3.dp, alpha = glowAlpha) else Modifier)
-                .size(38.dp),
-            contentAlignment = Alignment.Center,
-        ) {
+        val hasFill = cell.orangeFraction > 0f || cell.redFraction > 0f
+        Box(Modifier.size(38.dp), contentAlignment = Alignment.Center) {
+            // The ring glows itself: a blurred copy of its own arcs sits behind the sharp ones (API 31+).
+            if (CAN_BLUR && hasFill) {
+                Canvas(Modifier.size(38.dp).blur(6.dp, BlurredEdgeTreatment.Unbounded)) { drawRingArcs(cell, 3.dp) }
+            }
+            // Today: a tinted disc behind the number so it clearly stands out from the other days.
+            if (cell.isToday) {
+                Box(Modifier.size(24.dp).clip(CircleShape).background(FlameHot.copy(alpha = 0.18f)))
+            }
             Canvas(Modifier.size(38.dp)) {
                 val sw = 3.dp.toPx()
                 val inset = sw / 2f
                 val arcSize = Size(size.width - sw, size.height - sw)
                 val tl = Offset(inset, inset)
                 drawArc(Color.White.copy(alpha = 0.08f), 0f, 360f, false, tl, arcSize, style = Stroke(sw))
-                if (cell.orangeFraction > 0f) {
-                    drawArc(FlameHot, -90f, 360f * cell.orangeFraction, false, tl, arcSize, style = Stroke(sw, cap = StrokeCap.Round))
-                }
-                if (cell.redFraction > 0f) {
-                    drawArc(Coral, -90f, 360f * cell.redFraction, false, tl, arcSize, style = Stroke(sw, cap = StrokeCap.Round))
-                }
+                drawRingArcs(cell, 3.dp)
             }
             Text(
                 "${cell.date.dayOfMonth}",

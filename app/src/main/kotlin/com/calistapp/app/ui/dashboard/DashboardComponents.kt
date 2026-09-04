@@ -76,14 +76,16 @@ fun DashCard(
     )
 }
 
-/** The streak pill: a flame glyph (with a soft glow) + the day count. */
+/** The streak pill: a flame glyph (with a soft glow) + the day count. Tap for the streak heatmap. */
 @Composable
-fun StreakPill(count: Int, modifier: Modifier = Modifier) {
+fun StreakPill(count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Row(
         modifier
-            .clip(CircleShape)
-            .background(FlameHot.copy(alpha = 0.12f))
+            // No .clip() — that would slice the flame's glow off; the shaped background/border and the
+            // clickable don't need it.
+            .background(FlameHot.copy(alpha = 0.12f), CircleShape)
             .border(1.dp, FlameHot.copy(alpha = 0.30f), CircleShape)
+            .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -187,8 +189,8 @@ internal fun Badge(text: String, modifier: Modifier = Modifier) {
 
 /** Steps today + the daily energy-goal ring — one card, split into two centred halves. */
 @Composable
-fun StepsWidget(state: StepsState, modifier: Modifier = Modifier) {
-    DashCard(modifier, contentPadding = 20.dp) {
+fun StepsWidget(state: StepsState, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
+    DashCard(if (onClick != null) modifier.clickable(onClick = onClick) else modifier, contentPadding = 20.dp) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 GlowIcon(

@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -87,11 +88,13 @@ fun WeekStrip(
                         else if (total < -SWIPE_THRESHOLD) onNextWeek()
                     },
                 ) { _, dragAmount -> total += dragAmount }
-            },
+            }
+            // Tapping any empty part of the widget opens the month; the day columns, the total and the
+            // plan link have their own taps and consume theirs first.
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onOpenMonth),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
             Row(
-                Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onOpenMonth).padding(vertical = 2.dp, horizontal = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -161,16 +164,18 @@ fun WeekStrip(
 
 @Composable
 private fun DayColumn(day: DayCell, maxKcal: Int, isSelected: Boolean, onClick: () -> Unit) {
+    val selShape = RoundedCornerShape(12.dp)
     Column(
         Modifier
-            .clip(RoundedCornerShape(12.dp))
+            // No .clip() — it would slice the today bar's glow off the sides (the bug). The selection
+            // highlight uses shaped background/border, which clip only themselves.
             .then(
                 if (isSelected) Modifier
-                    .background(Color.White.copy(alpha = 0.07f))
-                    .border(1.dp, Chalk.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                    .background(Color.White.copy(alpha = 0.07f), selShape)
+                    .border(1.dp, Chalk.copy(alpha = 0.35f), selShape)
                 else Modifier,
             )
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
             .padding(horizontal = 4.dp, vertical = 5.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -182,7 +187,7 @@ private fun DayColumn(day: DayCell, maxKcal: Int, isSelected: Boolean, onClick: 
             val barHeight = if (hasBurn) 8.dp + 46.dp * animated else 6.dp
             val barBrush = if (hasBurn) emberBrush else SolidColor(Color.White.copy(alpha = 0.09f))
             if (day.isToday && hasBurn) {
-                GlowBox(FlameHot, barShape, glowRadius = 9.dp, glowAlpha = 0.5f, modifier = Modifier.width(24.dp).height(barHeight)) {
+                GlowBox(FlameHot, barShape, glowRadius = 14.dp, glowAlpha = 0.85f, modifier = Modifier.width(24.dp).height(barHeight)) {
                     Box(Modifier.matchParentSize().clip(barShape).background(barBrush))
                 }
             } else {

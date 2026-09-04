@@ -72,4 +72,35 @@ class DailyEnergyGoalTest {
     @Test fun `a non-positive target yields no streak`() {
         assertEquals(0, DailyEnergyGoal.currentStreak(mapOf(today to 999.0), 0, today))
     }
+
+    @Test fun `stats summarise the streak history`() {
+        val d = LocalDate.of(2026, 9, 10)
+        val earned = mapOf(
+            d.minusDays(6) to 400.0, // 09-04 hit
+            d.minusDays(5) to 100.0, // 09-05 miss
+            d.minusDays(4) to 350.0, // 09-06 hit
+            d.minusDays(3) to 500.0, // 09-07 hit (best)
+            d.minusDays(2) to 90.0,  // 09-08 miss
+            d.minusDays(1) to 400.0, // 09-09 hit
+            d to 350.0,              // 09-10 hit (today)
+        )
+        val s = DailyEnergyGoal.stats(earned, 320, d)
+        assertEquals(2, s.current)
+        assertEquals(2, s.longest)
+        assertEquals(1, s.longestMiss)
+        assertEquals(d.minusDays(2), s.lastBrokenDay)   // the 09-08 miss right after a hit
+        assertEquals(d.minusDays(3), s.bestDay)
+        assertEquals(500, s.bestDayKcal)
+        assertEquals(5, s.daysHitThisMonth)
+        assertEquals(71, s.goalHitPercent)              // 5 of 7
+        assertEquals(d.minusDays(6), s.firstDay)
+        assertEquals(7, s.totalDaysTracked)
+    }
+
+    @Test fun `stats are empty before any burn`() {
+        val s = DailyEnergyGoal.stats(emptyMap(), 320, today)
+        assertEquals(0, s.current)
+        assertEquals(0, s.longest)
+        assertNull(s.firstDay)
+    }
 }

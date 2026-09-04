@@ -85,11 +85,14 @@ class SleepRepository @Inject constructor(
         }.getOrNull().orEmpty()
         if (sessions.isEmpty()) return null
 
-        var deepMs = 0L
-        var remMs = 0L
-        var lightMs = 0L
-        var awakeMs = 0L
-        var asleepMs = 0L
+        // Collect time INTERVALS per category rather than summing durations, then merge overlaps —
+        // trackers commonly mirror the same night (e.g. Samsung Health + Health Sync), and summing
+        // those duplicates doubled the total (7h22m + 7h22m ≈ 14h). Merging counts a night once.
+        val asleep = mutableListOf<LongRange>()
+        val deep = mutableListOf<LongRange>()
+        val rem = mutableListOf<LongRange>()
+        val light = mutableListOf<LongRange>()
+        val awake = mutableListOf<LongRange>()
         var hasStages = false
         var windowStart: Instant? = null
         var windowEnd: Instant? = null
@@ -98,22 +101,27 @@ class SleepRepository @Inject constructor(
             windowEnd = windowEnd?.let { maxOf(it, session.endTime) } ?: session.endTime
             if (session.stages.isNotEmpty()) {
                 session.stages.forEach { stage ->
-                    val ms = Duration.between(stage.startTime, stage.endTime).toMillis()
+                    val range = stage.startTime.toEpochMilli()..stage.endTime.toEpochMilli()
                     when (stage.stage) {
-                        SleepSessionRecord.STAGE_TYPE_DEEP -> { deepMs += ms; asleepMs += ms; hasStages = true }
-                        SleepSessionRecord.STAGE_TYPE_REM -> { remMs += ms; asleepMs += ms; hasStages = true }
-                        SleepSessionRecord.STAGE_TYPE_LIGHT -> { lightMs += ms; asleepMs += ms; hasStages = true }
+                        SleepSessionRecord.STAGE_TYPE_DEEP -> { deep += range; asleep += range; hasStages = true }
+                        SleepSessionRecord.STAGE_TYPE_REM -> { rem += range; asleep += range; hasStages = true }
+                        SleepSessionRecord.STAGE_TYPE_LIGHT -> { light += range; asleep += range; hasStages = true }
                         SleepSessionRecord.STAGE_TYPE_AWAKE,
                         SleepSessionRecord.STAGE_TYPE_AWAKE_IN_BED,
                         SleepSessionRecord.STAGE_TYPE_OUT_OF_BED,
-                        -> awakeMs += ms
-                        else -> asleepMs += ms
+                        -> awake += range
+                        else -> asleep += range
                     }
                 }
             } else {
-                asleepMs += Duration.between(session.startTime, session.endTime).toMillis()
+                asleep += session.startTime.toEpochMilli()..session.endTime.toEpochMilli()
             }
         }
+        val asleepMs = mergedMs(asleep)
+        val deepMs = mergedMs(deep)
+        val remMs = mergedMs(rem)
+        val lightMs = mergedMs(light)
+        val awakeMs = mergedMs(awake)
         if (asleepMs <= 0L) return null
 
         val start = windowStart
@@ -188,5 +196,25 @@ class SleepRepository @Inject constructor(
         if (values.size < 2) return 0.0
         val mean = values.average()
         return sqrt(values.sumOf { (it - mean) * (it - mean) } / values.size)
+    }
+
+    /** Total covered milliseconds of a set of time ranges, counting overlaps (duplicates) once. */
+    private fun mergedMs(intervals: List<LongRange>): Long {
+        if (intervals.isEmpty()) return 0L
+        val sorted = intervals.sortedBy { it.first }
+        var total = 0L
+        var start = sorted[0].first
+        var end = sorted[0].last
+        for (i in 1 until sorted.size) {
+            val r = sorted[i]
+            if (r.first <= end) {
+                if (r.last > end) end = r.last
+            } else {
+                total += end - start
+                start = r.first
+                end = r.last
+            }
+        }
+        return total + (end - start)
     }
 }

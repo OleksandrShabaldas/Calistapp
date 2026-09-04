@@ -73,6 +73,7 @@ class MonthViewModel @Inject constructor(
 
     fun previousMonth() { monthOffset.value = (monthOffset.value - 1).coerceAtLeast(-MAX_MONTHS_BACK) }
     fun nextMonth() { monthOffset.value = (monthOffset.value + 1).coerceAtMost(0) }
+    fun resetToCurrentMonth() { monthOffset.value = 0 }
     fun jumpTo(date: LocalDate) {
         val target = YearMonth.from(date)
         val delta = ((target.year - YearMonth.now(zone).year) * 12 + (target.monthValue - YearMonth.now(zone).monthValue))

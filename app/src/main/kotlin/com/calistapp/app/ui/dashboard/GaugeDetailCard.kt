@@ -196,5 +196,31 @@ private fun FactorBar(factor: RecFactor, color: Color) {
         Box(Modifier.fillMaxWidth().height(7.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.08f))) {
             Box(Modifier.fillMaxWidth(factor.progress.coerceIn(0f, 1f)).height(7.dp).clip(CircleShape).background(color))
         }
+        val note = factorNote(factor)
+        if (note.isNotBlank()) {
+            Text(note, style = MaterialTheme.typography.bodySmall, color = Ash.copy(alpha = 0.75f))
+        }
+    }
+}
+
+/** A short clause tying one factor to the recommendation — the "line per factor" of the detail card. */
+private fun factorNote(f: RecFactor): String {
+    val p = f.progress
+    val l = f.label.lowercase()
+    return when {
+        l == "sleep" -> if (p >= 0.85f) "Plenty of sleep behind you." else if (p >= 0.6f) "A reasonable night." else "Short on sleep — a mark against training hard."
+        "deep" in l -> if (p >= 0.55f) "Deep, restorative sleep." else if (p >= 0.35f) "Moderate restorative depth." else "Light sleep, less recovery."
+        "hrv" in l -> if (p >= 0.6f) "HRV looks recovered." else if (p >= 0.35f) "HRV is middling." else "HRV is suppressed — a caution flag."
+        l.contains("sleeping hr") -> if (p >= 0.6f) "Low sleeping heart rate — well rested." else "Sleeping heart rate ran high."
+        "recovery" in l -> if (p >= 0.9f) "Very rested — arguably a long time off." else if (p >= 0.4f) "Adequately rested." else "Little rest since your last session."
+        "load" in l -> "How this week compares to your normal."
+        "intensity" in l -> if (p >= 0.75f) "Your last session was hard." else "Recent effort has been comfortable."
+        "activity" in l || "steps" in l -> if (p >= 0.8f) "Very active on foot lately." else if (p >= 0.4f) "Moderately active." else "Fairly quiet on foot."
+        "temp" in l -> "Current temperature."
+        "uv" in l -> if (p >= 0.55f) "High UV — sunscreen if you go out." else "UV is comfortable."
+        "air" in l -> if (p >= 0.5f) "Air quality is poor right now." else "Air is clean."
+        "wind" in l -> if (p >= 0.6f) "Breezy out there." else "Barely any wind."
+        "rain" in l -> "It's wet."
+        else -> ""
     }
 }

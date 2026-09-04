@@ -1,9 +1,7 @@
 package com.calistapp.app.ui.common
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -28,12 +26,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import com.calistapp.app.ui.theme.Capsule
 import com.calistapp.app.ui.theme.AshFaint
 import com.calistapp.app.ui.theme.Flame
 import com.calistapp.app.ui.theme.FlameDeep
 import com.calistapp.app.ui.theme.Onyx
-import com.calistapp.app.ui.theme.OnyxBorder
 
 data class NavItem(val route: String, val label: String, val icon: ImageVector)
 
@@ -61,16 +57,16 @@ fun FloatingNavBar(
     Box(
         modifier
             .fillMaxWidth()
+            // The bar floats — no capsule box. A soft bottom scrim keeps the icons legible over
+            // whatever content scrolls beneath them.
+            .background(Brush.verticalGradient(listOf(Color.Transparent, Onyx.copy(alpha = 0.65f))))
             .padding(horizontal = 18.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(64.dp)
-                .clip(Capsule)
-                .background(Color.White.copy(alpha = 0.06f))
-                .border(BorderStroke(1.dp, OnyxBorder), Capsule),
+                .height(64.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             NavCluster(left, currentRoute, onSelect, Modifier.weight(1f))
@@ -116,8 +112,9 @@ private fun NavCluster(
             val interaction = remember { MutableInteractionSource() }
             Box(
                 Modifier
+                    // No .clip() here — it would cut the selected icon's glow; the null-indication
+                    // clickable doesn't need it.
                     .size(width = 52.dp, height = 52.dp)
-                    .clip(CircleShape)
                     .clickable(interactionSource = interaction, indication = null, onClick = { onSelect(item.route) }),
                 contentAlignment = Alignment.Center,
             ) {
