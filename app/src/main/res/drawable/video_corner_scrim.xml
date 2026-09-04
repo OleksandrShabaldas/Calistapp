@@ -1,16 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  A large soft shadow anchored at the top-right corner. It is near-opaque out past the "NEXT UP" chip
-  (which sits ~12dp in from the top-right and is ~120dp from the corner at its far edge), so the video
-  behind the chip isn't visible, then falls away into a soft gradient by ~330dp. Radial (not a thin
-  diagonal linear) so it reads as a real corner shadow; centre = top-right (1.0, 0.0).
+  A soft shadow anchored at the top-right corner. It is near-opaque out past the "NEXT UP" chip (which
+  sits ~12dp in from the top-right and is ~105dp from the corner at its far edge), so the video behind
+  the chip isn't visible, then falls away into a soft gradient by ~260dp. Radial (not a thin diagonal
+  linear) so it reads as a real corner shadow; centre = top-right (1.0, 0.0). (0.9.4 shipped 330dp — the
+  user asked for it a bit smaller; 260dp still clears the chip with margin, see the headless-render
+  preview harness in docs/dashboard-redesign.md before changing this again.)
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <gradient
         android:type="radial"
         android:centerX="1.0"
         android:centerY="0.0"
-        android:gradientRadius="330dp"
+        android:gradientRadius="260dp"
         android:startColor="#F7000000"
         android:centerColor="#EB000000"
         android:endColor="#00000000" />

@@ -37,9 +37,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.calistapp.app.data.recommend.RecommendationsUi
+import com.calistapp.app.ui.common.GlowBox
 import com.calistapp.app.ui.common.GlowIcon
 import com.calistapp.app.ui.common.ProgressRing
-import com.calistapp.app.ui.common.glow
 import com.calistapp.app.ui.exercises.ExerciseImage
 import com.calistapp.app.ui.exercises.NextUpVideoPlayer
 import com.calistapp.app.ui.theme.Amber
@@ -145,7 +145,12 @@ fun NextUpCard(state: NextUpState, onOpenInfo: () -> Unit, onStart: () -> Unit, 
     }
 }
 
-/** Bottom fade + top-right corner shadow, for the Next Up image/placeholder (Compose content). */
+/**
+ * Bottom fade + top-right corner shadow, for the Next Up image/placeholder (Compose content). Mirrors
+ * `video_corner_scrim.xml`'s numbers exactly (260dp, 97%→92%→0%) so the fallback looks identical to the
+ * video path — this had drifted out of sync with the XML once before (still on the old 65%/0.62× values
+ * after the video drawable was fixed), so keep the two in lockstep if this shape changes again.
+ */
 private fun Modifier.mediaScrims(): Modifier = drawWithContent {
     drawContent()
     drawRect(
@@ -157,29 +162,42 @@ private fun Modifier.mediaScrims(): Modifier = drawWithContent {
     )
     drawRect(
         Brush.radialGradient(
-            listOf(Color.Black.copy(alpha = 0.5f), Color.Transparent),
+            colorStops = arrayOf(
+                0f to Color.Black.copy(alpha = 0.97f),
+                0.5f to Color.Black.copy(alpha = 0.92f),
+                1f to Color.Transparent,
+            ),
             center = Offset(size.width, 0f),
-            radius = size.maxDimension * 0.62f,
+            radius = 260.dp.toPx(),
         ),
     )
 }
 
 @Composable
 private fun StartButton(onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(54.dp)
-            .glow(FlameHot, spread = 20.dp, alpha = 0.38f)
-            .clip(RoundedCornerShape(16.dp))
-            .background(emberBrush)
-            .clickable(onClick = onClick),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
+    // GlowBox (not the generic circular .glow()) so the halo hugs the pill's own rounded-rect shape
+    // instead of a slapped-on circle poking out top/bottom; also the user's requested smaller pass.
+    val shape = RoundedCornerShape(16.dp)
+    GlowBox(
+        color = FlameHot,
+        shape = shape,
+        glowRadius = 14.dp,
+        glowAlpha = 0.48f,
+        modifier = Modifier.fillMaxWidth().height(54.dp),
     ) {
-        Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = OnOrange, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(8.dp))
-        Text("Start workout", style = MaterialTheme.typography.titleMedium, color = OnOrange, fontWeight = FontWeight.Bold)
+        Row(
+            Modifier
+                .matchParentSize()
+                .clip(shape)
+                .background(emberBrush)
+                .clickable(onClick = onClick),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = OnOrange, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Start workout", style = MaterialTheme.typography.titleMedium, color = OnOrange, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
