@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -34,7 +35,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.calistapp.app.data.recommend.RecommendationState
+import com.calistapp.app.data.recommend.RecommendationsUi
+import com.calistapp.app.ui.common.GlowIcon
 import com.calistapp.app.ui.common.ProgressRing
 import com.calistapp.app.ui.common.glow
 import com.calistapp.app.ui.exercises.ExerciseImage
@@ -86,11 +88,13 @@ fun StreakPill(count: Int, modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Icon(
+        GlowIcon(
             Icons.Filled.LocalFireDepartment,
             contentDescription = "Streak",
             tint = FlameHot,
-            modifier = Modifier.glow(FlameHot, spread = 8.dp, alpha = 0.28f).size(16.dp),
+            size = 16.dp,
+            glowRadius = 5.dp,
+            glowAlpha = 0.5f,
         )
         Text("$count", style = MaterialTheme.typography.titleSmall, color = Chalk, fontWeight = FontWeight.Bold)
     }
@@ -120,7 +124,23 @@ fun NextUpCard(state: NextUpState, onStart: () -> Unit, modifier: Modifier = Mod
                         .background(Brush.linearGradient(listOf(Color(0xFF2A2A2E), Color(0xFF0C0C0E)))),
                 )
             }
-            Box(Modifier.fillMaxWidth().height(168.dp).background(Brush.verticalGradient(listOf(Color.Transparent, CardSurface))))
+            // A soft diagonal shadow in the top-right corner so the badge always reads over the frame.
+            Box(
+                Modifier.fillMaxWidth().height(168.dp).background(
+                    Brush.linearGradient(
+                        colorStops = arrayOf(0f to Color.Black.copy(alpha = 0.5f), 0.42f to Color.Transparent),
+                        start = Offset(Float.POSITIVE_INFINITY, 0f),
+                        end = Offset(0f, Float.POSITIVE_INFINITY),
+                    ),
+                ),
+            )
+            // Bottom fade — the clip blends into the card so its lower edge (and any seam/watermark)
+            // isn't a hard line; you can't quite tell where the video ends.
+            Box(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(92.dp).background(
+                    Brush.verticalGradient(listOf(Color.Transparent, CardSurface)),
+                ),
+            )
             Badge(if (state.scheduled) state.whenLabel.uppercase() else "NEXT UP", Modifier.align(Alignment.TopEnd).padding(12.dp))
         }
         Column(Modifier.padding(16.dp)) {
@@ -171,11 +191,13 @@ fun StepsWidget(state: StepsState, modifier: Modifier = Modifier) {
     DashCard(modifier, contentPadding = 20.dp) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
+                GlowIcon(
                     Icons.AutoMirrored.Filled.DirectionsWalk,
                     contentDescription = null,
                     tint = FlameHot,
-                    modifier = Modifier.glow(FlameHot, spread = 11.dp, alpha = 0.28f).size(26.dp),
+                    size = 26.dp,
+                    glowRadius = 7.dp,
+                    glowAlpha = 0.5f,
                 )
                 Spacer(Modifier.height(8.dp))
                 Text("Steps", style = MaterialTheme.typography.labelMedium, color = Ash)
@@ -195,46 +217,41 @@ fun StepsWidget(state: StepsState, modifier: Modifier = Modifier) {
     }
 }
 
-/** The two AI gauges, bare (no card, no titles) — tap either for the detail overlay. */
+/**
+ * The two AI gauges, bare (no card, no titles) — tap either for the detail overlay. Each resolves
+ * independently: while its half is being generated it shows "Loading…" rather than stale data.
+ */
 @Composable
 fun RecommendationsRow(
-    state: RecommendationState,
+    state: RecommendationsUi,
     onTap: (GaugeKind) -> Unit,
     onEnableLocation: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-        when (state) {
-            is RecommendationState.Loading -> {
-                GaugePlaceholder()
-                GaugePlaceholder()
-            }
-            is RecommendationState.Failed -> Text(
-                state.message,
-                style = MaterialTheme.typography.bodySmall,
-                color = Ash,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+        val r = state.readiness
+        if (state.readinessLoading || r == null) {
+            GaugePlaceholder()
+        } else {
+            RecGauge(
+                progress = r.score / 100f,
+                accent = readinessColor(r.score),
+                top = shortReadiness(r.score),
+                bottom = "${r.score}%",
+                onClick = { onTap(GaugeKind.READINESS) },
             )
-            is RecommendationState.Ready -> {
-                val rec = state.rec
-                RecGauge(
-                    progress = rec.readiness.score / 100f,
-                    accent = readinessColor(rec.readiness.score),
-                    top = shortReadiness(rec.readiness.score),
-                    bottom = "${rec.readiness.score}%",
-                    onClick = { onTap(GaugeKind.READINESS) },
-                )
-                RecGauge(
-                    progress = conditionsFill(rec.conditions.label),
-                    accent = FlameHot,
-                    top = rec.conditions.label,
-                    bottom = rec.conditions.detail.ifBlank { "—" },
-                    onClick = {
-                        if (rec.conditions.needsLocation) onEnableLocation() else onTap(GaugeKind.CONDITIONS)
-                    },
-                )
-            }
+        }
+        val c = state.conditions
+        if (state.conditionsLoading || c == null) {
+            GaugePlaceholder()
+        } else {
+            RecGauge(
+                progress = conditionsFill(c.label),
+                accent = FlameHot,
+                top = c.label,
+                bottom = c.detail.ifBlank { "—" },
+                onClick = { if (c.needsLocation) onEnableLocation() else onTap(GaugeKind.CONDITIONS) },
+            )
         }
     }
 }
@@ -262,7 +279,7 @@ fun RecGauge(
 @Composable
 private fun GaugePlaceholder() {
     ProgressRing(progress = 0f, accent = AshFaint, diameter = 118.dp, strokeWidth = 9.dp) {
-        Text("…", style = MaterialTheme.typography.titleLarge, color = Ash)
+        Text("Loading…", style = MaterialTheme.typography.labelMedium, color = Ash, textAlign = TextAlign.Center)
     }
 }
 

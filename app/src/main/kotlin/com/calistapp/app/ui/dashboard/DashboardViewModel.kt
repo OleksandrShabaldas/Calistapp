@@ -6,8 +6,8 @@ import com.calistapp.app.data.exercise.ExerciseRepository
 import com.calistapp.app.data.fitpal.StepsImportRepository
 import com.calistapp.app.data.local.StepDayEntity
 import com.calistapp.app.data.profile.ProfileRepository
-import com.calistapp.app.data.recommend.RecommendationState
 import com.calistapp.app.data.recommend.RecommendationsRepository
+import com.calistapp.app.data.recommend.RecommendationsUi
 import com.calistapp.app.data.session.SavedWorkoutRepository
 import com.calistapp.app.data.session.ScheduleRepository
 import com.calistapp.app.data.session.ScheduledItem
@@ -29,6 +29,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -44,6 +45,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
+import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 import javax.inject.Inject
@@ -76,7 +78,7 @@ class DashboardViewModel @Inject constructor(
         .stateIn(viewModelScope, started, true)
     val live: StateFlow<LiveSession?> = sessionController.live
     val watchLink: StateFlow<WatchLinkState> = watchConnection.state
-    val recommendations: StateFlow<RecommendationState> = recommendationsRepository.state
+    val recommendations: StateFlow<RecommendationsUi> = recommendationsRepository.ui
 
     // ---- source flows ----
 
@@ -131,6 +133,10 @@ class DashboardViewModel @Inject constructor(
     val isCurrentWeek: StateFlow<Boolean> = weekOffset
         .map { it == 0 }.stateIn(viewModelScope, started, true)
 
+    /** A past day the user tapped to inspect (its steps + that day's session log). Null = live/today. */
+    private val selectedDay = MutableStateFlow<LocalDate?>(null)
+    val selectedDate: StateFlow<LocalDate?> = selectedDay.asStateFlow()
+
     private val selectedWeekStart: StateFlow<LocalDate> = combine(today, weekOffset) { t, off ->
         t.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).plusWeeks(off.toLong())
     }.distinctUntilChanged().stateIn(viewModelScope, started, LocalDate.now(zone).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)))
@@ -147,9 +153,21 @@ class DashboardViewModel @Inject constructor(
         .flatMapLatest { scheduleRepository.weekPlan(it) }
         .stateIn(viewModelScope, started, emptyMap())
 
-    fun previousWeek() { weekOffset.value = (weekOffset.value - 1).coerceAtLeast(-MAX_WEEKS_BACK) }
-    fun nextWeek() { weekOffset.value = (weekOffset.value + 1).coerceAtMost(0) }
-    fun resetToCurrentWeek() { weekOffset.value = 0 }
+    fun previousWeek() { selectedDay.value = null; weekOffset.value = (weekOffset.value - 1).coerceAtLeast(-MAX_WEEKS_BACK) }
+    fun nextWeek() { selectedDay.value = null; weekOffset.value = (weekOffset.value + 1).coerceAtMost(0) }
+    fun resetToCurrentWeek() { selectedDay.value = null; weekOffset.value = 0 }
+
+    /** Inspect a specific past day — scrolls the strip to its week and highlights it. Today clears it. */
+    fun selectDay(date: LocalDate) {
+        val today = LocalDate.now(zone)
+        if (date.isAfter(today)) return
+        selectedDay.value = if (date == today) null else date
+        val curWeek = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        val selWeek = date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        weekOffset.value = ChronoUnit.WEEKS.between(curWeek, selWeek).toInt().coerceIn(-MAX_WEEKS_BACK, 0)
+    }
+
+    fun clearSelectedDay() { selectedDay.value = null; weekOffset.value = 0 }
 
     // ---- derived UI state ----
 
@@ -178,6 +196,30 @@ class DashboardViewModel @Inject constructor(
                 goalMet = DailyEnergyGoal.hit(earnedToday, target),
             )
         }.stateIn(viewModelScope, started, StepsState())
+
+    /** The inspected past day, or null when viewing today. Drives the day-detail mode on the screen. */
+    val dayView: StateFlow<DayView?> =
+        combine(selectedDay, stepDays, sessions, goals, perStepRate) { sel, days, sess, g, rate ->
+            if (sel == null) return@combine null
+            val today = LocalDate.now(zone)
+            if (!sel.isBefore(today)) return@combine null
+            val row = days.firstOrNull { it.date == sel.format(ISO_DATE) }
+            val stepK = row?.calories ?: 0.0
+            val daySessions = sess.filter { Instant.ofEpochMilli(it.startMs).atZone(zone).toLocalDate() == sel }
+            val workoutK = daySessions.sumOf { it.totalKcal.toDouble() }
+            val earned = stepK + workoutK
+            val target = DailyEnergyGoal.dailyTargetKcal(g.dailyStepGoal, rate)
+            DayView(
+                date = sel,
+                dateLabel = sel.format(DAY_VIEW_LABEL),
+                steps = row?.steps ?: 0,
+                stepGoal = g.dailyStepGoal,
+                earnedKcal = earned.roundToInt(),
+                targetKcal = target,
+                progress = DailyEnergyGoal.progress(earned, target),
+                sessions = daySessions,
+            )
+        }.stateIn(viewModelScope, started, null)
 
     val week: StateFlow<WeekState> =
         combine(selectedWeekStart, stepKcalByDate, workoutKcalByDate, sessions, selectedWeekPlan) { weekStart, stepMap, workoutMap, s, plan ->
@@ -243,9 +285,12 @@ class DashboardViewModel @Inject constructor(
 
     fun reconnectWatch() = watchConnection.reconnect()
 
-    fun refreshRecommendations(force: Boolean = false) {
-        viewModelScope.launch { runCatching { recommendationsRepository.refresh(force) } }
+    fun refreshRecommendations(forceConditions: Boolean = false) {
+        viewModelScope.launch { runCatching { recommendationsRepository.refresh(forceConditions) } }
     }
+
+    /** The conditions detail card's manual "regenerate" (and a fresh location grant). */
+    fun regenerateConditions() = refreshRecommendations(forceConditions = true)
 
     // ---- helpers ----
 
@@ -326,6 +371,7 @@ class DashboardViewModel @Inject constructor(
         const val MAX_WEEKS_BACK = 26
         val ISO_DATE: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
         val DATE_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE · MMM d", Locale.getDefault())
+        val DAY_VIEW_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE, MMM d", Locale.getDefault())
         val DAY_LETTERS = listOf("M", "T", "W", "T", "F", "S", "S")
     }
 }

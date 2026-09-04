@@ -74,6 +74,12 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Keeps the offline-video download running when the app is backgrounded or the screen is off. -->
+        <service
+            android:name=".data.exercise.MediaDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <!-- Receives real-time HR + session state from the watch over the Wearable Data Layer. -->
         <service
             android:name=".data.sync.PhoneWearListenerService"

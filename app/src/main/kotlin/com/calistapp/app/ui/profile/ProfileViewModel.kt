@@ -100,7 +100,7 @@ class ProfileViewModel @Inject constructor(
     fun onSleepPermissionResult() {
         viewModelScope.launch {
             _sleepConnected.value = sleepRepository.hasPermission()
-            runCatching { recommendationsRepository.refresh(force = true) }
+            runCatching { recommendationsRepository.refresh(forceReadiness = true) }
         }
     }
 

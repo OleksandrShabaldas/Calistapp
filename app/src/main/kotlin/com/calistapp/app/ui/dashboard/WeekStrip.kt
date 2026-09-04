@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -19,11 +20,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -42,24 +46,28 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import com.calistapp.app.ui.common.GlowBox
 import com.calistapp.app.ui.common.glow
 import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.AshFaint
 import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Coral
 import com.calistapp.app.ui.theme.FlameHot
-import androidx.compose.ui.graphics.Color
+import java.time.LocalDate
 
 /**
- * The weekly calorie strip — no card, short, wide bars. Swipe left/right to step through weeks; tap
- * the bars for the monthly view; tap the number for the steps-vs-exercise split; the "Plan your week"
- * link sits under the total.
+ * The weekly calorie strip — no card, short, wide bars. Swipe left/right to step through weeks; tap a
+ * day to inspect it; tap the title for the monthly view; tap the number for the steps-vs-exercise
+ * split; the "Plan your week" link sits under the total.
  */
 @Composable
 fun WeekStrip(
     week: WeekState,
+    selectedDate: LocalDate?,
     onOpenMonth: () -> Unit,
     onOpenSchedule: () -> Unit,
+    onSelectDay: (LocalDate) -> Unit,
     onPreviousWeek: () -> Unit,
     onNextWeek: () -> Unit,
     onResetWeek: () -> Unit,
@@ -82,7 +90,14 @@ fun WeekStrip(
             },
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-            Text(week.title, style = MaterialTheme.typography.titleMedium, color = Chalk)
+            Row(
+                Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onOpenMonth).padding(vertical = 2.dp, horizontal = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(week.title, style = MaterialTheme.typography.titleMedium, color = Chalk)
+                Icon(Icons.Filled.CalendarMonth, "Open month", tint = Ash, modifier = Modifier.size(16.dp))
+            }
             Column(horizontalAlignment = Alignment.End) {
                 Box {
                     Text(
@@ -91,14 +106,15 @@ fun WeekStrip(
                             withStyle(SpanStyle(color = Ash, fontSize = 11.sp)) { append("  kcal") }
                         },
                         style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.clickable { showBreakdown = true },
+                        modifier = Modifier.clickable { showBreakdown = !showBreakdown },
                     )
                     if (showBreakdown) {
                         Popup(
                             alignment = Alignment.TopEnd,
                             offset = IntOffset(0, 78),
+                            properties = PopupProperties(focusable = false, dismissOnClickOutside = false),
                             onDismissRequest = { showBreakdown = false },
-                        ) { CalorieBreakdown(week.stepKcal, week.workoutKcal) }
+                        ) { CalorieBreakdown(week.stepKcal, week.workoutKcal, onDismiss = { showBreakdown = false }) }
                     }
                 }
                 Text(
@@ -113,11 +129,13 @@ fun WeekStrip(
         Spacer(Modifier.height(14.dp))
 
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onOpenMonth),
+            Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Bottom,
         ) {
-            week.days.forEach { day -> DayColumn(day, week.maxKcal) }
+            week.days.forEach { day ->
+                DayColumn(day, week.maxKcal, isSelected = day.date == selectedDate, onClick = { onSelectDay(day.date) })
+            }
         }
 
         if (!week.isCurrentWeek) {
@@ -142,19 +160,34 @@ fun WeekStrip(
 }
 
 @Composable
-private fun DayColumn(day: DayCell, maxKcal: Int) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun DayColumn(day: DayCell, maxKcal: Int, isSelected: Boolean, onClick: () -> Unit) {
+    Column(
+        Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .then(
+                if (isSelected) Modifier
+                    .background(Color.White.copy(alpha = 0.07f))
+                    .border(1.dp, Chalk.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                else Modifier,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         val frac = (day.kcal.toFloat() / maxKcal).coerceIn(0f, 1f)
         val animated by animateFloatAsState(frac, tween(600), label = "bar")
         val hasBurn = day.kcal > 0
+        val barShape = RoundedCornerShape(8.dp)
         Box(Modifier.height(56.dp), contentAlignment = Alignment.BottomCenter) {
-            Box(
-                Modifier
-                    .width(26.dp)
-                    .height(if (hasBurn) 8.dp + 46.dp * animated else 6.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (hasBurn) emberBrush else SolidColor(Color.White.copy(alpha = 0.09f))),
-            )
+            val barHeight = if (hasBurn) 8.dp + 46.dp * animated else 6.dp
+            val barBrush = if (hasBurn) emberBrush else SolidColor(Color.White.copy(alpha = 0.09f))
+            if (day.isToday && hasBurn) {
+                GlowBox(FlameHot, barShape, glowRadius = 9.dp, glowAlpha = 0.5f, modifier = Modifier.width(24.dp).height(barHeight)) {
+                    Box(Modifier.matchParentSize().clip(barShape).background(barBrush))
+                }
+            } else {
+                Box(Modifier.width(24.dp).height(barHeight).clip(barShape).background(barBrush))
+            }
         }
         Spacer(Modifier.height(8.dp))
         Text(
@@ -185,11 +218,9 @@ private fun DayColumn(day: DayCell, maxKcal: Int) {
 
 /** The tap-the-number popup: how much of the week's burn came from steps vs. exercise. */
 @Composable
-private fun CalorieBreakdown(stepKcal: Int, workoutKcal: Int) {
+private fun CalorieBreakdown(stepKcal: Int, workoutKcal: Int, onDismiss: () -> Unit) {
     val scale = remember { Animatable(0.86f) }
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        scale.animateTo(1f, tween(180))
-    }
+    LaunchedEffect(Unit) { scale.animateTo(1f, tween(180)) }
     Column(
         Modifier
             .graphicsLayer { scaleX = scale.value; scaleY = scale.value; alpha = scale.value }
@@ -197,6 +228,7 @@ private fun CalorieBreakdown(stepKcal: Int, workoutKcal: Int) {
             .clip(RoundedCornerShape(16.dp))
             .background(CardSurface)
             .glow(Color.Black, spread = 24.dp, alpha = 0.5f)
+            .clickable(onClick = onDismiss)
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {

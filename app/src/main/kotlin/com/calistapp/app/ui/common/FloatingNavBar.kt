@@ -121,11 +121,14 @@ private fun NavCluster(
                     .clickable(interactionSource = interaction, indication = null, onClick = { onSelect(item.route) }),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    item.icon,
+                GlowIcon(
+                    imageVector = item.icon,
                     contentDescription = item.label,
                     tint = tint,
-                    modifier = (if (selected) Modifier.glow(primary, spread = 12.dp, alpha = 0.28f) else Modifier).size(25.dp),
+                    size = 25.dp,
+                    glowColor = primary,
+                    glowRadius = 8.dp,
+                    glowAlpha = if (selected) 0.5f else 0f,
                 )
             }
         }

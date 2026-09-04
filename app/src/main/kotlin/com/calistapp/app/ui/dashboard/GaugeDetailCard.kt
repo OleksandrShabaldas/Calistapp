@@ -18,11 +18,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,13 +39,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.calistapp.app.data.recommend.Conditions
+import com.calistapp.app.data.recommend.Readiness
 import com.calistapp.app.data.recommend.RecFactor
-import com.calistapp.app.data.recommend.Recommendation
 import com.calistapp.app.ui.common.ProgressRing
 import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.Chalk
@@ -56,10 +64,15 @@ private val MedallionRadius = 48.dp
 @Composable
 fun GaugeDetailOverlay(
     kind: GaugeKind?,
-    rec: Recommendation?,
+    readiness: Readiness?,
+    conditions: Conditions?,
+    onRegenerateConditions: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    if (kind == null || rec == null) return
+    if (kind == null) return
+    val hasContent = if (kind == GaugeKind.READINESS) readiness != null else conditions != null
+    if (!hasContent) return
+
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         var appear by remember { androidx.compose.runtime.mutableStateOf(false) }
         androidx.compose.runtime.LaunchedEffect(Unit) { appear = true }
@@ -80,22 +93,33 @@ fun GaugeDetailOverlay(
                 enter = fadeIn(tween(220)) + scaleIn(tween(260), initialScale = 0.9f),
                 exit = fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.9f),
             ) {
-                GaugeDetailContent(kind, rec)
+                GaugeDetailContent(
+                    kind = kind,
+                    readiness = readiness,
+                    conditions = conditions,
+                    onRegenerate = { onRegenerateConditions(); onDismiss() },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun GaugeDetailContent(kind: GaugeKind, rec: Recommendation) {
-    val readiness = kind == GaugeKind.READINESS
-    val accent = if (readiness) readinessColor(rec.readiness.score) else FlameHot
-    val progress = if (readiness) rec.readiness.score / 100f else conditionsFill(rec.conditions.label)
-    val top = if (readiness) shortReadiness(rec.readiness.score) else rec.conditions.label
-    val bottom = if (readiness) "${rec.readiness.score}%" else rec.conditions.detail
-    val headline = if (readiness) "Should you train today?" else "Indoors or out?"
-    val factors = if (readiness) rec.readiness.factors else rec.conditions.factors
-    val reason = if (readiness) rec.readiness.reason else rec.conditions.reason
+private fun GaugeDetailContent(
+    kind: GaugeKind,
+    readiness: Readiness?,
+    conditions: Conditions?,
+    onRegenerate: () -> Unit,
+) {
+    val isReadiness = kind == GaugeKind.READINESS
+    val accent = if (isReadiness) readinessColor(readiness!!.score) else FlameHot
+    val progress = if (isReadiness) readiness!!.score / 100f else conditionsFill(conditions!!.label)
+    val top = if (isReadiness) shortReadiness(readiness!!.score) else conditions!!.label
+    val bottom = if (isReadiness) "${readiness!!.score}%" else conditions!!.detail
+    val headline = if (isReadiness) "Should you train today?" else "Indoors or out?"
+    val factors = if (isReadiness) readiness!!.factors else conditions!!.factors
+    val reason = if (isReadiness) readiness!!.reason else conditions!!.reason
+    val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.82f).dp
 
     Box(
         Modifier.padding(horizontal = 28.dp).widthIn(max = 400.dp),
@@ -105,11 +129,12 @@ private fun GaugeDetailContent(kind: GaugeKind, rec: Recommendation) {
             Modifier
                 .padding(top = MedallionRadius)
                 .fillMaxWidth()
+                .heightIn(max = maxHeight)
                 .clip(RoundedCornerShape(28.dp))
                 .background(CardSurface)
                 .border(1.dp, CardBorder, RoundedCornerShape(28.dp))
-                // Swallow taps so clicking the card doesn't dismiss.
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+                .verticalScroll(rememberScrollState())
                 .padding(start = 22.dp, end = 22.dp, bottom = 24.dp, top = MedallionRadius + 20.dp),
         ) {
             Text(headline, style = MaterialTheme.typography.titleLarge, color = Chalk, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
@@ -121,8 +146,23 @@ private fun GaugeDetailContent(kind: GaugeKind, rec: Recommendation) {
             if (reason.isNotBlank()) {
                 Spacer(Modifier.height(2.dp))
                 Text("WHY", style = MaterialTheme.typography.labelSmall, color = accent, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(5.dp))
-                Text(reason, style = MaterialTheme.typography.bodyMedium, color = Ash)
+                Spacer(Modifier.height(6.dp))
+                Text(reason, style = MaterialTheme.typography.bodyMedium, color = Ash, lineHeight = MaterialTheme.typography.bodyMedium.fontSize * 1.45f)
+            }
+            if (!isReadiness) {
+                Spacer(Modifier.height(18.dp))
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.White.copy(alpha = 0.06f))
+                        .clickable(onClick = onRegenerate)
+                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    Icon(Icons.Filled.Refresh, contentDescription = null, tint = FlameHot, modifier = Modifier.size(16.dp))
+                    Text("Regenerate", style = MaterialTheme.typography.labelLarge, color = FlameHot, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
 

@@ -1,5 +1,6 @@
 package com.calistapp.app.ui.dashboard
 
+import com.calistapp.core.model.SessionOverview
 import com.calistapp.core.model.TrainingGoals
 import java.time.LocalDate
 
@@ -51,6 +52,19 @@ data class StepsState(
     val targetKcal: Int = 0,
     val progress: Float = 0f,
     val goalMet: Boolean = false,
+)
+
+/** A past day the user tapped to inspect — its steps, energy and the workouts logged that day. */
+data class DayView(
+    val date: LocalDate,
+    /** "Wednesday, Sep 2". */
+    val dateLabel: String,
+    val steps: Int,
+    val stepGoal: Int,
+    val earnedKcal: Int,
+    val targetKcal: Int,
+    val progress: Float,
+    val sessions: List<SessionOverview>,
 )
 
 /** The Next Up card — the next planned workout, or a saved one to fall back on. */

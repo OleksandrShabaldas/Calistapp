@@ -127,6 +127,7 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
                 DashboardScreen(
                     onStartWorkout = { navController.navigate(startDestination(sessionRunning)) },
                     onOpenWorkout = { id -> navController.navigate(Routes.savedWorkout(id)) },
+                    onOpenSession = { id -> navController.navigate(Routes.detail(id)) },
                     onOpenProfile = { navController.navigate(Routes.PROFILE) },
                     onOpenSchedule = { navController.navigate(Routes.SCHEDULE) },
                 )

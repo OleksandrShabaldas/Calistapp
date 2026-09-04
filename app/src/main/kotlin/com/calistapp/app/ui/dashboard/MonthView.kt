@@ -57,6 +57,7 @@ import com.calistapp.app.ui.theme.AshFaint
 import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Coral
 import com.calistapp.app.ui.theme.FlameHot
+import java.time.LocalDate
 
 private val DAY_HEADERS = listOf("M", "T", "W", "T", "F", "S", "S")
 
@@ -70,6 +71,7 @@ private val DAY_HEADERS = listOf("M", "T", "W", "T", "F", "S", "S")
 fun MonthOverlay(
     visible: Boolean,
     onDismiss: () -> Unit,
+    onSelectDay: (LocalDate) -> Unit,
     viewModel: MonthViewModel = hiltViewModel(),
 ) {
     if (!visible) return
@@ -98,14 +100,14 @@ fun MonthOverlay(
                 enter = fadeIn(tween(220)) + scaleIn(tween(260), initialScale = 0.92f),
                 exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = 0.92f),
             ) {
-                MonthCard(month, viewModel::previousMonth, viewModel::nextMonth, onDismiss)
+                MonthCard(month, viewModel::previousMonth, viewModel::nextMonth, onDismiss, onSelectDay)
             }
         }
     }
 }
 
 @Composable
-private fun MonthCard(month: MonthView, onPrev: () -> Unit, onNext: () -> Unit, onClose: () -> Unit) {
+private fun MonthCard(month: MonthView, onPrev: () -> Unit, onNext: () -> Unit, onClose: () -> Unit, onSelectDay: (LocalDate) -> Unit) {
     val maxHeight = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.9f).dp
     Box(
         Modifier
@@ -154,7 +156,7 @@ private fun MonthCard(month: MonthView, onPrev: () -> Unit, onNext: () -> Unit, 
             val cells: List<MonthDayCell?> = List(month.leadingBlanks) { null } + month.days
             cells.chunked(7).forEach { week ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    for (i in 0 until 7) DayCellView(week.getOrNull(i))
+                    for (i in 0 until 7) DayCellView(week.getOrNull(i), onSelectDay)
                 }
             }
 
@@ -165,9 +167,13 @@ private fun MonthCard(month: MonthView, onPrev: () -> Unit, onNext: () -> Unit, 
 }
 
 @Composable
-private fun DayCellView(cell: MonthDayCell?) {
+private fun DayCellView(cell: MonthDayCell?, onSelectDay: (LocalDate) -> Unit) {
     Column(
-        Modifier.width(40.dp),
+        Modifier
+            .width(40.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .then(if (cell != null && !cell.isFuture) Modifier.clickable { onSelectDay(cell.date) } else Modifier)
+            .padding(vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
