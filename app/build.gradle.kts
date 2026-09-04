@@ -34,8 +34,8 @@ android {
         // after 0.9.x is 1.0.0, never 0.10.0. Keeps :app and :wear in lockstep since they always
         // ship together. versionCode = major*100 + minor*10 + patch, so it's derived from
         // versionName rather than tracked separately.
-        versionCode = 93
-        versionName = "0.9.3"
+        versionCode = 94
+        versionName = "0.9.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

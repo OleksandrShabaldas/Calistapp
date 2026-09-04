@@ -1,13 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A soft radial shadow anchored at the top-right corner (centre = 1.0, 0.0), fading out, so the
-     "NEXT UP" badge always reads over whatever frame is behind it. A radial reads as a real corner
-     shadow where a thin diagonal linear gradient did not. -->
+<!--
+  A large soft shadow anchored at the top-right corner. It is near-opaque out past the "NEXT UP" chip
+  (which sits ~12dp in from the top-right and is ~120dp from the corner at its far edge), so the video
+  behind the chip isn't visible, then falls away into a soft gradient by ~330dp. Radial (not a thin
+  diagonal linear) so it reads as a real corner shadow; centre = top-right (1.0, 0.0).
+-->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <gradient
         android:type="radial"
         android:centerX="1.0"
         android:centerY="0.0"
-        android:gradientRadius="200dp"
-        android:startColor="#A6000000"
+        android:gradientRadius="330dp"
+        android:startColor="#F7000000"
+        android:centerColor="#EB000000"
         android:endColor="#00000000" />
 </shape>
