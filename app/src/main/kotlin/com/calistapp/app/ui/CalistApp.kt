@@ -37,6 +37,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.calistapp.app.ui.common.AmbientHost
 import com.calistapp.app.ui.common.FloatingNavBar
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import com.calistapp.app.ui.common.NavItem
 import com.calistapp.app.ui.dashboard.DashboardScreen
 import com.calistapp.app.ui.detail.SessionDetailScreen
@@ -95,6 +97,8 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
     val currentRoute = backStack?.destination?.route
     val showBar = currentRoute in Routes.bottomBarRoutes
     val sessionRunning by viewModel.sessionRunning.collectAsStateWithLifecycle()
+    // Backdrop the floating nav blurs — the screen content scrolling under it.
+    val hazeState = rememberHazeState()
 
     // Reopening the app drops you back into a running workout. We act on every foreground (and on a
     // cold start once crash-recovery revives the session), but only from a top-level tab — so the
@@ -122,12 +126,13 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
             // No bottom inset: content scrolls UNDER the floating nav (each bottom-bar screen carries
             // its own bottom padding so the last item still clears the bar). This is what makes the bar
             // float over content instead of sitting on a reserved band of flat onyx behind it.
-            modifier = Modifier.statusBarsPadding(),
+            modifier = Modifier.statusBarsPadding().hazeSource(hazeState),
         ) {
             composable(Routes.DASHBOARD) {
                 DashboardScreen(
                     onStartWorkout = { navController.navigate(startDestination(sessionRunning)) },
                     onOpenWorkout = { id -> navController.navigate(Routes.savedWorkout(id)) },
+                    onStartSetup = { navController.navigate(Routes.SETUP) },
                     onOpenSession = { id -> navController.navigate(Routes.detail(id)) },
                     onOpenProfile = { navController.navigate(Routes.PROFILE) },
                     onOpenSchedule = { navController.navigate(Routes.SCHEDULE) },
@@ -258,6 +263,7 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
                     }
                 },
                 onAction = { navController.navigate(startDestination(sessionRunning)) },
+                hazeState = hazeState,
                 actionDescription = if (sessionRunning) "Open running workout" else "Build a workout",
                 actionIcon = if (sessionRunning) Icons.Filled.PlayArrow else Icons.Filled.Add,
                 modifier = Modifier

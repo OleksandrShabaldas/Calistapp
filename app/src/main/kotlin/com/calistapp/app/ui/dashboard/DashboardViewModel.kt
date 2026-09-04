@@ -8,6 +8,7 @@ import com.calistapp.app.data.local.StepDayEntity
 import com.calistapp.app.data.profile.ProfileRepository
 import com.calistapp.app.data.recommend.RecommendationsRepository
 import com.calistapp.app.data.recommend.RecommendationsUi
+import com.calistapp.app.data.session.PlanDraftRepository
 import com.calistapp.app.data.session.SavedWorkoutRepository
 import com.calistapp.app.data.session.ScheduleRepository
 import com.calistapp.app.data.session.ScheduledItem
@@ -59,7 +60,8 @@ class DashboardViewModel @Inject constructor(
     sessionController: SessionController,
     stepsImportRepository: StepsImportRepository,
     private val scheduleRepository: ScheduleRepository,
-    savedWorkoutRepository: SavedWorkoutRepository,
+    private val savedWorkoutRepository: SavedWorkoutRepository,
+    private val planDraftRepository: PlanDraftRepository,
     private val exerciseRepository: ExerciseRepository,
     private val recommendationsRepository: RecommendationsRepository,
     private val watchConnection: WatchConnectionMonitor,
@@ -90,6 +92,9 @@ class DashboardViewModel @Inject constructor(
     }.distinctUntilChanged().stateIn(viewModelScope, started, LocalDate.now(zone))
 
     private val sessions: StateFlow<List<SessionOverview>> = sessionRepository.observeSessions()
+        .stateIn(viewModelScope, started, emptyList())
+
+    private val savedWorkouts: StateFlow<List<SavedWorkout>> = savedWorkoutRepository.saved
         .stateIn(viewModelScope, started, emptyList())
 
     private val stepDays: StateFlow<List<StepDayEntity>> = today.flatMapLatest { t ->
@@ -256,7 +261,7 @@ class DashboardViewModel @Inject constructor(
         }.stateIn(viewModelScope, started, WeekState())
 
     val nextUp: StateFlow<NextUpState?> =
-        combine(today, currentWeekPlan, savedWorkoutRepository.saved, sessions) { t, plan, saved, s ->
+        combine(today, currentWeekPlan, savedWorkouts, sessions) { t, plan, saved, s ->
             chooseNextUp(t, plan, saved, s)
         }.distinctUntilChanged().mapLatest { base ->
             if (base == null) {
@@ -335,6 +340,17 @@ class DashboardViewModel @Inject constructor(
 
     /** The conditions detail card's manual "regenerate" (and a fresh location grant). */
     fun regenerateConditions() = refreshRecommendations(forceConditions = true)
+
+    /**
+     * Start the Next Up workout directly: load its plan into the draft (so the setup screen picks it
+     * up) and mark it used. The caller navigates to setup after. `replaceWith` sets the draft
+     * synchronously, so navigation right after is safe.
+     */
+    fun startSavedWorkout(savedWorkoutId: String) {
+        val workout = savedWorkouts.value.firstOrNull { it.id == savedWorkoutId } ?: return
+        planDraftRepository.replaceWith(workout.plan, originSavedId = workout.id)
+        viewModelScope.launch { runCatching { savedWorkoutRepository.markUsed(savedWorkoutId) } }
+    }
 
     // ---- helpers ----
 

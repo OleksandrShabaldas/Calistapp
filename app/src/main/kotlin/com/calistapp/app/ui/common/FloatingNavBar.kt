@@ -28,6 +28,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
 import com.calistapp.app.ui.theme.AshFaint
 import com.calistapp.app.ui.theme.Capsule
 import com.calistapp.app.ui.theme.Flame
@@ -51,6 +54,7 @@ fun FloatingNavBar(
     currentRoute: String?,
     onSelect: (String) -> Unit,
     onAction: () -> Unit,
+    hazeState: HazeState,
     modifier: Modifier = Modifier,
     actionDescription: String = "Start workout",
     actionIcon: ImageVector = Icons.Filled.FitnessCenter,
@@ -65,15 +69,18 @@ fun FloatingNavBar(
             .padding(horizontal = 18.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
-        // The floating capsule panel (kept). A frosted, mostly-opaque fill so content scrolling under
-        // it reads as *behind* the bar rather than colliding with the icons — and no dark scrim band
-        // behind it, so the bar floats over the content instead of a black rectangle.
+        // The floating capsule panel: real frosted glass (Haze backdrop blur of the content scrolling
+        // under it) so the icons stay legible without a solid black band behind the bar.
         Row(
             Modifier
                 .fillMaxWidth()
                 .height(64.dp)
                 .clip(Capsule)
-                .background(OnyxRaised.copy(alpha = 0.82f))
+                .hazeEffect(state = hazeState) {
+                    blurRadius = 24.dp
+                    backgroundColor = Onyx
+                    tints = listOf(HazeTint(OnyxRaised.copy(alpha = 0.22f)))
+                }
                 .border(BorderStroke(1.dp, OnyxBorder), Capsule),
             verticalAlignment = Alignment.CenterVertically,
         ) {

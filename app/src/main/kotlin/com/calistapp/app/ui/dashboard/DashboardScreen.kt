@@ -60,6 +60,7 @@ import kotlinx.coroutines.delay
 fun DashboardScreen(
     onStartWorkout: () -> Unit,
     onOpenWorkout: (String) -> Unit,
+    onStartSetup: () -> Unit,
     onOpenSession: (String) -> Unit,
     onOpenProfile: () -> Unit,
     onOpenSchedule: () -> Unit,
@@ -166,7 +167,13 @@ fun DashboardScreen(
             Entrance(slot++) { PastDayNotice(viewing.dateLabel, hadWorkout = viewing.sessions.isNotEmpty(), onBack = viewModel::clearSelectedDay) }
         } else {
             Entrance(slot++) {
-                nextUp?.let { NextUpCard(it, onStart = { onOpenWorkout(it.savedWorkoutId) }) } ?: DashCard {
+                nextUp?.let { nu ->
+                    NextUpCard(
+                        state = nu,
+                        onOpenInfo = { onOpenWorkout(nu.savedWorkoutId) },
+                        onStart = { viewModel.startSavedWorkout(nu.savedWorkoutId); onStartSetup() },
+                    )
+                } ?: DashCard {
                     Text("No workout yet", style = MaterialTheme.typography.titleLarge, color = Chalk)
                     Text(
                         "Build one and it'll wait here, ready to start.",

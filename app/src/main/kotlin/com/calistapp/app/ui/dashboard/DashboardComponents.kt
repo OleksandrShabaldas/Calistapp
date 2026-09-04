@@ -103,10 +103,13 @@ fun StreakPill(count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
     }
 }
 
-/** The Next Up card — the workout's exercises play as looping video, one after another. */
+/**
+ * The Next Up card. Tapping the card opens the workout's info screen; the Start button loads it and
+ * heads straight to the pre-flight setup (so Start no longer just re-opens the info screen).
+ */
 @Composable
-fun NextUpCard(state: NextUpState, onStart: () -> Unit, modifier: Modifier = Modifier) {
-    DashCard(modifier, contentPadding = 0.dp) {
+fun NextUpCard(state: NextUpState, onOpenInfo: () -> Unit, onStart: () -> Unit, modifier: Modifier = Modifier) {
+    DashCard(modifier.clickable(onClick = onOpenInfo), contentPadding = 0.dp) {
         Box(Modifier.fillMaxWidth().height(168.dp)) {
             when {
                 // The video bakes its fade + corner shadow into the view (they don't composite as

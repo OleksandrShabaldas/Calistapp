@@ -23,6 +23,9 @@ okhttp = "4.12.0"
 coil = "2.7.0"
 media3 = "1.5.1"
 
+# Frosted-glass backdrop blur behind the floating bottom nav.
+haze = "1.6.0"
+
 # Health Connect (last-night sleep for the training-readiness widget) + location (weather by coords).
 # Pinned to 1.1.0-alpha10: the 1.1.0 stable requires compileSdk 36 + AGP 8.9.1, which would drag the
 # whole toolchain forward; this 2024 build carries the same sleep API against compileSdk 35 / AGP 8.7.
@@ -87,6 +90,8 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 coil-gif = { group = "io.coil-kt", name = "coil-gif", version.ref = "coil" }
+
+haze = { group = "dev.chrisbanes.haze", name = "haze", version.ref = "haze" }
 
 # Health Connect + location for the training-recommendations widget
 androidx-health-connect = { group = "androidx.health.connect", name = "connect-client", version.ref = "healthConnect" }
