@@ -122,6 +122,7 @@ class SessionRepositoryImpl @Inject constructor(
             totalDurationMs = summary?.totalDurationMs ?: 0L,
             rpe = rpe,
             notes = notes,
+            hrRecoveryMeanDrop = summary?.hrRecovery?.meanDropBpm,
         )
     }
 

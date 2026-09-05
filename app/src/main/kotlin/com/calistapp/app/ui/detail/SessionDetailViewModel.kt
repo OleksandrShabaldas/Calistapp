@@ -15,8 +15,14 @@ import com.calistapp.core.model.SetLog
 import com.calistapp.core.model.UserProfile
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.WorkoutSession
+import com.calistapp.core.progress.PerformedSession
 import com.calistapp.core.progress.PersonalRecord
+import com.calistapp.core.progress.ProgressPoint
+import com.calistapp.core.progress.TimelineExercise
+import com.calistapp.core.progress.bestProgression
+import com.calistapp.core.progress.lastSessionDeltas
 import com.calistapp.core.progress.personalRecords
+import com.calistapp.core.progress.sessionTimeline
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,6 +32,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import javax.inject.Inject
 
 sealed interface AiUiState {
@@ -63,10 +70,47 @@ class SessionDetailViewModel @Inject constructor(
         s?.let { engine.explain(it, p) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** The whole performance history — shared by records, deltas and the recovery trend. */
+    private val performed: StateFlow<List<PerformedSession>> = sessionRepository.observePerformed()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** Records this session beat, judged against everything performed before it. */
-    val records: StateFlow<List<PersonalRecord>> = sessionRepository.observePerformed()
+    val records: StateFlow<List<PersonalRecord>> = performed
         .map { personalRecords(it, sessionId) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Each beaten record's best-of-metric climb over time, for the personal-best popup's sparkline. */
+    val progressions: StateFlow<Map<String, List<ProgressPoint>>> = combine(performed, records) { hist, recs ->
+        recs.associate { it.exerciseKey to bestProgression(hist, it.exerciseKey, it.kind) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** Per-exercise reps change vs the most recent earlier session containing it. Keyed by name. */
+    val deltas: StateFlow<Map<String, Int>> = performed
+        .map { lastSessionDeltas(sessionId, it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** The athlete's recent mean HR-recovery, for the "vs your recent average" line in the popup. */
+    val recentRecoveryMeanDrop: StateFlow<Int?> = performed
+        .map { hist ->
+            val drops = hist.asSequence()
+                .filter { it.id != sessionId }
+                .sortedByDescending { it.startMs }
+                .take(10)
+                .mapNotNull { it.hrRecoveryMeanDrop }
+                .toList()
+            if (drops.isEmpty()) null else drops.average().roundToInt()
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** The session's exercises in the order performed, with rest-between and per-exercise timing. */
+    val timeline: StateFlow<List<TimelineExercise>> = session
+        .map { s -> s?.summary?.let { sessionTimeline(s.segments, it.perExercise) } ?: emptyList() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Max HR the zone colouring on the HR graph is scaled against. */
+    val maxHr: StateFlow<Int> = profile
+        .map { it.effectiveMaxHr }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 190)
 
     private val _aiState = MutableStateFlow<AiUiState>(AiUiState.Idle)
     val aiState: StateFlow<AiUiState> = _aiState.asStateFlow()

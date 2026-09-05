@@ -17,6 +17,27 @@ data class ExerciseBreakdown(
 )
 
 /**
+ * A single measured recovery: how far the heart fell in the minute after one set's rest began.
+ *
+ * Kept per-rest (not just averaged) so the summary can show the athlete *which* efforts they bounced
+ * back from and which they didn't — a hard set late in a session usually recovers slower, and that
+ * shape is the interesting part.
+ */
+@Serializable
+data class RestDrop(
+    /** The movement whose set this rest followed, if the block carried one. */
+    val afterExercise: String?,
+    /** Highest reading in the run-up to the rest — what the heart was recovering from. */
+    val peakBpm: Int,
+    /** Reading one minute into the rest. */
+    val endBpm: Int,
+    /** [peakBpm] − [endBpm]; always positive (a rise isn't a recovery). */
+    val dropBpm: Int,
+    /** When the rest began — orders the drops along the session. */
+    val atMs: Long,
+)
+
+/**
  * How fast heart rate fell in the minute after sets ended — a marker of aerobic fitness that the
  * work/rest segmentation makes measurable without asking the user for anything.
  *
@@ -30,6 +51,8 @@ data class HrRecovery(
     val bestDropBpm: Int,
     /** How many rest blocks were long enough and well-sampled enough to measure. */
     val measuredRests: Int,
+    /** Each measured rest in session order. Absent from summaries stored before this was tracked. */
+    val drops: List<RestDrop> = emptyList(),
 )
 
 /**

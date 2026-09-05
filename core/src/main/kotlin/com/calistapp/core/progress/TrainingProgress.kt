@@ -32,6 +32,8 @@ data class PerformedSession(
     val rpe: Int? = null,
     /** The athlete's own note on the session — clues the numbers don't carry. */
     val notes: String = "",
+    /** Mean heart-rate recovery for the session, when it had rests long enough to measure one. */
+    val hrRecoveryMeanDrop: Int? = null,
 )
 
 /** A single set worth remembering — the most reps, or the most weight. */
@@ -151,9 +153,18 @@ data class PersonalRecord(
     val kind: RecordKind,
     /** Human label for the new best: "12 reps", "+22.5 kg", "270 kg volume". */
     val label: String,
+    /** The exercise's stable key, so the detail popup can pull its full progression. */
+    val exerciseKey: String = "",
+    /** The best this beat, if there was a comparable one: "10 reps", "+20 kg". */
+    val previousLabel: String? = null,
+    /** When that previous best was set — lets the popup say "up from … on 3 Aug". */
+    val previousAtMs: Long? = null,
 )
 
 enum class RecordKind { REPS, WEIGHT, VOLUME }
+
+/** One movement's best-of-a-metric in a single session — the points of a progression sparkline. */
+data class ProgressPoint(val atMs: Long, val value: Double)
 
 /**
  * The personal records set in [sessionId], judged against everything performed *before* it — so
@@ -173,20 +184,65 @@ fun personalRecords(allSessions: List<PerformedSession>, sessionId: String): Lis
         val prev = priorBests[key] ?: return@mapNotNull null // first time isn't a record
         when {
             cur.weightKg > 0.0 && cur.weightKg > prev.weightKg ->
-                PersonalRecord(cur.name, RecordKind.WEIGHT, "+${formatKg(cur.weightKg)} kg")
+                PersonalRecord(
+                    cur.name, RecordKind.WEIGHT, "+${formatKg(cur.weightKg)} kg", key,
+                    previousLabel = if (prev.weightKg > 0.0) "+${formatKg(prev.weightKg)} kg" else null,
+                    previousAtMs = prev.weightAtMs.takeIf { it > 0L },
+                )
             cur.reps > prev.reps ->
-                PersonalRecord(cur.name, RecordKind.REPS, "${cur.reps} reps")
+                PersonalRecord(
+                    cur.name, RecordKind.REPS, "${cur.reps} reps", key,
+                    previousLabel = if (prev.reps > 0) "${prev.reps} reps" else null,
+                    previousAtMs = prev.repsAtMs.takeIf { it > 0L },
+                )
             cur.volume > 0.0 && cur.volume > prev.volume ->
-                PersonalRecord(cur.name, RecordKind.VOLUME, "${formatKg(cur.volume)} kg volume")
+                PersonalRecord(
+                    cur.name, RecordKind.VOLUME, "${formatKg(cur.volume)} kg volume", key,
+                    previousLabel = if (prev.volume > 0.0) "${formatKg(prev.volume)} kg volume" else null,
+                    previousAtMs = prev.volumeAtMs.takeIf { it > 0L },
+                )
             else -> null
         }
     }
 }
 
+/**
+ * The per-session best of one movement's [kind], oldest to newest — the shape of a progression drawn
+ * as a sparkline in the personal-best popup. Only sessions that actually contain the movement produce
+ * a point (a rest week is a gap in the line, not a zero), and warm-up sets are excluded to match how
+ * [personalRecords] judges a best.
+ */
+fun bestProgression(
+    sessions: List<PerformedSession>,
+    exerciseKey: String,
+    kind: RecordKind,
+): List<ProgressPoint> = sessions
+    .sortedBy { it.startMs }
+    .mapNotNull { session ->
+        var value = 0.0
+        for (log in session.setLogs) {
+            val key = log.exerciseId.ifBlank { log.exerciseName }
+            if (key != exerciseKey) continue
+            val slot = session.plan.slot(log.slotId)
+            if (slot?.isWarmup(log.setIndex) == true) continue
+            val kg = slot?.addedWeightKg ?: 0.0
+            val metric = when (kind) {
+                RecordKind.REPS -> log.reps.toDouble()
+                RecordKind.WEIGHT -> kg
+                RecordKind.VOLUME -> kg * log.reps
+            }
+            value = maxOf(value, metric)
+        }
+        if (value > 0.0) ProgressPoint(session.startMs, value) else null
+    }
+
 private class Best(val name: String) {
     var reps = 0
+    var repsAtMs = 0L
     var weightKg = 0.0
+    var weightAtMs = 0L
     var volume = 0.0
+    var volumeAtMs = 0L
 }
 
 private fun bestsByExercise(sessions: List<PerformedSession>): Map<String, Best> {
@@ -199,9 +255,11 @@ private fun bestsByExercise(sessions: List<PerformedSession>): Map<String, Best>
             if (slot?.isWarmup(log.setIndex) == true) continue
             val best = byExercise.getOrPut(key) { Best(log.exerciseName) }
             val kg = slot?.addedWeightKg ?: 0.0
-            best.reps = maxOf(best.reps, log.reps)
-            best.weightKg = maxOf(best.weightKg, kg)
-            best.volume = maxOf(best.volume, kg * log.reps)
+            // Stamp the time whenever a metric reaches a new high, so the beaten record can be dated.
+            if (log.reps > best.reps) { best.reps = log.reps; best.repsAtMs = log.startMs }
+            if (kg > best.weightKg) { best.weightKg = kg; best.weightAtMs = log.startMs }
+            val vol = kg * log.reps
+            if (vol > best.volume) { best.volume = vol; best.volumeAtMs = log.startMs }
         }
     }
     return byExercise

@@ -2,6 +2,7 @@ package com.calistapp.core.analysis
 
 import com.calistapp.core.model.HeartRateSample
 import com.calistapp.core.model.HrRecovery
+import com.calistapp.core.model.RestDrop
 import com.calistapp.core.model.Segment
 import com.calistapp.core.model.SegmentType
 
@@ -31,7 +32,7 @@ object HeartRateRecovery {
     fun analyze(samples: List<HeartRateSample>, segments: List<Segment>): HrRecovery? {
         if (samples.isEmpty() || segments.isEmpty()) return null
         val ordered = samples.sortedBy { it.timestampMs }
-        val drops = mutableListOf<Int>()
+        val drops = mutableListOf<RestDrop>()
 
         segments.forEachIndexed { index, segment ->
             if (segment.type != SegmentType.REST) return@forEachIndexed
@@ -51,14 +52,24 @@ object HeartRateRecovery {
 
             val drop = peak - after.bpm
             // A rise isn't a recovery measurement — it's a sensor artefact or you kept moving.
-            if (drop > 0) drops += drop
+            if (drop > 0) {
+                drops += RestDrop(
+                    afterExercise = previous.exerciseName,
+                    peakBpm = peak,
+                    endBpm = after.bpm,
+                    dropBpm = drop,
+                    atMs = restStart,
+                )
+            }
         }
 
         if (drops.isEmpty()) return null
+        val dropBpms = drops.map { it.dropBpm }
         return HrRecovery(
-            meanDropBpm = drops.average().toInt(),
-            bestDropBpm = drops.max(),
+            meanDropBpm = dropBpms.average().toInt(),
+            bestDropBpm = dropBpms.max(),
             measuredRests = drops.size,
+            drops = drops,
         )
     }
 

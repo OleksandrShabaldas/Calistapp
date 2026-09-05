@@ -247,7 +247,10 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
                 )
             }
             composable(Routes.DETAIL) {
-                SessionDetailScreen(onBack = { navController.popBackStack() })
+                SessionDetailScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenExercise = { id -> navController.navigate(Routes.exerciseDetail(id)) },
+                )
             }
         }
 

@@ -11,11 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,7 +25,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.calistapp.app.ui.common.SectionCard
 import com.calistapp.app.ui.common.formatClock
 import com.calistapp.app.ui.common.formatCompact
 import com.calistapp.app.ui.theme.Amber
@@ -37,8 +32,8 @@ import com.calistapp.app.ui.theme.Coral
 import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.Flame
-import com.calistapp.app.ui.theme.Sky
-import com.calistapp.app.ui.theme.Violet
+import com.calistapp.app.ui.theme.FlameGlow
+import com.calistapp.app.ui.theme.FlameHot
 import com.calistapp.core.calorie.CalorieAudit
 import com.calistapp.core.calorie.ExerciseIntensity
 import com.calistapp.core.model.SegmentType
@@ -47,63 +42,38 @@ import java.util.Locale
 import kotlin.math.abs
 
 /**
- * The calorie figure, shown working.
+ * The calorie figure, shown working — as a popup opened by tapping the total-energy hero.
  *
  * A number you can't check is a number you have to trust, and there's no reason to trust a fitness
  * app's calorie count — most of them are a heart-rate average times a constant, dressed up. This
- * card lays out every input, every published formula, and every intermediate value, block by block,
- * so the total can be reproduced with a calculator. Where the engine chose between competing
- * estimates it says which one won and by how much.
- *
- * Collapsed by default: it's an audit trail, not the headline.
+ * lays out every input, every published formula, and every intermediate value, block by block, so
+ * the total can be reproduced with a calculator. Where the engine chose between competing estimates
+ * it says which one won and by how much.
  */
 @Composable
-fun CalorieBreakdownCard(audit: CalorieAudit, storedKcal: Double?) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
-
-    SectionCard {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClickLabel = if (expanded) "Collapse" else "Expand") {
-                    expanded = !expanded
-                },
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    "How this was calculated",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Chalk,
-                )
-                Text(
-                    "${audit.summary.totalKcal.kcal()} kcal from ${audit.sampling.sampleCount} heart-rate " +
-                        "readings over ${audit.blocks.size} blocks — every step shown.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Ash,
-                )
-            }
-            Icon(
-                if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                contentDescription = null,
-                tint = Ash,
-                modifier = Modifier.size(22.dp),
+fun CalorieBreakdownOverlay(audit: CalorieAudit, storedKcal: Double?, onDismiss: () -> Unit) {
+    SummaryOverlay(onDismiss = onDismiss) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                "How this was calculated",
+                style = MaterialTheme.typography.headlineSmall,
+                color = Chalk,
+            )
+            Text(
+                "${audit.summary.totalKcal.kcal()} kcal from ${audit.sampling.sampleCount} heart-rate " +
+                    "readings over ${audit.blocks.size} blocks — every step shown.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Ash,
             )
         }
-
-        AnimatedVisibility(visible = expanded) {
-            Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                StaleProfileNotice(audit, storedKcal)
-                InputsStep(audit)
-                RestingStep(audit)
-                HeartRateStep(audit)
-                TimeStep(audit)
-                BlocksStep(audit)
-                TotalStep(audit)
-                SourcesNote(audit)
-            }
-        }
+        StaleProfileNotice(audit, storedKcal)
+        InputsStep(audit)
+        RestingStep(audit)
+        HeartRateStep(audit)
+        TimeStep(audit)
+        BlocksStep(audit)
+        TotalStep(audit)
+        SourcesNote(audit)
     }
 }
 
@@ -348,14 +318,14 @@ private fun HeartRateTermRows(block: CalorieAudit.Block, settings: CalorieAudit.
             "Capped at ${settings.restCeilingMultiplier.n(0)}× resting " +
                 "(${hr.ceilingSlices}/${hr.sliceCount} slices)",
             "${ceiling.n(2)} kcal/min gross",
-            accent = Sky,
+            accent = Amber,
         )
     }
     if (hr.floorSlices > 0) {
         AuditRow(
             "Raised to resting (${hr.floorSlices}/${hr.sliceCount} slices)",
             "${hr.restingKcalPerMin.n(2)} kcal/min gross",
-            accent = Sky,
+            accent = Amber,
         )
     }
     AuditRow("− resting", "${hr.restingKcalPerMin.n(2)} kcal/min")
@@ -482,7 +452,7 @@ private fun Step(number: Int, title: String, content: @Composable () -> Unit) {
                 "$number",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = Violet,
+                color = FlameHot,
             )
             Text(
                 title,
@@ -539,10 +509,10 @@ private fun Formula(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.labelSmall,
-        color = Sky,
+        color = FlameGlow,
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+            .background(FlameGlow.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
             .padding(8.dp),
     )
 }
@@ -570,7 +540,9 @@ private fun CalorieAudit.Basis.accent(): Color = when (this) {
     CalorieAudit.Basis.HEART_RATE -> Flame
     CalorieAudit.Basis.REP_WORK -> Amber
     CalorieAudit.Basis.RESTING_FLOOR -> Ash
-    CalorieAudit.Basis.REST -> Sky
+    // A muted, receding orange rather than a hue swap — "this block was rest" reads as a quieter
+    // version of the same warm palette, not a foreign colour dropped into an otherwise orange list.
+    CalorieAudit.Basis.REST -> Flame.copy(alpha = 0.5f)
 }
 
 private fun CalorieAudit.Block.title(): String {
