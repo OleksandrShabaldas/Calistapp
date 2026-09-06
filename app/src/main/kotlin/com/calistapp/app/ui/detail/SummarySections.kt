@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.calistapp.app.ui.common.GlowBox
 import com.calistapp.app.ui.common.HeartRateChart
 import com.calistapp.app.ui.common.formatCompact
 import com.calistapp.app.ui.common.hrZoneColor
@@ -107,7 +108,12 @@ private fun RestToggle(on: Boolean, onToggle: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Box(Modifier.size(12.dp, 9.dp).clip(RoundedCornerShape(2.dp)).background(Sky.copy(alpha = if (on) 0.6f else 0.25f)))
+        // A two-tone swatch mirroring the chart: a warm "still elevated" band and a cool "settled" one.
+        val a = if (on) 0.75f else 0.3f
+        Row(Modifier.clip(RoundedCornerShape(2.dp))) {
+            Box(Modifier.size(6.dp, 9.dp).background(Flame.copy(alpha = a)))
+            Box(Modifier.size(7.dp, 9.dp).background(Sky.copy(alpha = a)))
+        }
         Text("Rest zones", style = MaterialTheme.typography.labelMedium, color = if (on) FlameHot else Ash)
     }
 }
@@ -125,12 +131,21 @@ internal fun ZonesCard(summary: SessionSummary) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
                     Text(zone.name.removePrefix("ZONE"), Modifier.width(14.dp), style = MaterialTheme.typography.labelMedium, color = Ash)
                     Text(zone.label, Modifier.width(66.dp), style = MaterialTheme.typography.labelMedium, color = Ash)
-                    Box(
-                        Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = 0.05f)),
-                    ) {
+                    // Track drawn with background(shape) rather than clip, so the fill's glow can
+                    // spread past the bar instead of being sliced at the track's rounded edge.
+                    Box(Modifier.weight(1f).height(8.dp)) {
+                        Box(Modifier.matchParentSize().background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(999.dp)))
                         val frac = (ms.toFloat() / maxMs).coerceIn(0f, 1f)
                         if (frac > 0f) {
-                            Box(Modifier.fillMaxWidth(frac).height(8.dp).clip(RoundedCornerShape(999.dp)).background(hrZoneColor(zone)))
+                            GlowBox(
+                                color = hrZoneColor(zone),
+                                shape = RoundedCornerShape(999.dp),
+                                glowRadius = 4.dp,
+                                glowAlpha = 0.5f,
+                                modifier = Modifier.fillMaxWidth(frac).height(8.dp),
+                            ) {
+                                Box(Modifier.matchParentSize().background(hrZoneColor(zone), RoundedCornerShape(999.dp)))
+                            }
                         }
                     }
                     Text(

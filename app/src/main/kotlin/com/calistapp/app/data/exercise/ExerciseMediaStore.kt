@@ -1,9 +1,12 @@
 package com.calistapp.app.data.exercise
 
 import android.content.Context
+import android.media.MediaDataSource
 import android.net.Uri
+import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
@@ -71,6 +74,57 @@ object ExerciseMediaStore {
             CacheWriter.ProgressListener { requestLength, bytesCached, _ -> onProgress(bytesCached, requestLength) },
         )
         writer.cache()
+    }
+
+    /**
+     * A [MediaDataSource] that reads [url] through the very same store the player uses — offline copy
+     * first, network (authed) on a miss. Handed to a `MediaMetadataRetriever` so a thumbnail frame can
+     * be grabbed from a downloaded clip with no network, and from any clip (including non-faststart
+     * ones a remote `setDataSource(url)` chokes on) with full random access. Caller closes it.
+     */
+    fun frameDataSource(context: Context, url: String): MediaDataSource {
+        val factory = dataSourceFactory(context)
+        val uri = Uri.parse(url)
+        return object : MediaDataSource() {
+            private var source: DataSource? = null
+            private var nextPos = -1L
+            private var total = C.LENGTH_UNSET.toLong()
+
+            @Synchronized
+            private fun openAt(position: Long) {
+                closeSource()
+                val ds = factory.createDataSource()
+                val opened = ds.open(DataSpec.Builder().setUri(uri).setPosition(position).build())
+                if (opened != C.LENGTH_UNSET.toLong()) total = position + opened
+                source = ds
+                nextPos = position
+            }
+
+            @Synchronized
+            override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
+                if (size == 0) return 0
+                if (source == null || position != nextPos) openAt(position)
+                val read = source!!.read(buffer, offset, size)
+                if (read == C.RESULT_END_OF_INPUT) return -1
+                nextPos += read
+                return read
+            }
+
+            @Synchronized
+            override fun getSize(): Long {
+                if (total < 0) runCatching { openAt(0) }
+                return total
+            }
+
+            @Synchronized
+            override fun close() = closeSource()
+
+            private fun closeSource() {
+                source?.let { runCatching { it.close() } }
+                source = null
+                nextPos = -1L
+            }
+        }
     }
 
     /** Bytes currently held on disk. */

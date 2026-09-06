@@ -36,10 +36,13 @@ class ExerciseVideoCatalog @Inject constructor(
     }.getOrDefault(emptyMap())
 
     /**
-     * Merge this exercise's demonstrations onto it: sets [Exercise.media], and backfills
-     * [Exercise.imageUrls] with a thumbnail when the exercise has none yet (so the gallery tile isn't
-     * a bare placeholder) — the GitHub animation's still frame when there is one, otherwise a frame
-     * grabbed from the first video via the `videoframe://` marker [VideoThumbUrlMapper] recognizes.
+     * Merge this exercise's demonstrations onto it: sets [Exercise.media], and points
+     * [Exercise.imageUrls] at a thumbnail that **matches the demonstration the detail screen shows**
+     * — a frame of the first real video when there is one, otherwise the exercises-dataset still/GIF
+     * (from the same source as the video). This overrides any leftover free-exercise-db slideshow
+     * still, which is a different dataset and so didn't look like the video (the "thumbnail ≠ video"
+     * bug). The video frame is resolved lazily via the `videoframe://` marker [VideoThumbUrlMapper]
+     * recognizes — read offline-first, so a downloaded clip thumbnails without a network round-trip.
      * Returns the exercise unchanged if the manifest has no entry for it, or it contributes no media.
      */
     fun applyTo(base: Exercise): Exercise {
@@ -53,11 +56,13 @@ class ExerciseVideoCatalog @Inject constructor(
             }
         }
         if (media.isEmpty()) return base
-        val thumb = entry.ghImage?.let { ExerciseVideoSource.GH_BASE + it }
-            ?: entry.videos.firstOrNull()?.let { VideoThumbUrlMapper.SCHEME + ExerciseVideoSource.VIDEO_BASE + it.path }
+        val thumb = entry.videos.firstOrNull()
+            ?.let { VideoThumbUrlMapper.SCHEME + ExerciseVideoSource.VIDEO_BASE + it.path }
+            ?: entry.ghImage?.let { ExerciseVideoSource.GH_BASE + it }
+            ?: entry.ghGif?.let { ExerciseVideoSource.GH_BASE + it }
         return base.copy(
             media = media,
-            imageUrls = if (base.imageUrls.isEmpty() && thumb != null) listOf(thumb) else base.imageUrls,
+            imageUrls = if (thumb != null) listOf(thumb) else base.imageUrls,
         )
     }
 

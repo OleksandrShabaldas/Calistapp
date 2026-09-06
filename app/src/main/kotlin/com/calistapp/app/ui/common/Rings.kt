@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -78,7 +79,15 @@ fun ProgressRing(
                 )
             }
         }
-        content()
+        // Keep whatever sits in the middle inside the ring: bound it to (just under) the inscribed
+        // square of the inner circle so a long label — e.g. a weather line like "19° partly cloudy" —
+        // wraps within the ring instead of spilling out past its edges.
+        Box(
+            Modifier.widthIn(max = (diameter - strokeWidth * 2) * 0.78f),
+            contentAlignment = Alignment.Center,
+        ) {
+            content()
+        }
     }
 }
 

@@ -57,6 +57,7 @@ import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Flame
 import com.calistapp.app.ui.theme.FlameHot
 import com.calistapp.core.model.HrRecovery
+import com.calistapp.core.model.formatKg
 import com.calistapp.core.progress.PersonalRecord
 import com.calistapp.core.progress.ProgressPoint
 import com.calistapp.core.progress.RecordKind
@@ -130,7 +131,6 @@ private val PB_DATE = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
 fun PersonalBestOverlay(
     record: PersonalRecord,
     progression: List<ProgressPoint>,
-    onOpenExercise: (() -> Unit)?,
     onDismiss: () -> Unit,
 ) {
     SummaryOverlay(onDismiss = onDismiss) {
@@ -157,32 +157,54 @@ fun PersonalBestOverlay(
         }
 
         if (progression.size >= 2) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("PROGRESSION", style = MaterialTheme.typography.labelSmall, color = FlameHot, fontWeight = FontWeight.Bold)
-                Sparkline(progression.map { it.value.toFloat() }, Modifier.fillMaxWidth().height(64.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("${progression.size} sessions", style = MaterialTheme.typography.labelSmall, color = Ash)
-                    Text("today", style = MaterialTheme.typography.labelSmall, color = Amber)
+                Sparkline(progression.map { it.value.toFloat() }, Modifier.fillMaxWidth().height(76.dp))
+                // Every session this movement appeared in, newest first — today's is the record, so
+                // the whole history lives here and there's nowhere else to go for it.
+                val rows = progression.reversed().take(8)
+                Column {
+                    rows.forEachIndexed { i, pt ->
+                        val isToday = i == 0
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                if (isToday) "Today" else PB_DATE.format(Date(pt.atMs)),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (isToday) Amber else Ash,
+                            )
+                            Text(
+                                progressValueLabel(record.kind, pt.value),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = if (isToday) Amber else Chalk,
+                                fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium,
+                            )
+                        }
+                        if (i < rows.lastIndex) {
+                            Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.05f)))
+                        }
+                    }
+                    if (progression.size > rows.size) {
+                        Text(
+                            "+${progression.size - rows.size} earlier",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Ash,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
                 }
             }
         }
-
-        if (onOpenExercise != null) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Color.White.copy(alpha = 0.05f))
-                    .clickable { onDismiss(); onOpenExercise() }
-                    .padding(14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Full history & progress", style = MaterialTheme.typography.titleMedium, color = Chalk)
-                Text("Open ›", style = MaterialTheme.typography.labelLarge, color = FlameHot, fontWeight = FontWeight.SemiBold)
-            }
-        }
     }
+}
+
+private fun progressValueLabel(kind: RecordKind, value: Double): String = when (kind) {
+    RecordKind.REPS -> "${value.toInt()} reps"
+    RecordKind.WEIGHT -> "+${formatKg(value)} kg"
+    RecordKind.VOLUME -> "${formatKg(value)} kg"
 }
 
 private fun kindLabel(kind: RecordKind) = when (kind) {

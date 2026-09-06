@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -178,8 +179,8 @@ private fun GaugeDetailContent(
         ) {
             ProgressRing(progress = progress, accent = accent, diameter = MedallionSize, strokeWidth = 8.dp) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(top, style = MaterialTheme.typography.titleSmall, color = accent, fontWeight = FontWeight.Bold, maxLines = 1)
-                    Text(bottom, style = MaterialTheme.typography.labelMedium, color = Chalk)
+                    Text(top, style = MaterialTheme.typography.titleSmall, color = accent, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(bottom, style = MaterialTheme.typography.labelMedium, color = Chalk, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
         }

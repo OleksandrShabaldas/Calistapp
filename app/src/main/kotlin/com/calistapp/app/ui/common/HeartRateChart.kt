@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -32,8 +33,6 @@ import com.calistapp.core.model.HeartRateSample
 import com.calistapp.core.model.HrZone
 import com.calistapp.core.model.Segment
 import com.calistapp.core.model.SegmentType
-import kotlin.math.max
-import kotlin.math.min
 
 /**
  * Heart rate against time, with the trace **coloured by the zone each reading falls in** — the same
@@ -53,7 +52,6 @@ fun HeartRateChart(
     maxHr: Int,
     modifier: Modifier = Modifier,
     showRest: Boolean = true,
-    restColor: Color = Sky,
 ) {
     if (samples.size < 2) {
         Text(
@@ -95,14 +93,20 @@ fun HeartRateChart(
             fun py(bpm: Int): Float = size.height - (bpm - minBpm) / range * size.height
 
             if (showRest) {
+                // Each rest is split at the moment HR first drops out of the moderate zone (below
+                // 70% of max): the first band is recovery still running hot, the second is where it
+                // settled. Diagonal hatching, two-tone, so it reads as "rest" — a warm phase and a
+                // cool phase — rather than a flat grey gap.
+                val stabilizeBpm = (maxHr * HrZone.ZONE3.lowerFractionOfMax).toInt()
                 segments.filter { it.type == SegmentType.REST }.forEach { seg ->
-                    val x0 = px(seg.startMs.coerceIn(startT, endT))
-                    val x1 = px((seg.endMs ?: endT).coerceIn(startT, endT))
-                    drawRect(
-                        color = restColor.copy(alpha = 0.12f),
-                        topLeft = Offset(min(x0, x1), 0f),
-                        size = Size(max(x1 - x0, 0f), size.height),
-                    )
+                    val rStart = seg.startMs.coerceIn(startT, endT)
+                    val rEnd = (seg.endMs ?: endT).coerceIn(startT, endT)
+                    if (rEnd <= rStart) return@forEach
+                    val splitT = samples
+                        .firstOrNull { it.timestampMs in rStart..rEnd && it.bpm < stabilizeBpm }
+                        ?.timestampMs ?: rEnd
+                    drawHatchBand(px(rStart), px(splitT), size.height, Flame) // still elevated
+                    drawHatchBand(px(splitT), px(rEnd), size.height, Sky) // stabilized
                 }
             }
 
@@ -158,6 +162,21 @@ fun HeartRateChart(
 private fun DrawScope.drawPeak(x: Float, y: Float) {
     drawCircle(Coral.copy(alpha = 0.45f), radius = 6.dp.toPx(), center = Offset(x, y))
     drawCircle(Color.White, radius = 3.dp.toPx(), center = Offset(x, y))
+}
+
+/** A rest band: a faint tinted fill under 45° hatching, clipped to its slice of the timeline. */
+private fun DrawScope.drawHatchBand(x0: Float, x1: Float, height: Float, color: Color) {
+    if (x1 <= x0) return
+    drawRect(color.copy(alpha = 0.05f), topLeft = Offset(x0, 0f), size = Size(x1 - x0, height))
+    val spacing = 6.dp.toPx()
+    val stroke = 1.4.dp.toPx()
+    clipRect(left = x0, top = 0f, right = x1, bottom = height) {
+        var x = x0 - height
+        while (x < x1) {
+            drawLine(color.copy(alpha = 0.5f), Offset(x, height), Offset(x + height, 0f), stroke)
+            x += spacing
+        }
+    }
 }
 
 @Composable

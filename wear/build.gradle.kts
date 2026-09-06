@@ -26,8 +26,8 @@ android {
         targetSdk = 34
         // Kept in lockstep with :app's versionName/versionCode — see the comment there for the
         // versioning scheme. The two always ship together as one release.
-        versionCode = 100
-        versionName = "1.0.0"
+        versionCode = 101
+        versionName = "1.0.1"
     }
 
     signingConfigs {

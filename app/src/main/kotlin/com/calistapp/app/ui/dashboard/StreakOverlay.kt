@@ -44,9 +44,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.calistapp.app.ui.common.GlowIcon
@@ -187,15 +187,19 @@ private fun Heatmap(cells: List<HeatCell>) {
     val scroll = rememberScrollState()
     LaunchedEffect(weeks.size) { scroll.scrollTo(scroll.maxValue) }
 
+    // dp-derived, so the axis labels can't grow with the system font-size setting and get clipped by
+    // their fixed square-cadence boxes (the "cut off" bug on devices with enlarged fonts).
+    val labelSp = with(LocalDensity.current) { 8.5.dp.toSp() }
+
     Row(Modifier.fillMaxWidth()) {
         // Weekday labels — fixed, aligned to the seven square rows.
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             DAY_LABELS.forEachIndexed { i, l ->
-                Box(Modifier.height(13.dp).width(14.dp), contentAlignment = Alignment.CenterStart) {
-                    Text(l, fontSize = 8.sp, color = if (i == 6) Coral else Ash)
+                Box(Modifier.height(13.dp).width(16.dp), contentAlignment = Alignment.CenterStart) {
+                    Text(l, fontSize = labelSp, color = if (i == 6) Coral else Ash, maxLines = 1)
                 }
             }
-            Spacer(Modifier.height(16.dp)) // room under, aligning with the month-label row
+            Spacer(Modifier.height(17.dp)) // room under, aligning with the month-label row
         }
         Spacer(Modifier.width(4.dp))
         Column {
@@ -212,11 +216,11 @@ private fun Heatmap(cells: List<HeatCell>) {
                 weeks.forEachIndexed { i, _ ->
                     val month = firstMonday.plusWeeks(i.toLong()).month
                     val prev = if (i == 0) null else firstMonday.plusWeeks((i - 1).toLong()).month
-                    Box(Modifier.width(13.dp).height(12.dp)) {
+                    Box(Modifier.width(13.dp).height(13.dp)) {
                         if (month != prev) {
                             Text(
                                 month.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
-                                fontSize = 8.sp,
+                                fontSize = labelSp,
                                 color = Ash,
                                 maxLines = 1,
                                 softWrap = false,

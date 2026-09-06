@@ -1,7 +1,9 @@
 package com.calistapp.app.ui.detail
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -44,6 +46,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,15 +55,20 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.calistapp.app.ui.common.AmbientOverride
+import com.calistapp.app.ui.common.GlowBox
+import com.calistapp.app.ui.common.GlowIcon
 import com.calistapp.app.ui.common.SegmentedRing
 import com.calistapp.app.ui.common.RingSegment
 import com.calistapp.app.ui.common.formatClock
@@ -77,13 +85,13 @@ import com.calistapp.app.ui.theme.Onyx
 import com.calistapp.core.model.SessionSummary
 import com.calistapp.core.progress.PersonalRecord
 import com.calistapp.core.progress.TimelineExercise
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SessionDetailScreen(
     onBack: () -> Unit,
-    onOpenExercise: (String) -> Unit,
     viewModel: SessionDetailViewModel = hiltViewModel(),
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
@@ -128,8 +136,29 @@ fun SessionDetailScreen(
     val skipped = remember(current.plan, performedKeys) {
         current.plan.exercises.filter { it.slotId !in performedKeys }
     }
+    var showAiSheet by remember { mutableStateOf(false) }
 
-    Box(Modifier.fillMaxSize().background(Onyx)) {
+    // Tapping a stat ring scrolls to the exercises and flashes a highlight on them, so the eye lands
+    // in the right place instead of on whatever happened to scroll into view.
+    var highlightExercises by remember { mutableStateOf(false) }
+    val exercisesHighlight by animateFloatAsState(
+        if (highlightExercises) 1f else 0f,
+        tween(if (highlightExercises) 200 else 850, easing = FastOutSlowInEasing),
+        label = "exHighlight",
+    )
+    LaunchedEffect(highlightExercises) {
+        if (highlightExercises) { delay(1200); highlightExercises = false }
+    }
+    fun goToExercises() {
+        highlightExercises = true
+        scope.launch { exercisesRequester.bringIntoView() }
+    }
+
+    // The post-workout recap glows warm like the home screen, rather than the cool "data" blue the
+    // history detail otherwise inherits — and the flat fill is dropped so the ambient wash shows.
+    AmbientOverride(Flame)
+
+    Box(Modifier.fillMaxSize()) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -138,76 +167,91 @@ fun SessionDetailScreen(
                 .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            TopBar(onBack = onBack, onShare = { showShare = true })
+            Entrance(0) { TopBar(onBack = onBack, onShare = { showShare = true }) }
 
-            Header(
-                eyebrow = if (justFinished) "Session complete" else "Workout summary",
-                title = title,
-                meta = "${formatDate(current.startMs)}  ·  ${formatClock(s.totalDurationMs)} total",
-            )
-
-            HeroEnergy(summary = s, enabled = audit != null, onClick = { showCalorie = true })
-
-            StatRings(
-                summary = s,
-                timeline = timeline,
-                skippedCount = skipped.size,
-                onTap = { scope.launch { exercisesRequester.bringIntoView() } },
-            )
-            Text(
-                "Rings split by active/rest & by exercise — colours match the list below",
-                style = MaterialTheme.typography.labelMedium,
-                color = Ash.copy(alpha = 0.7f),
-                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-            )
-
-            records.forEach { record ->
-                PersonalBestCard(record) { showPb = record }
+            Entrance(1) {
+                Header(
+                    eyebrow = if (justFinished) "Session complete" else "Workout summary",
+                    title = title,
+                    meta = "${formatDate(current.startMs)}  ·  ${formatClock(s.totalDurationMs)} total",
+                )
             }
 
-            Section("How it felt") {
-                RpeCard(rpe = current.rpe, onChange = viewModel::setRpe)
+            Entrance(2) { HeroEnergy(summary = s, enabled = audit != null, onClick = { showCalorie = true }) }
+
+            Entrance(3) {
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    StatRings(
+                        summary = s,
+                        timeline = timeline,
+                        skippedCount = skipped.size,
+                        onTap = { goToExercises() },
+                    )
+                    Text(
+                        "Rings split by active/rest & by exercise — colours match the list below",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Ash.copy(alpha = 0.7f),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+
+            records.forEachIndexed { i, record ->
+                Entrance(4 + i) { PersonalBestCard(record) { showPb = record } }
+            }
+            val base = 4 + records.size
+
+            Entrance(base) {
+                Section("How it felt") { RpeCard(rpe = current.rpe, onChange = viewModel::setRpe) }
             }
 
             if (current.samples.size >= 2 || s.timeInZonesMs.isNotEmpty()) {
-                Section("Heart rate") {
-                    HeartRateSection(
-                        summary = s,
-                        samples = current.samples,
-                        segments = current.segments,
-                        maxHr = maxHr,
-                        showRest = showRest,
-                        onToggleRest = { showRest = !showRest },
-                    )
-                    if (s.timeInZonesMs.isNotEmpty()) ZonesCard(s)
-                    s.hrRecovery?.let { RecoveryRow(it.meanDropBpm) { showRecovery = true } }
+                Entrance(base + 1) {
+                    Section("Heart rate") {
+                        HeartRateSection(
+                            summary = s,
+                            samples = current.samples,
+                            segments = current.segments,
+                            maxHr = maxHr,
+                            showRest = showRest,
+                            onToggleRest = { showRest = !showRest },
+                        )
+                        if (s.timeInZonesMs.isNotEmpty()) ZonesCard(s)
+                        s.hrRecovery?.let { RecoveryRow(it.meanDropBpm) { showRecovery = true } }
+                    }
                 }
             }
 
-            Section("Exercises", modifier = Modifier.bringIntoViewRequester(exercisesRequester)) {
-                if (timeline.isEmpty() && skipped.isEmpty()) {
-                    Text(
-                        "No exercises were logged for this session.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Ash,
-                    )
-                } else {
-                    ExercisesSection(
-                        timeline = timeline,
-                        skipped = skipped,
-                        deltas = deltas,
-                        plan = current.plan,
-                        onRowClick = { showExercise = it },
-                    )
+            Entrance(base + 2) {
+                Section("Exercises", modifier = Modifier.bringIntoViewRequester(exercisesRequester)) {
+                    if (timeline.isEmpty() && skipped.isEmpty()) {
+                        Text(
+                            "No exercises were logged for this session.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Ash,
+                        )
+                    } else {
+                        Box(
+                            Modifier.border(
+                                2.dp,
+                                Flame.copy(alpha = 0.55f * exercisesHighlight),
+                                RoundedCornerShape(22.dp),
+                            ),
+                        ) {
+                            ExercisesSection(
+                                timeline = timeline,
+                                skipped = skipped,
+                                deltas = deltas,
+                                plan = current.plan,
+                                onRowClick = { showExercise = it },
+                            )
+                        }
+                    }
                 }
             }
 
-            Section("Notes") {
-                NotesSection(saved = current.notes, onChange = viewModel::setNotes)
-            }
-
-            Section("AI coach") {
-                AiSection(insight = current.aiInsight, aiState = aiState)
+            Entrance(base + 3) {
+                Section("Notes") { NotesSection(saved = current.notes, onChange = viewModel::setNotes) }
             }
 
             TextButton(onClick = { confirmDelete = true }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
@@ -222,7 +266,10 @@ fun SessionDetailScreen(
         StickyCta(
             hasInsight = current.aiInsight != null,
             loading = aiState is AiUiState.Loading,
-            onClick = viewModel::generateInsight,
+            onClick = {
+                showAiSheet = true
+                if (current.aiInsight == null && aiState !is AiUiState.Loading) viewModel.generateInsight()
+            },
             modifier = Modifier.align(Alignment.BottomCenter),
         )
     }
@@ -233,7 +280,6 @@ fun SessionDetailScreen(
         PersonalBestOverlay(
             record = record,
             progression = progressions[record.exerciseKey].orEmpty(),
-            onOpenExercise = record.exerciseKey.takeIf { it.isNotBlank() }?.let { key -> { onOpenExercise(key) } },
             onDismiss = { showPb = null },
         )
     }
@@ -246,6 +292,15 @@ fun SessionDetailScreen(
             delta = deltas[ex.name],
             onApplyEdits = viewModel::applySetEdits,
             onDismiss = { showExercise = null },
+        )
+    }
+    if (showAiSheet) {
+        AiCoachSheet(
+            insight = current.aiInsight,
+            aiState = aiState,
+            generatedAtMs = current.aiInsightAtMs,
+            onRegenerate = { viewModel.generateInsight() },
+            onDismiss = { showAiSheet = false },
         )
     }
     if (showShare) {
@@ -280,10 +335,10 @@ private fun TopBar(onBack: () -> Unit, onShare: () -> Unit) {
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         IconSquare(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Chalk, modifier = Modifier.size(18.dp))
+            GlowIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Chalk, size = 18.dp, glowColor = Chalk, glowRadius = 5.dp, glowAlpha = 0.4f)
         }
         IconSquare(onClick = onShare) {
-            Icon(Icons.Filled.IosShare, "Share workout", tint = Chalk, modifier = Modifier.size(17.dp))
+            GlowIcon(Icons.Filled.IosShare, "Share workout", tint = Chalk, size = 17.dp, glowColor = Chalk, glowRadius = 5.dp, glowAlpha = 0.4f)
         }
     }
 }
@@ -455,11 +510,13 @@ private fun PersonalBestCard(record: PersonalRecord, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Box(
-            Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(Brush.linearGradient(listOf(FlameGlow, FlameHot))),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(Icons.Filled.EmojiEvents, null, tint = Color(0xFF140A03), modifier = Modifier.size(22.dp))
+        GlowBox(color = FlameHot, shape = RoundedCornerShape(13.dp), glowRadius = 11.dp, glowAlpha = 0.6f) {
+            Box(
+                Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(Brush.linearGradient(listOf(FlameGlow, FlameHot))),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.EmojiEvents, null, tint = Color(0xFF140A03), modifier = Modifier.size(22.dp))
+            }
         }
         Column(Modifier.weight(1f)) {
             Text("New personal best", style = MaterialTheme.typography.titleMedium, color = Chalk, fontWeight = FontWeight.Bold)
@@ -480,16 +537,23 @@ private fun StickyCta(hasInsight: Boolean, loading: Boolean, onClick: () -> Unit
             .navigationBarsPadding()
             .padding(horizontal = 20.dp, vertical = 16.dp),
     ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(Brush.horizontalGradient(listOf(FlameHot, FlameGlow)))
-                .clickable(enabled = !loading, onClick = onClick),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
+        GlowBox(
+            color = FlameHot,
+            shape = RoundedCornerShape(18.dp),
+            glowRadius = 20.dp,
+            glowAlpha = 0.5f,
+            modifier = Modifier.fillMaxWidth(),
         ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Brush.horizontalGradient(listOf(FlameHot, FlameGlow)))
+                    .clickable(enabled = !loading, onClick = onClick),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
             if (loading) {
                 CircularProgressIndicator(color = Color(0xFF140A03), strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(10.dp))
@@ -498,11 +562,12 @@ private fun StickyCta(hasInsight: Boolean, loading: Boolean, onClick: () -> Unit
                 Icon(Icons.Filled.AutoAwesome, null, tint = Color(0xFF140A03), modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(9.dp))
                 Text(
-                    if (hasInsight) "Regenerate with AI Coach" else "Analyze with AI Coach",
+                    if (hasInsight) "Read AI Coach" else "Analyze with AI Coach",
                     style = MaterialTheme.typography.titleMedium,
                     color = Color(0xFF140A03),
                     fontWeight = FontWeight.Bold,
                 )
+            }
             }
         }
     }
@@ -547,14 +612,15 @@ private fun RpeCard(rpe: Int?, onChange: (Int?) -> Unit) {
         Row(Modifier.fillMaxWidth().height(36.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             (1..10).forEach { n ->
                 val on = rpe != null && n <= rpe
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .height((16 + n * 2).dp)
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(if (on) difficultyColor(n) else Color.White.copy(alpha = 0.07f))
-                        .clickable { onChange(if (rpe == n) null else n) },
-                )
+                val h = (16 + n * 2).dp
+                val shape = RoundedCornerShape(5.dp)
+                if (on) {
+                    GlowBox(color = difficultyColor(n), shape = shape, glowRadius = 7.dp, glowAlpha = 0.55f, modifier = Modifier.weight(1f).height(h)) {
+                        Box(Modifier.matchParentSize().clip(shape).background(difficultyColor(n)).clickable { onChange(if (rpe == n) null else n) })
+                    }
+                } else {
+                    Box(Modifier.weight(1f).height(h).clip(shape).background(Color.White.copy(alpha = 0.07f)).clickable { onChange(n) })
+                }
             }
         }
         Text(
@@ -574,22 +640,19 @@ private fun rpeLabel(rpe: Int): String = when (rpe) {
     else -> "maximal"
 }
 
-// ---------- AI coach insight ----------
+// ---------- Staggered entrance ----------
 
+/**
+ * Fades + lifts each section in, staggered by its slot, for a smooth entrance on open — the same
+ * motion the home screen uses, so opening a summary feels of a piece with the rest of the app.
+ */
 @Composable
-private fun AiSection(insight: String?, aiState: AiUiState) {
-    FlatCard {
-        when {
-            insight != null -> Text(insight, style = MaterialTheme.typography.bodyMedium, color = Chalk)
-            aiState is AiUiState.Loading -> Text("Analyzing your session…", style = MaterialTheme.typography.bodyMedium, color = Ash)
-            else -> Text(
-                "Get personalized feedback and recommendations based on this session's heart-rate and effort data.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Ash,
-            )
-        }
-        (aiState as? AiUiState.Error)?.let {
-            Text(it.message, style = MaterialTheme.typography.labelMedium, color = Coral)
-        }
+private fun Entrance(index: Int, content: @Composable () -> Unit) {
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(index * 55L)
+        shown = true
     }
+    val p by animateFloatAsState(if (shown) 1f else 0f, tween(400, easing = FastOutSlowInEasing), label = "entrance")
+    Box(Modifier.alpha(p).offset { IntOffset(0, ((1f - p) * 36.dp.toPx()).toInt()) }) { content() }
 }

@@ -33,13 +33,25 @@ data class GeminiResponse(
     data class Content(val parts: List<Part> = emptyList())
 
     @Serializable
-    data class Part(val text: String = "")
+    data class Part(
+        val text: String = "",
+        /**
+         * True on a *thinking* model's reasoning parts. The newest Flash models (the THINKING tier)
+         * stream their scratch work back as ordinary parts flagged with this; joining them into the
+         * answer is how "3. What to improve → Checked (bullets)" ended up on screen. The final answer
+         * is the non-thought parts, so those are all we keep.
+         */
+        val thought: Boolean = false,
+    )
 
     @Serializable
     data class PromptFeedback(val blockReason: String? = null)
 
     val text: String?
-        get() = candidates.firstOrNull()?.content?.parts?.joinToString("") { it.text }?.takeIf { it.isNotBlank() }
+        get() = candidates.firstOrNull()?.content?.parts
+            ?.filterNot { it.thought }
+            ?.joinToString("") { it.text }
+            ?.takeIf { it.isNotBlank() }
 }
 
 @Serializable
