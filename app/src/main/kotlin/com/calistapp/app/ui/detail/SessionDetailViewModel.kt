@@ -15,11 +15,16 @@ import com.calistapp.core.model.SetLog
 import com.calistapp.core.model.UserProfile
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.WorkoutSession
+import com.calistapp.core.progress.ExerciseProgress
+import com.calistapp.core.progress.ExerciseSessionEntry
 import com.calistapp.core.progress.PerformedSession
 import com.calistapp.core.progress.PersonalRecord
 import com.calistapp.core.progress.ProgressPoint
+import com.calistapp.core.progress.RecordKind
 import com.calistapp.core.progress.TimelineExercise
 import com.calistapp.core.progress.bestProgression
+import com.calistapp.core.progress.exerciseHistory
+import com.calistapp.core.progress.exerciseProgressFor
 import com.calistapp.core.progress.lastSessionDeltas
 import com.calistapp.core.progress.personalRecords
 import com.calistapp.core.progress.sessionTimeline
@@ -39,6 +44,20 @@ sealed interface AiUiState {
     data object Idle : AiUiState
     data object Loading : AiUiState
     data class Error(val message: String) : AiUiState
+}
+
+/** Everything the personal-best popup shows about the beaten movement, beyond the record itself. */
+data class PbDetail(
+    val progress: ExerciseProgress?,
+    val history: List<ExerciseSessionEntry>,
+    val chart: List<ProgressPoint>,
+    val chartLabel: String,
+)
+
+private fun chartLabel(kind: RecordKind): String = when (kind) {
+    RecordKind.REPS -> "reps"
+    RecordKind.WEIGHT -> "weight"
+    RecordKind.VOLUME -> "volume"
 }
 
 @HiltViewModel
@@ -79,9 +98,33 @@ class SessionDetailViewModel @Inject constructor(
         .map { personalRecords(it, sessionId) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Each beaten record's best-of-metric climb over time, for the personal-best popup's sparkline. */
-    val progressions: StateFlow<Map<String, List<ProgressPoint>>> = combine(performed, records) { hist, recs ->
-        recs.associate { it.exerciseKey to bestProgression(hist, it.exerciseKey, it.kind) }
+    /**
+     * The beaten movement's own history, for the personal-best popup — its all-time records, a
+     * progression chart, and a session list. Keyed by exercise. A first-time weighted PB has no prior
+     * weight to chart, so the chart falls back to whichever metric actually has a trend (usually reps),
+     * rather than showing an empty popup.
+     */
+    val pbDetails: StateFlow<Map<String, PbDetail>> = combine(performed, records) { hist, recs ->
+        recs.associate { rec ->
+            val key = rec.exerciseKey
+            // Prefer charting the record's own metric when it actually has a trend; otherwise fall back
+            // to whichever metric has the most points (a first weighted PB has only one weight point).
+            val own = bestProgression(hist, key, rec.kind)
+            val (chart, kind) = if (own.size >= 2) {
+                own to rec.kind
+            } else {
+                val best = listOf(RecordKind.WEIGHT, RecordKind.REPS, RecordKind.VOLUME)
+                    .map { it to bestProgression(hist, key, it) }
+                    .maxByOrNull { it.second.size }
+                if (best != null && best.second.size >= 2) best.second to best.first else emptyList<ProgressPoint>() to rec.kind
+            }
+            key to PbDetail(
+                progress = exerciseProgressFor(hist, key),
+                history = exerciseHistory(hist, key),
+                chart = chart,
+                chartLabel = if (chart.size >= 2) chartLabel(kind) else "",
+            )
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** Per-exercise reps change vs the most recent earlier session containing it. Keyed by name. */
@@ -121,7 +164,7 @@ class SessionDetailViewModel @Inject constructor(
         if (_aiState.value is AiUiState.Loading) return
         _aiState.value = AiUiState.Loading
         viewModelScope.launch {
-            when (val result = insightsRepository.analyzeSession(current, summary, profile.value)) {
+            when (val result = insightsRepository.analyzeSession(current, summary, profile.value, performed.value)) {
                 is AiResult.Success -> {
                     sessionRepository.updateInsight(sessionId, result.text)
                     _aiState.value = AiUiState.Idle

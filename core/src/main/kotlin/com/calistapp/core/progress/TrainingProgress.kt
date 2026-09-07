@@ -392,6 +392,33 @@ private fun exerciseProgress(sessions: List<PerformedSession>): List<ExercisePro
 }
 
 /**
+ * The full accumulated record for one movement, or null if it was never performed — for the summary
+ * screen's personal-best popup, which shows the beaten movement's own history alongside the record.
+ */
+fun exerciseProgressFor(sessions: List<PerformedSession>, key: String): ExerciseProgress? =
+    exerciseProgress(sessions).firstOrNull { it.key == key }
+
+/** One session's contribution to a single movement — a row in the personal-best popup's history. */
+data class ExerciseSessionEntry(val atMs: Long, val sets: Int, val reps: Int, val topWeightKg: Double)
+
+/** Every session that included [key], newest first, summarised for a compact history list. */
+fun exerciseHistory(sessions: List<PerformedSession>, key: String): List<ExerciseSessionEntry> =
+    sessions.mapNotNull { session ->
+        var sets = 0
+        var reps = 0
+        var top = 0.0
+        for (log in session.setLogs) {
+            if (log.exerciseId.ifBlank { log.exerciseName } != key) continue
+            val slot = session.plan.slot(log.slotId)
+            if (slot?.isWarmup(log.setIndex) == true) continue
+            sets++
+            reps += log.reps
+            top = maxOf(top, slot?.addedWeightKg ?: 0.0)
+        }
+        if (sets > 0) ExerciseSessionEntry(session.startMs, sets, reps, top) else null
+    }.sortedByDescending { it.atMs }
+
+/**
  * Six days back, then re-anchored to that week's start. Stepping by a fixed seven days would drift
  * across a daylight-saving change; landing anywhere inside the previous week and re-anchoring can't.
  */

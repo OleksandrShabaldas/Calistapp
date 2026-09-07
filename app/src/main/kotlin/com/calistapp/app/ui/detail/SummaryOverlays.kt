@@ -17,11 +17,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -56,10 +59,10 @@ import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Flame
 import com.calistapp.app.ui.theme.FlameHot
+import com.calistapp.app.ui.theme.Sky
 import com.calistapp.core.model.HrRecovery
 import com.calistapp.core.model.formatKg
 import com.calistapp.core.progress.PersonalRecord
-import com.calistapp.core.progress.ProgressPoint
 import com.calistapp.core.progress.RecordKind
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -123,14 +126,15 @@ fun SummaryOverlay(
 private val PB_DATE = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
 
 /**
- * The story behind a personal best: what you hit, what it beat and when, and the shape of the climb.
- * [progression] is that movement's best-of-this-metric per session, oldest to newest, so the sparkline
- * ends on today's record.
+ * The story behind a personal best: what you hit, what it beat, and the movement's own history — its
+ * all-time records, the shape of the climb, and the sessions it appeared in. Self-contained, so
+ * there's nowhere else to go for the detail. [detail] carries that history; a first-time weighted PB
+ * has no prior weight to chart, so the chart falls back to whatever metric actually has a trend.
  */
 @Composable
 fun PersonalBestOverlay(
     record: PersonalRecord,
-    progression: List<ProgressPoint>,
+    detail: PbDetail,
     onDismiss: () -> Unit,
 ) {
     SummaryOverlay(onDismiss = onDismiss) {
@@ -149,62 +153,82 @@ fun PersonalBestOverlay(
 
         if (record.previousLabel != null) {
             val whenText = record.previousAtMs?.let { " on ${PB_DATE.format(Date(it))}" } ?: ""
-            Text(
-                "Up from ${record.previousLabel}$whenText.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Ash,
-            )
+            Text("Up from ${record.previousLabel}$whenText.", style = MaterialTheme.typography.bodyMedium, color = Ash)
         }
 
-        if (progression.size >= 2) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("PROGRESSION", style = MaterialTheme.typography.labelSmall, color = FlameHot, fontWeight = FontWeight.Bold)
-                Sparkline(progression.map { it.value.toFloat() }, Modifier.fillMaxWidth().height(76.dp))
-                // Every session this movement appeared in, newest first — today's is the record, so
-                // the whole history lives here and there's nowhere else to go for it.
-                val rows = progression.reversed().take(8)
-                Column {
-                    rows.forEachIndexed { i, pt ->
-                        val isToday = i == 0
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
+        // All-time records for this movement.
+        detail.progress?.let { p ->
+            val tiles = buildList {
+                p.heaviest?.let { add(Triple("Best weight", "+${formatKg(it.addedWeightKg)} kg", FlameHot)) }
+                p.mostReps?.let { add(Triple("Best reps", "${it.reps}", Amber)) }
+                p.maxVolume?.let { add(Triple("Best volume", "${formatKg(it.addedWeightKg * it.reps)} kg", Sky)) }
+            }
+            if (tiles.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("RECORDS", style = MaterialTheme.typography.labelSmall, color = FlameHot, fontWeight = FontWeight.Bold)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        tiles.forEach { (label, value, accent) -> PbStat(label, value, accent, Modifier.weight(1f)) }
+                    }
+                }
+            }
+        }
+
+        if (detail.chart.size >= 2) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("${detail.chartLabel.uppercase()} OVER TIME", style = MaterialTheme.typography.labelSmall, color = FlameHot, fontWeight = FontWeight.Bold)
+                Sparkline(detail.chart.map { it.value.toFloat() }, Modifier.fillMaxWidth().height(72.dp))
+            }
+        }
+
+        if (detail.history.isNotEmpty()) {
+            Column {
+                Text("HISTORY", style = MaterialTheme.typography.labelSmall, color = FlameHot, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 2.dp))
+                val rows = detail.history.take(8)
+                rows.forEachIndexed { i, e ->
+                    val newest = i == 0
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 9.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(PB_DATE.format(Date(e.atMs)), style = MaterialTheme.typography.bodyMedium, color = if (newest) Amber else Ash)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (e.topWeightKg > 0.0) {
+                                Text(
+                                    "+${formatKg(e.topWeightKg)} kg",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = FlameHot,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.background(FlameHot.copy(alpha = 0.12f), RoundedCornerShape(5.dp)).padding(horizontal = 6.dp, vertical = 3.dp),
+                                )
+                            }
                             Text(
-                                if (isToday) "Today" else PB_DATE.format(Date(pt.atMs)),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (isToday) Amber else Ash,
-                            )
-                            Text(
-                                progressValueLabel(record.kind, pt.value),
+                                "${e.sets} ${if (e.sets == 1) "set" else "sets"} · ${e.reps} reps",
                                 style = MaterialTheme.typography.titleSmall,
-                                color = if (isToday) Amber else Chalk,
-                                fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium,
+                                color = if (newest) Amber else Chalk,
+                                fontWeight = if (newest) FontWeight.Bold else FontWeight.Medium,
                             )
                         }
-                        if (i < rows.lastIndex) {
-                            Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.05f)))
-                        }
                     }
-                    if (progression.size > rows.size) {
-                        Text(
-                            "+${progression.size - rows.size} earlier",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Ash,
-                            modifier = Modifier.padding(top = 8.dp),
-                        )
-                    }
+                    if (i < rows.lastIndex) Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.05f)))
+                }
+                if (detail.history.size > rows.size) {
+                    Text("+${detail.history.size - rows.size} earlier", style = MaterialTheme.typography.labelSmall, color = Ash, modifier = Modifier.padding(top = 8.dp))
                 }
             }
         }
     }
 }
 
-private fun progressValueLabel(kind: RecordKind, value: Double): String = when (kind) {
-    RecordKind.REPS -> "${value.toInt()} reps"
-    RecordKind.WEIGHT -> "+${formatKg(value)} kg"
-    RecordKind.VOLUME -> "${formatKg(value)} kg"
+@Composable
+private fun PbStat(label: String, value: String, accent: Color, modifier: Modifier) {
+    Column(
+        modifier.clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.04f)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text(value, style = MaterialTheme.typography.titleMedium, color = accent, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Ash)
+    }
 }
 
 private fun kindLabel(kind: RecordKind) = when (kind) {
@@ -213,9 +237,22 @@ private fun kindLabel(kind: RecordKind) = when (kind) {
     RecordKind.VOLUME -> "most volume"
 }
 
+private enum class RecBand(val word: String, val color: Color) {
+    BLUNTED("on the low side", Amber),
+    TYPICAL("typical", Sky),
+    STRONG("strong", Flame),
+}
+
+private fun recoveryBand(mean: Int): RecBand = when {
+    mean >= 20 -> RecBand.STRONG
+    mean >= 12 -> RecBand.TYPICAL
+    else -> RecBand.BLUNTED
+}
+
 /**
- * The full recovery picture: the headline drop and what it means, how it compares to the athlete's
- * recent sessions, and the drop measured after each individual set.
+ * The full recovery picture, laid out in sections rather than a pile of prose: the number and where
+ * it sits on the normal range, what it is, what it means for you, the drop measured after each set
+ * (which is how the number was found), and the method behind it.
  */
 @Composable
 fun RecoveryOverlay(
@@ -223,10 +260,10 @@ fun RecoveryOverlay(
     recentMeanDrop: Int?,
     onDismiss: () -> Unit,
 ) {
-    val accent = recoveryAccent(recovery.meanDropBpm)
+    val band = recoveryBand(recovery.meanDropBpm)
     SummaryOverlay(onDismiss = onDismiss) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            GlowIcon(Icons.Filled.FavoriteBorder, null, accent, size = 28.dp, glowRadius = 8.dp, glowAlpha = 0.5f)
+            GlowIcon(Icons.Filled.FavoriteBorder, null, band.color, size = 28.dp, glowRadius = 8.dp, glowAlpha = 0.5f)
             Column {
                 Text("Heart-rate recovery", style = MaterialTheme.typography.headlineSmall, color = Chalk)
                 Text("How fast your heart came back down", style = MaterialTheme.typography.bodySmall, color = Ash)
@@ -234,35 +271,44 @@ fun RecoveryOverlay(
         }
 
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("${recovery.meanDropBpm}", style = MaterialTheme.typography.displaySmall, color = accent, fontWeight = FontWeight.Bold)
-            Text("bpm / min average", style = MaterialTheme.typography.labelMedium, color = Ash, modifier = Modifier.padding(bottom = 6.dp))
+            Text("${recovery.meanDropBpm}", style = MaterialTheme.typography.displaySmall, color = band.color, fontWeight = FontWeight.Bold)
+            Column(modifier = Modifier.padding(bottom = 5.dp)) {
+                Text("bpm / min", style = MaterialTheme.typography.labelMedium, color = Ash)
+                Text(band.word, style = MaterialTheme.typography.labelLarge, color = band.color, fontWeight = FontWeight.SemiBold)
+            }
         }
 
-        Text(recoveryExplanation(recovery.meanDropBpm), style = MaterialTheme.typography.bodyMedium, color = Ash)
+        RecoveryScale(recovery.meanDropBpm)
 
-        if (recentMeanDrop != null) {
-            val delta = recovery.meanDropBpm - recentMeanDrop
-            val phrase = when {
-                delta >= 3 -> "faster than"
-                delta <= -3 -> "slower than"
-                else -> "in line with"
-            }
-            Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.04f)).padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                Text("VS YOUR RECENT AVERAGE", style = MaterialTheme.typography.labelSmall, color = Ash, fontWeight = FontWeight.Bold)
+        RecSection("What this is") {
+            Text(
+                "How far your pulse falls in the minute after a hard effort. It tracks how quickly your " +
+                    "nervous system switches from \"push\" back toward \"rest\" — one of the clearer " +
+                    "day-to-day windows onto aerobic fitness and how recovered you are.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Ash,
+            )
+        }
+
+        RecSection("What it means for you") {
+            Text(recoveryAdvice(recovery.meanDropBpm), style = MaterialTheme.typography.bodyMedium, color = Chalk)
+            if (recentMeanDrop != null) {
+                val delta = recovery.meanDropBpm - recentMeanDrop
+                val phrase = when {
+                    delta >= 3 -> "faster than"
+                    delta <= -3 -> "slower than"
+                    else -> "in line with"
+                }
                 Text(
-                    "Today is $phrase your recent $recentMeanDrop bpm/min.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Chalk,
+                    "Today is $phrase your recent average of $recentMeanDrop bpm/min.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Ash,
                 )
             }
         }
 
         if (recovery.drops.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("AFTER EACH SET", style = MaterialTheme.typography.labelSmall, color = FlameHot, fontWeight = FontWeight.Bold)
+            RecSection("After each set — how this number was found") {
                 recovery.drops.forEachIndexed { i, drop ->
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.04f)).padding(horizontal = 14.dp, vertical = 11.dp),
@@ -271,34 +317,66 @@ fun RecoveryOverlay(
                     ) {
                         Column {
                             Text(drop.afterExercise ?: "Rest ${i + 1}", style = MaterialTheme.typography.titleSmall, color = Chalk)
-                            Text("${drop.peakBpm} → ${drop.endBpm} bpm", style = MaterialTheme.typography.labelMedium, color = Ash)
+                            Text("${drop.peakBpm} → ${drop.endBpm} bpm over 1 min", style = MaterialTheme.typography.labelMedium, color = Ash)
                         }
-                        Text("−${drop.dropBpm}", style = MaterialTheme.typography.titleMedium, color = recoveryAccent(drop.dropBpm), fontWeight = FontWeight.Bold)
+                        Text("−${drop.dropBpm}", style = MaterialTheme.typography.titleMedium, color = recoveryBand(drop.dropBpm).color, fontWeight = FontWeight.Bold)
                     }
                 }
+                Text(
+                    "Averaged across the ${recovery.measuredRests} ${if (recovery.measuredRests == 1) "rest" else "rests"} long enough to measure = ${recovery.meanDropBpm} bpm/min.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Ash,
+                )
             }
         }
 
         Text(
             "Measured from your peak heart rate at the end of a set to one minute into the rest that " +
-                "followed, across rests long enough to count. Under about 12 bpm is the clinically " +
-                "blunted threshold; trained people usually see 20–40.",
+                "followed, across rests long enough to count. Under about 12 bpm/min is the clinically " +
+                "blunted range; trained people usually see 20–40.",
             style = MaterialTheme.typography.labelSmall,
             color = Ash,
         )
     }
 }
 
-private fun recoveryAccent(drop: Int): Color = when {
-    drop >= 25 -> Flame // worth celebrating
-    drop >= 12 -> Chalk // unremarkable — the same neutral the "Average" HR stat uses
-    else -> Amber // worth watching
+@Composable
+private fun RecSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title.uppercase(), style = MaterialTheme.typography.labelSmall, color = FlameHot, fontWeight = FontWeight.Bold)
+        content()
+    }
 }
 
-private fun recoveryExplanation(mean: Int): String = when {
-    mean >= 25 -> "A strong drop in the first minute after your sets — that's a well-conditioned recovery response."
-    mean >= 12 -> "A normal drop in the first minute after your sets."
-    else -> "A slower drop than usual. One session doesn't mean much — fatigue, heat, caffeine and poor sleep all blunt it. Worth watching if it persists."
+/** Where the athlete's drop sits on the normal range — blunted / typical / strong — with a marker. */
+@Composable
+private fun RecoveryScale(value: Int) {
+    val frac = (value / 30f).coerceIn(0.02f, 0.98f)
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Box(Modifier.fillMaxWidth().height(14.dp)) {
+            Row(Modifier.fillMaxSize().clip(RoundedCornerShape(999.dp))) {
+                Box(Modifier.weight(12f).fillMaxHeight().background(Amber.copy(alpha = 0.5f)))
+                Box(Modifier.weight(8f).fillMaxHeight().background(Sky.copy(alpha = 0.5f)))
+                Box(Modifier.weight(10f).fillMaxHeight().background(Flame.copy(alpha = 0.5f)))
+            }
+            Row(Modifier.fillMaxWidth().fillMaxHeight()) {
+                Spacer(Modifier.weight(frac))
+                Box(Modifier.width(3.dp).fillMaxHeight().background(Chalk))
+                Spacer(Modifier.weight(1f - frac))
+            }
+        }
+        Row(Modifier.fillMaxWidth()) {
+            Text("blunted", Modifier.weight(12f), style = MaterialTheme.typography.labelSmall, color = Amber)
+            Text("typical", Modifier.weight(8f), style = MaterialTheme.typography.labelSmall, color = Sky, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text("strong 20–40", Modifier.weight(10f), style = MaterialTheme.typography.labelSmall, color = Flame, textAlign = androidx.compose.ui.text.style.TextAlign.End)
+        }
+    }
+}
+
+private fun recoveryAdvice(mean: Int): String = when {
+    mean >= 20 -> "A strong drop — well-conditioned autonomic recovery. Keep training and recovering the way you have been."
+    mean >= 12 -> "A normal, healthy drop. Nothing to action here — this is what you want to see after hard sets."
+    else -> "Low today. One session says little — heat, poor sleep, caffeine and accumulated fatigue all blunt it. If it stays here across several sessions, take it as a nudge to bank more sleep and easy days before pushing hard again."
 }
 
 /** A minimal rising sparkline: the values normalised to the box, last point marked. */

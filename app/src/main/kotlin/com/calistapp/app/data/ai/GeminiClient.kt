@@ -35,7 +35,14 @@ class GeminiClient @Inject constructor(
      * Generate against [tier]'s models. Defaults to [AiModelTier.FAST]: most callers are the helper
      * kind, and the reasoning-heavy ones (session analysis, coaching) opt into THINKING explicitly.
      */
-    suspend fun generate(prompt: String, tier: AiModelTier = AiModelTier.FAST): AiResult = withContext(io) {
+    suspend fun generate(
+        prompt: String,
+        tier: AiModelTier = AiModelTier.FAST,
+        // Thinking models spend output tokens *reasoning*, and that reasoning shares this budget with
+        // the answer — so a low cap truncates the reply (the session coach was getting cut off after
+        // its first line). Give the thinking tier ample room by default; keep the fast helpers tight.
+        maxOutputTokens: Int = if (tier == AiModelTier.THINKING) 4000 else 900,
+    ): AiResult = withContext(io) {
         val settings = aiSettings.settings.first()
         val key = settings.apiKey.ifBlank { BuildConfig.GEMINI_API_KEY }
         if (key.isBlank()) {
@@ -45,7 +52,7 @@ class GeminiClient @Inject constructor(
         val models = settings.modelsFor(tier).ifEmpty { listOf(BuildConfig.GEMINI_MODEL) }
         var lastMessage = "No AI model produced a response."
         for (model in models) {
-            when (val outcome = callOnce(model, key, prompt)) {
+            when (val outcome = callOnce(model, key, prompt, maxOutputTokens)) {
                 is CallOutcome.Ok -> return@withContext AiResult.Success(outcome.text)
                 // Rate-limited / overloaded / unknown model / transient — try the next fallback.
                 is CallOutcome.Retry -> lastMessage = outcome.message
@@ -56,11 +63,14 @@ class GeminiClient @Inject constructor(
         AiResult.Failure(lastMessage)
     }
 
-    private fun callOnce(model: String, key: String, prompt: String): CallOutcome {
+    private fun callOnce(model: String, key: String, prompt: String, maxOutputTokens: Int): CallOutcome {
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$key"
         val body = json.encodeToString(
             GeminiRequest.serializer(),
-            GeminiRequest(contents = listOf(GeminiRequest.Content(parts = listOf(GeminiRequest.Part(prompt))))),
+            GeminiRequest(
+                contents = listOf(GeminiRequest.Content(parts = listOf(GeminiRequest.Part(prompt)))),
+                generationConfig = GeminiRequest.GenerationConfig(maxOutputTokens = maxOutputTokens),
+            ),
         ).toRequestBody(jsonMedia)
         val request = Request.Builder().url(url).post(body).build()
 

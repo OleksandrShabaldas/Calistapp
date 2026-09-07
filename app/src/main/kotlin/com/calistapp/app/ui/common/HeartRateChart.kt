@@ -164,16 +164,20 @@ private fun DrawScope.drawPeak(x: Float, y: Float) {
     drawCircle(Color.White, radius = 3.dp.toPx(), center = Offset(x, y))
 }
 
-/** A rest band: a faint tinted fill under 45° hatching, clipped to its slice of the timeline. */
+/**
+ * A rest band: a faint tinted fill under light 45° hatching, clipped to its slice of the timeline.
+ * Kept deliberately faint — thin, low-opacity lines spaced wide — so it reads as a texture behind the
+ * trace rather than a grille the trace has to fight through.
+ */
 private fun DrawScope.drawHatchBand(x0: Float, x1: Float, height: Float, color: Color) {
     if (x1 <= x0) return
-    drawRect(color.copy(alpha = 0.05f), topLeft = Offset(x0, 0f), size = Size(x1 - x0, height))
-    val spacing = 6.dp.toPx()
-    val stroke = 1.4.dp.toPx()
+    drawRect(color.copy(alpha = 0.04f), topLeft = Offset(x0, 0f), size = Size(x1 - x0, height))
+    val spacing = 9.dp.toPx()
+    val stroke = 0.9.dp.toPx()
     clipRect(left = x0, top = 0f, right = x1, bottom = height) {
         var x = x0 - height
         while (x < x1) {
-            drawLine(color.copy(alpha = 0.5f), Offset(x, height), Offset(x + height, 0f), stroke)
+            drawLine(color.copy(alpha = 0.22f), Offset(x, height), Offset(x + height, 0f), stroke)
             x += spacing
         }
     }

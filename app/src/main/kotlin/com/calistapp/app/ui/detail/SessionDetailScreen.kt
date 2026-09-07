@@ -98,7 +98,7 @@ fun SessionDetailScreen(
     val aiState by viewModel.aiState.collectAsStateWithLifecycle()
     val audit by viewModel.audit.collectAsStateWithLifecycle()
     val records by viewModel.records.collectAsStateWithLifecycle()
-    val progressions by viewModel.progressions.collectAsStateWithLifecycle()
+    val pbDetails by viewModel.pbDetails.collectAsStateWithLifecycle()
     val deltas by viewModel.deltas.collectAsStateWithLifecycle()
     val recentRecovery by viewModel.recentRecoveryMeanDrop.collectAsStateWithLifecycle()
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
@@ -279,7 +279,7 @@ fun SessionDetailScreen(
     showPb?.let { record ->
         PersonalBestOverlay(
             record = record,
-            progression = progressions[record.exerciseKey].orEmpty(),
+            detail = pbDetails[record.exerciseKey] ?: PbDetail(null, emptyList(), emptyList(), ""),
             onDismiss = { showPb = null },
         )
     }
