@@ -236,6 +236,31 @@ data class WorkoutPlan(
         get() = if (isCircuit) exercises.size * rounds.coerceAtLeast(1)
         else exercises.sumOf { it.sets().size }
 
+    /**
+     * A rough time estimate for the whole workout, in seconds — a set's working time plus its rest,
+     * summed across the plan. Deliberately coarse (reps are scored at a nominal tempo, holds at their
+     * own duration, and the trailing rest is left in as buffer): it exists only to show a "~N min"
+     * badge on the workout, never to drive scoring, which stays on real elapsed time and heart rate.
+     */
+    val estimatedSeconds: Int
+        get() {
+            if (exercises.isEmpty()) return 0
+            fun work(slot: PlannedExercise, set: PlannedSet): Int =
+                if (slot.measure == ExerciseMeasure.SECONDS) set.reps else set.reps * SECONDS_PER_REP
+            return if (isCircuit) {
+                rounds.coerceAtLeast(1) * exercises.sumOf { slot ->
+                    val set = slot.sets().firstOrNull() ?: PlannedSet()
+                    work(slot, set) + slot.restSeconds
+                }
+            } else {
+                exercises.sumOf { slot -> slot.sets().sumOf { set -> work(slot, set) + slot.restSeconds } }
+            }
+        }
+
+    /** The estimate as whole minutes, at least 1 for any non-empty plan — for the "~38 min" line. */
+    val estimatedMinutes: Int
+        get() = if (isEmpty) 0 else ((estimatedSeconds + 59) / 60).coerceAtLeast(1)
+
     /** How many sets of [slotId] this plan calls for. */
     fun targetSetsFor(slotId: String?): Int {
         val slot = slot(slotId) ?: return 0
@@ -316,6 +341,9 @@ data class WorkoutPlan(
 
     companion object {
         val EMPTY = WorkoutPlan(id = "", name = "")
+
+        /** Nominal seconds per rep, used only by [estimatedSeconds] — not by any scoring path. */
+        private const val SECONDS_PER_REP = 3
     }
 }
 

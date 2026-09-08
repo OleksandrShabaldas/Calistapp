@@ -9,26 +9,30 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
@@ -36,9 +40,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -51,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
@@ -60,12 +65,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.calistapp.app.ui.common.AiActionCard
+import com.calistapp.app.ui.common.BackButton
+import com.calistapp.app.ui.common.GlowBox
+import com.calistapp.app.ui.common.glow
 import com.calistapp.app.ui.theme.Ash
+import com.calistapp.app.ui.theme.AshFaint
 import com.calistapp.app.ui.theme.Capsule
 import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Coral
 import com.calistapp.app.ui.theme.Flame
-import com.calistapp.app.ui.theme.FlameSoft
+import com.calistapp.app.ui.theme.FlameGlow
+import com.calistapp.app.ui.theme.FlameHot
+import com.calistapp.app.ui.theme.Mint
 import com.calistapp.app.ui.theme.NumericMedium
 import com.calistapp.app.ui.theme.Onyx
 import com.calistapp.app.ui.theme.OnyxBorder
@@ -74,9 +86,10 @@ import com.calistapp.app.ui.theme.OnyxRaised
 import com.calistapp.app.ui.theme.TitleSans
 import com.calistapp.core.model.Difficulty
 import com.calistapp.core.model.Exercise
+import com.calistapp.core.model.Faq
 import com.calistapp.core.model.SavedWorkout
-import com.calistapp.core.progress.ExerciseProgress
 import com.calistapp.core.model.formatKg
+import com.calistapp.core.progress.ExerciseProgress
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -91,6 +104,7 @@ fun ExerciseDetailScreen(
     onEdit: (String) -> Unit,
     onStartWorkout: (String) -> Unit,
     onOpenSession: (String) -> Unit,
+    onOpenWorkout: (String) -> Unit,
     viewModel: ExerciseDetailViewModel = hiltViewModel(),
 ) {
     val exercise by viewModel.exercise.collectAsStateWithLifecycle()
@@ -100,49 +114,61 @@ fun ExerciseDetailScreen(
     val appearsIn by viewModel.appearsIn.collectAsStateWithLifecycle()
     val favourite by viewModel.favourite.collectAsStateWithLifecycle()
     val aiState by viewModel.aiState.collectAsStateWithLifecycle()
+    val faqs by viewModel.faqs.collectAsStateWithLifecycle()
+    val faqAsk by viewModel.faqAsk.collectAsStateWithLifecycle()
 
     val e = exercise
     var tab by rememberSaveable { mutableStateOf(DetailTab.GUIDE) }
     var showShare by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().background(Onyx)) {
-        TopBar(
-            favourite = favourite,
-            isUserAdded = viewModel.isUserAdded,
-            onBack = onBack,
-            onShare = { if (e != null) showShare = true },
-            onToggleFavourite = viewModel::toggleFavourite,
-            onEdit = { e?.let { onEdit(it.id) } },
-            onDelete = { confirmDelete = true },
-        )
-
+    Box(Modifier.fillMaxSize().background(Onyx)) {
         if (e == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Flame)
             }
-            return@Column
-        }
-
-        LazyColumn(Modifier.fillMaxSize()) {
-            item {
-                ExerciseMediaCarousel(
-                    exercise = e,
-                    modifier = Modifier.fillMaxWidth().aspectRatio(1.15f),
-                )
-            }
-            item { Header(e, onStartWorkout) }
-            stickyHeader { TabStrip(tab, onSelect = { tab = it }) }
-            item {
-                when (tab) {
-                    DetailTab.GUIDE -> GuideTab(e, aiState, viewModel::enrich)
-                    DetailTab.MUSCLES -> MusclesTab(e)
-                    DetailTab.SKILLS -> SkillsTab(e)
-                    DetailTab.PROGRESS -> ProgressTab(e, progress, trend, history, onOpenSession)
-                    DetailTab.DETAILS -> DetailsTab(e, appearsIn, onStartWorkout)
+        } else {
+            LazyColumn(Modifier.fillMaxSize()) {
+                item {
+                    // Chrome rides on the hero and scrolls away with it, so the sticky tab row owns the
+                    // top edge once you scroll — otherwise the two pin to the same band and overlap.
+                    Box(Modifier.fillMaxWidth()) {
+                        ExerciseMediaCarousel(
+                            exercise = e,
+                            modifier = Modifier.fillMaxWidth().aspectRatio(1.12f),
+                        )
+                        TopActions(
+                            favourite = favourite,
+                            isUserAdded = viewModel.isUserAdded,
+                            onBack = onBack,
+                            onShare = { showShare = true },
+                            onToggleFavourite = viewModel::toggleFavourite,
+                            onEdit = { onEdit(e.id) },
+                            onDelete = { confirmDelete = true },
+                            modifier = Modifier.align(Alignment.TopCenter),
+                        )
+                    }
                 }
+                item { HeaderMeta(e) }
+                stickyHeader { TabPills(tab, onSelect = { tab = it }) }
+                item {
+                    when (tab) {
+                        DetailTab.GUIDE -> GuideTab(e, faqs, faqAsk, aiState, viewModel::enrich, viewModel::askFaq, viewModel::clearFaqError)
+                        DetailTab.MUSCLES -> MusclesTab(e)
+                        DetailTab.SKILLS -> SkillsTab(e)
+                        DetailTab.PROGRESS -> ProgressTab(progress, trend, history, onOpenSession)
+                        DetailTab.DETAILS -> DetailsTab(e, appearsIn, onOpenWorkout)
+                    }
+                }
+                item { Spacer(Modifier.height(112.dp).navigationBarsPadding()) }
             }
-            item { Spacer(Modifier.height(24.dp).navigationBarsPadding()) }
+
+            BottomCta(
+                addToWorkout = viewModel.openedFromPicker,
+                onStart = { onStartWorkout(e.id) },
+                onAdd = { viewModel.addToDraft(); onBack() },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
     }
 
@@ -155,10 +181,11 @@ fun ExerciseDetailScreen(
         )
     }
 
-    if (confirmDelete) {
+    if (confirmDelete && e != null) {
         val userAdded = viewModel.isUserAdded
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
+            containerColor = OnyxRaised,
             title = { Text(if (userAdded) "Delete exercise?" else "Hide exercise?") },
             text = {
                 Text(
@@ -179,8 +206,10 @@ fun ExerciseDetailScreen(
     }
 }
 
+// ---- Chrome -----------------------------------------------------------------------------------
+
 @Composable
-private fun TopBar(
+private fun TopActions(
     favourite: Boolean,
     isUserAdded: Boolean,
     onBack: () -> Unit,
@@ -188,13 +217,14 @@ private fun TopBar(
     onToggleFavourite: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 10.dp, vertical = 6.dp),
+        modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        com.calistapp.app.ui.common.BackButton(onBack)
+        BackButton(onBack)
         Spacer(Modifier.weight(1f))
         RoundIcon(Icons.Filled.Edit, "Edit", onEdit)
         Spacer(Modifier.size(6.dp))
@@ -209,11 +239,7 @@ private fun TopBar(
         Spacer(Modifier.size(6.dp))
         Box {
             RoundIcon(Icons.Filled.MoreVert, "More", { menuOpen = true })
-            DropdownMenu(
-                expanded = menuOpen,
-                onDismissRequest = { menuOpen = false },
-                containerColor = OnyxRaised,
-            ) {
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }, containerColor = OnyxRaised) {
                 DropdownMenuItem(
                     text = { Text(if (isUserAdded) "Delete exercise" else "Hide exercise", color = Coral) },
                     leadingIcon = { Icon(Icons.Filled.DeleteOutline, null, tint = Coral) },
@@ -235,44 +261,87 @@ private fun RoundIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, cd:
 }
 
 @Composable
-private fun Header(e: Exercise, onStartWorkout: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(e.name, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Chalk)
-        Text(e.bodyPart.displayName, style = MaterialTheme.typography.titleMedium, color = Ash)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(e.difficulty.easyLabel(), style = MaterialTheme.typography.labelLarge, color = Flame, fontWeight = FontWeight.Bold)
+private fun HeaderMeta(e: Exercise) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            "${e.bodyPart.displayName} · ${e.difficulty.easyLabel()}".uppercase(),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = FlameGlow,
+        )
+        Text(e.name, style = MaterialTheme.typography.headlineLarge, color = Chalk)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             repeat(3) { i ->
                 Box(
-                    Modifier.size(width = 14.dp, height = 5.dp).clip(Capsule)
+                    Modifier.size(width = 16.dp, height = 5.dp).clip(Capsule)
                         .background(if (i <= e.difficulty.ordinal) Flame else Chalk.copy(alpha = 0.16f)),
                 )
             }
         }
-        Box(
-            Modifier.fillMaxWidth().clip(Capsule).background(Flame).clickable { onStartWorkout(e.id) }.padding(vertical = 13.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(Icons.Filled.PlayArrow, null, tint = Onyx, modifier = Modifier.size(20.dp))
-                Text("Start workout", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Onyx)
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TabPills(selected: DetailTab, onSelect: (DetailTab) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(Onyx).horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        DetailTab.entries.forEach { t ->
+            val on = t == selected
+            if (on) {
+                GlowBox(color = FlameHot, shape = Capsule, glowRadius = 10.dp, glowAlpha = 0.4f) {
+                    Text(
+                        t.label,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Onyx,
+                        modifier = Modifier.clip(Capsule)
+                            .background(Brush.horizontalGradient(listOf(FlameHot, FlameGlow)))
+                            .clickable { onSelect(t) }
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                    )
+                }
+            } else {
+                Text(
+                    t.label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Ash,
+                    modifier = Modifier.clip(Capsule)
+                        .border(1.dp, OnyxBorder, Capsule)
+                        .clickable { onSelect(t) }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                )
             }
         }
     }
 }
 
 @Composable
-private fun TabStrip(selected: DetailTab, onSelect: (DetailTab) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().background(Onyx).horizontalScroll(rememberScrollState())
-            .padding(horizontal = 14.dp).padding(bottom = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(18.dp),
+private fun BottomCta(addToWorkout: Boolean, onStart: () -> Unit, onAdd: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier.fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(Color.Transparent, Onyx)))
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .navigationBarsPadding(),
     ) {
-        DetailTab.entries.forEach { t ->
-            val on = t == selected
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onSelect(t) }.padding(vertical = 10.dp)) {
-                Text(t.label, style = MaterialTheme.typography.titleSmall, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal, color = if (on) Flame else Ash)
-                Spacer(Modifier.height(6.dp))
-                Box(Modifier.size(width = 22.dp, height = 2.dp).background(if (on) Flame else Color.Transparent))
+        GlowBox(color = FlameHot, shape = Capsule, glowRadius = 18.dp, glowAlpha = 0.5f, modifier = Modifier.fillMaxWidth()) {
+            Box(
+                Modifier.fillMaxWidth().height(56.dp).clip(Capsule)
+                    .background(Brush.horizontalGradient(listOf(FlameHot, FlameGlow)))
+                    .clickable { if (addToWorkout) onAdd() else onStart() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Filled.PlayArrow, null, tint = Onyx, modifier = Modifier.size(20.dp))
+                    Text(
+                        if (addToWorkout) "Add to workout" else "Start workout",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Onyx,
+                    )
+                }
             }
         }
     }
@@ -281,7 +350,15 @@ private fun TabStrip(selected: DetailTab, onSelect: (DetailTab) -> Unit) {
 // ---- Tabs -------------------------------------------------------------------------------------
 
 @Composable
-private fun GuideTab(e: Exercise, aiState: ExerciseAiState, onEnrich: () -> Unit) {
+private fun GuideTab(
+    e: Exercise,
+    faqs: List<Faq>,
+    faqAsk: FaqAskState,
+    aiState: ExerciseAiState,
+    onEnrich: () -> Unit,
+    onAsk: (String) -> Unit,
+    onClearError: () -> Unit,
+) {
     TabColumn {
         if (e.overview.isNotBlank()) {
             SectionTitle("Overview")
@@ -292,12 +369,10 @@ private fun GuideTab(e: Exercise, aiState: ExerciseAiState, onEnrich: () -> Unit
             e.instructions.forEachIndexed { i, step -> NumberedRow(i + 1, step) }
         }
         if (e.tips.isNotEmpty()) {
-            SectionTitle("Tips")
-            e.tips.forEach { BulletRow(it, Flame) }
+            NoteCard("Tips", e.tips, Mint)
         }
         if (e.commonMistakes.isNotEmpty()) {
-            SectionTitle("Common mistakes")
-            e.commonMistakes.forEach { BulletRow(it, Ash) }
+            NoteCard("Common mistakes", e.commonMistakes, Coral)
         }
         if (e.problematicAreas.isNotEmpty()) {
             SectionTitle("Goes easy on")
@@ -309,19 +384,23 @@ private fun GuideTab(e: Exercise, aiState: ExerciseAiState, onEnrich: () -> Unit
         if (e.commonMistakes.isEmpty() && e.tips.isEmpty()) {
             AiCard(aiState, onEnrich)
         }
+
+        FaqBlock(faqs, faqAsk, onAsk, onClearError)
     }
 }
 
 @Composable
 private fun MusclesTab(e: Exercise) {
     TabColumn {
-        MuscleDiagram(e.primaryMuscles, e.secondaryMuscles)
-        if (e.primaryMuscles.isNotEmpty()) {
-            e.primaryMuscles.forEach { MuscleRow(it, primary = true) }
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(OnyxFillStrong)
+                .border(1.dp, OnyxBorder, RoundedCornerShape(20.dp)).padding(14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            MuscleDiagram(e.primaryMuscles, e.secondaryMuscles)
         }
-        if (e.secondaryMuscles.isNotEmpty()) {
-            e.secondaryMuscles.forEach { MuscleRow(it, primary = false) }
-        }
+        if (e.primaryMuscles.isNotEmpty()) e.primaryMuscles.forEach { MuscleRow(it, primary = true) }
+        if (e.secondaryMuscles.isNotEmpty()) e.secondaryMuscles.forEach { MuscleRow(it, primary = false) }
         if (e.primaryMuscles.isEmpty() && e.secondaryMuscles.isEmpty()) {
             EmptyNote("No muscle data for this movement.")
         }
@@ -335,11 +414,10 @@ private fun SkillsTab(e: Exercise) {
         if (skills == null) {
             EmptyNote("Skill profile not rated yet.")
         } else {
-            skills.axes.forEach { (label, value) -> SkillBar(label, value) }
+            SkillProfileCard(skills)
         }
         if (e.efficiency > 0) {
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
                 Text("Efficiency", style = MaterialTheme.typography.labelLarge, color = Ash)
                 Text("★ ${e.efficiency}/5", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Flame)
             }
@@ -353,7 +431,6 @@ private fun SkillsTab(e: Exercise) {
 
 @Composable
 private fun ProgressTab(
-    e: Exercise,
     progress: ExerciseProgress?,
     trend: List<ExerciseTrendPoint>,
     history: List<ExerciseHistoryEntry>,
@@ -365,6 +442,8 @@ private fun ProgressTab(
             return@TabColumn
         }
         val weighted = progress.heaviest != null
+
+        BestSetBanner(progress, weighted)
 
         SectionTitle("Records")
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -387,37 +466,120 @@ private fun ProgressTab(
 
         if (history.isNotEmpty()) {
             SectionTitle("History")
-            history.take(20).forEach { entry -> HistoryRow(entry, onOpenSession) }
+            HistoryTimeline(history, onOpenSession)
         }
     }
 }
 
 @Composable
-private fun DetailsTab(e: Exercise, appearsIn: List<SavedWorkout>, onStartWorkout: (String) -> Unit) {
+private fun DetailsTab(e: Exercise, appearsIn: List<SavedWorkout>, onOpenWorkout: (String) -> Unit) {
     TabColumn {
         SectionTitle("Details")
-        InfoRow("Equipment", e.equipment.firstOrNull() ?: "Body only")
-        e.force?.let { InfoRow("Force", it.replaceFirstChar(Char::uppercase)) }
-        e.mechanic?.let { InfoRow("Mechanic", it.replaceFirstChar(Char::uppercase)) }
-        InfoRow("Difficulty", e.difficulty.easyLabel())
-        if (e.tags.isNotEmpty()) InfoRow("Tags", e.tags.joinToString(", "))
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(OnyxFillStrong)
+                .border(1.dp, OnyxBorder, RoundedCornerShape(18.dp)),
+        ) {
+            SpecRow("Equipment", e.equipment.firstOrNull() ?: "Body only", divider = true)
+            e.force?.let { SpecRow("Force", it.replaceFirstChar(Char::uppercase), divider = true) }
+            e.mechanic?.let { SpecRow("Mechanic", it.replaceFirstChar(Char::uppercase), divider = true) }
+            SpecRow("Difficulty", e.difficulty.easyLabel(), divider = e.tags.isNotEmpty())
+            if (e.tags.isNotEmpty()) SpecRow("Tags", e.tags.filterNot { it == "authored" || it == "ai-enriched" || it == "user-edited" }.joinToString(", "), divider = false)
+        }
 
-        SectionTitle("Appears in")
-        if (appearsIn.isEmpty()) {
-            EmptyNote("Not in any of your saved workouts yet.")
-        } else {
-            appearsIn.forEach { w ->
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(OnyxFillStrong).padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(w.name, style = MaterialTheme.typography.bodyLarge, color = Chalk, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(w.summaryLabel, style = MaterialTheme.typography.labelSmall, color = Ash)
+        if (appearsIn.isNotEmpty()) {
+            SectionTitle("Appears in")
+            appearsIn.forEach { w -> AppearsInRow(w, onOpenWorkout) }
+        }
+    }
+}
+
+// ---- FAQ --------------------------------------------------------------------------------------
+
+@Composable
+private fun FaqBlock(faqs: List<Faq>, ask: FaqAskState, onAsk: (String) -> Unit, onClearError: () -> Unit) {
+    var open by rememberSaveable { mutableStateOf(-1) }
+    SectionTitle("FAQ")
+    if (faqs.isEmpty()) {
+        Text(
+            "No questions here yet — ask one below and it'll be answered and saved for this exercise.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Ash,
+        )
+    }
+    faqs.forEachIndexed { i, f ->
+        FaqRow(f, open == i) { open = if (open == i) -1 else i }
+    }
+    AskAiBox(ask, onAsk, onClearError)
+}
+
+@Composable
+private fun FaqRow(faq: Faq, open: Boolean, onToggle: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(if (open) 10.dp else 0.dp),
+    ) {
+        Row(verticalAlignment = Alignment.Top) {
+            Text(
+                faq.question,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = Chalk,
+                modifier = Modifier.weight(1f),
+            )
+            if (faq.generated) {
+                Text(
+                    "AI",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = FlameGlow,
+                    modifier = Modifier.padding(horizontal = 8.dp).clip(Capsule)
+                        .background(Flame.copy(alpha = 0.12f)).padding(horizontal = 7.dp, vertical = 2.dp),
+                )
+            }
+            Text(if (open) "−" else "+", style = MaterialTheme.typography.titleMedium, color = if (open) FlameGlow else Ash)
+        }
+        if (open) {
+            Text(faq.answer, style = MaterialTheme.typography.bodyMedium, color = Ash)
+        }
+    }
+    Box(Modifier.fillMaxWidth().height(1.dp).background(OnyxBorder))
+}
+
+@Composable
+private fun AskAiBox(ask: FaqAskState, onAsk: (String) -> Unit, onClearError: () -> Unit) {
+    var draft by rememberSaveable { mutableStateOf("") }
+    val loading = ask is FaqAskState.Loading
+
+    Column(Modifier.fillMaxWidth().padding(top = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        OutlinedTextField(
+            value = draft,
+            onValueChange = { draft = it; if (ask is FaqAskState.Error) onClearError() },
+            modifier = Modifier.fillMaxWidth().imePadding(),
+            placeholder = { Text("Ask AI about this exercise…") },
+            singleLine = true,
+            enabled = !loading,
+            trailingIcon = {
+                if (loading) {
+                    CircularProgressIndicator(color = Flame, strokeWidth = 2.dp, modifier = Modifier.size(20.dp).padding(end = 2.dp))
+                } else {
+                    Box(
+                        Modifier.padding(end = 4.dp).size(36.dp).clip(Capsule)
+                            .background(if (draft.isBlank()) OnyxFillStrong else Flame)
+                            .clickable(enabled = draft.isNotBlank()) { onAsk(draft.trim()); draft = "" },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Send, "Ask", tint = if (draft.isBlank()) AshFaint else Onyx, modifier = Modifier.size(18.dp))
                     }
                 }
-            }
+            },
+        )
+        (ask as? FaqAskState.Error)?.let {
+            Text(it.message, style = MaterialTheme.typography.labelSmall, color = Coral)
         }
+        Text(
+            "Answers are AI-generated and saved to this exercise.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Ash.copy(alpha = 0.7f),
+        )
     }
 }
 
@@ -426,8 +588,8 @@ private fun DetailsTab(e: Exercise, appearsIn: List<SavedWorkout>, onStartWorkou
 @Composable
 private fun TabColumn(content: @Composable () -> Unit) {
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) { content() }
 }
 
@@ -437,40 +599,74 @@ private fun SectionTitle(title: String) {
 }
 
 @Composable
-private fun NumberedRow(n: Int, text: String) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("$n", color = Onyx, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium, modifier = Modifier.size(20.dp).clip(Capsule).background(Flame).padding(top = 2.dp), textAlign = TextAlign.Center)
-        Text(text, style = MaterialTheme.typography.bodyMedium, color = Chalk.copy(alpha = 0.9f))
+private fun NoteCard(title: String, lines: List<String>, accent: Color) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+            .background(accent.copy(alpha = 0.08f))
+            .border(1.dp, accent.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(title.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = accent)
+        lines.forEach { line ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("•", color = accent, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                Text(line, style = MaterialTheme.typography.bodyMedium, color = Chalk.copy(alpha = 0.85f))
+            }
+        }
     }
 }
 
 @Composable
-private fun BulletRow(text: String, dot: Color) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("•", color = dot, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-        Text(text, style = MaterialTheme.typography.bodyMedium, color = Chalk.copy(alpha = 0.9f))
+private fun NumberedRow(n: Int, text: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Box(
+            Modifier.size(26.dp).clip(RoundedCornerShape(9.dp))
+                .background(Flame.copy(alpha = 0.12f))
+                .border(1.dp, Flame.copy(alpha = 0.28f), RoundedCornerShape(9.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("$n", color = FlameGlow, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+        }
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = Chalk.copy(alpha = 0.9f), modifier = Modifier.padding(top = 3.dp))
     }
 }
 
 @Composable
 private fun MuscleRow(name: String, primary: Boolean) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Box(Modifier.size(8.dp).clip(Capsule).background(if (primary) Flame else Flame.copy(alpha = 0.45f)))
-        Text(name, style = MaterialTheme.typography.bodyMedium, color = Chalk, modifier = Modifier.weight(1f))
-        Text(if (primary) "primary" else "secondary", style = MaterialTheme.typography.labelSmall, color = Ash)
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(OnyxFillStrong).padding(horizontal = 15.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(Modifier.size(11.dp).clip(RoundedCornerShape(3.dp)).background(if (primary) Flame else Flame.copy(alpha = 0.5f)))
+        Text(name.replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.titleSmall, color = Chalk, modifier = Modifier.weight(1f))
+        Text(
+            if (primary) "PRIMARY" else "SECONDARY",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = if (primary) FlameGlow else Ash,
+        )
     }
 }
 
 @Composable
-private fun SkillBar(label: String, value: Int) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Row(Modifier.fillMaxWidth()) {
-            Text(label, style = MaterialTheme.typography.labelLarge, color = Chalk, modifier = Modifier.weight(1f))
-            Text("$value%", style = MaterialTheme.typography.labelLarge, color = Ash)
-        }
-        Box(Modifier.fillMaxWidth().height(8.dp).clip(Capsule).background(OnyxFillStrong)) {
-            Box(Modifier.fillMaxWidth(value.coerceIn(0, 100) / 100f).height(8.dp).clip(Capsule).background(Flame))
-        }
+private fun BestSetBanner(progress: ExerciseProgress, weighted: Boolean) {
+    val label = if (weighted) {
+        "Best set · +${formatKg(progress.heaviest!!.addedWeightKg)}kg × ${progress.heaviest!!.reps}"
+    } else {
+        "Best set · ${progress.mostReps?.reps ?: 0} reps"
+    }
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+            .background(Brush.horizontalGradient(listOf(Flame.copy(alpha = 0.16f), Flame.copy(alpha = 0.03f))))
+            .border(1.dp, Flame.copy(alpha = 0.28f), RoundedCornerShape(16.dp))
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Icon(Icons.Filled.EmojiEvents, null, tint = FlameGlow, modifier = Modifier.size(22.dp).glow(Flame, spread = 8.dp, alpha = 0.4f))
+        Text(label, style = MaterialTheme.typography.titleSmall, color = Chalk)
     }
 }
 
@@ -486,10 +682,34 @@ private fun RecordTile(label: String, value: String, modifier: Modifier = Modifi
 }
 
 @Composable
-private fun InfoRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+private fun SpecRow(label: String, value: String, divider: Boolean) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(label, style = MaterialTheme.typography.bodyMedium, color = Ash, modifier = Modifier.weight(1f))
-        Text(value, style = MaterialTheme.typography.bodyMedium, color = Chalk, fontWeight = FontWeight.Medium)
+        Text(value, style = MaterialTheme.typography.titleSmall, color = Chalk, textAlign = TextAlign.End)
+    }
+    if (divider) Box(Modifier.fillMaxWidth().height(1.dp).background(OnyxBorder))
+}
+
+@Composable
+private fun AppearsInRow(w: SavedWorkout, onOpenWorkout: (String) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(OnyxFillStrong)
+            .clickable { onOpenWorkout(w.id) }.padding(horizontal = 15.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(13.dp),
+    ) {
+        Box(
+            Modifier.size(40.dp).clip(RoundedCornerShape(12.dp))
+                .background(Brush.linearGradient(listOf(Flame.copy(alpha = 0.28f), OnyxFillStrong))),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(w.name.take(2).uppercase(), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = FlameGlow)
+        }
+        Column(Modifier.weight(1f)) {
+            Text(w.name, style = MaterialTheme.typography.titleSmall, color = Chalk, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(w.summaryLabel, style = MaterialTheme.typography.labelSmall, color = Ash)
+        }
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = AshFaint)
     }
 }
 
@@ -499,23 +719,42 @@ private fun EmptyNote(text: String) {
 }
 
 @Composable
-private fun HistoryRow(entry: ExerciseHistoryEntry, onOpenSession: (String) -> Unit) {
-    val reps = entry.sets.joinToString(", ") { "${it.reps}" }
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(OnyxFillStrong)
-            .clickable { onOpenSession(entry.sessionId) }.padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(dateFmt.format(entry.atMs), style = MaterialTheme.typography.bodyMedium, color = Chalk)
-            Text("${entry.sets.size} ${if (entry.sets.size == 1) "set" else "sets"} · $reps", style = MaterialTheme.typography.labelSmall, color = Ash)
+private fun HistoryTimeline(history: List<ExerciseHistoryEntry>, onOpenSession: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        history.take(15).forEachIndexed { i, entry ->
+            val reps = entry.sets.joinToString(", ") { "${it.reps}" }
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                Box(Modifier.width(22.dp).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
+                    Box(Modifier.width(2.dp).fillMaxHeight().background(Chalk.copy(alpha = 0.10f)))
+                    Box(
+                        Modifier.padding(top = 5.dp).size(10.dp).clip(Capsule)
+                            .then(if (i == 0) Modifier.glow(Flame, spread = 6.dp, alpha = 0.6f) else Modifier)
+                            .background(if (i == 0) Flame else Chalk.copy(alpha = 0.28f)),
+                    )
+                }
+                Column(
+                    Modifier.weight(1f).clickable { onOpenSession(entry.sessionId) }.padding(start = 10.dp, bottom = 18.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth()) {
+                        Text(dateFmt.format(entry.atMs), style = MaterialTheme.typography.titleSmall, color = Chalk, modifier = Modifier.weight(1f))
+                        val best = entry.sets.maxOfOrNull { it.reps } ?: 0
+                        Text("$best reps", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = if (i == 0) FlameGlow else Ash)
+                    }
+                    Text(
+                        "${entry.sets.size} ${if (entry.sets.size == 1) "set" else "sets"} · $reps",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Ash,
+                        modifier = Modifier.padding(top = 5.dp),
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun AiCard(aiState: ExerciseAiState, onEnrich: () -> Unit) {
-    com.calistapp.app.ui.common.AiActionCard(
+    AiActionCard(
         title = "AI coaching notes",
         loading = aiState is ExerciseAiState.Loading,
         error = (aiState as? ExerciseAiState.Error)?.message,

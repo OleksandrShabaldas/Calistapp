@@ -108,6 +108,21 @@ class ExerciseSyncManager @Inject constructor(
                 .filter { EDITED_TAG !in it.tags }
                 .mapNotNull { ex -> videoCatalog.applyTo(ex).takeIf { it != ex } }
             if (withMedia.isNotEmpty()) runCatching { repository.upsertAll(withMedia) }
+
+            // 7. Merge authored FAQ overlays onto the stored rows — ADDITIVELY. The authored set is
+            //    authoritative, but any question a user had the app answer (cached on the row with
+            //    Faq.generated = true) is preserved, so "Ask AI" answers survive every later launch.
+            //    Same non-clobbering rule for hand-edited rows; idempotent (only changed rows written).
+            val afterMedia = runCatching { repository.currentById() }.getOrDefault(afterOverlay)
+            val withFaqs = ExerciseFaqs.byId.mapNotNull { (id, authored) ->
+                val row = afterMedia[id]?.takeUnless { EDITED_TAG in it.tags } ?: return@mapNotNull null
+                val userAsked = row.faqs.filter { it.generated }
+                // Authored first, so an authored entry wins over a user-asked duplicate of the same question.
+                val merged = (authored.map { it.copy(generated = false) } + userAsked)
+                    .distinctBy { it.question.trim().lowercase() }
+                row.takeIf { it.faqs != merged }?.copy(faqs = merged)
+            }
+            if (withFaqs.isNotEmpty()) runCatching { repository.upsertAll(withFaqs) }
         }
     }
 

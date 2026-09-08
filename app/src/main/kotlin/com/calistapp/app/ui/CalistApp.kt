@@ -144,7 +144,17 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
                     onAddExercise = { navController.navigate(Routes.exerciseEdit()) },
                 )
             }
-            composable(Routes.EXERCISE_DETAIL) {
+            composable(
+                route = Routes.EXERCISE_DETAIL,
+                arguments = listOf(
+                    navArgument(Routes.EXERCISE_DETAIL_ARG) { type = NavType.StringType },
+                    navArgument(Routes.EXERCISE_DETAIL_ORIGIN) {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+            ) {
                 ExerciseDetailScreen(
                     onBack = { navController.popBackStack() },
                     onEdit = { exerciseId -> navController.navigate(Routes.exerciseEdit(exerciseId)) },
@@ -154,6 +164,7 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
                         }
                     },
                     onOpenSession = { id -> navController.navigate(Routes.detail(id)) },
+                    onOpenWorkout = { id -> navController.navigate(Routes.savedWorkout(id)) },
                 )
             }
             composable(
@@ -213,6 +224,11 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
                     onStarted = { navController.navigate(Routes.SETUP) },
                     onBack = { navController.popBackStack() },
                     onOpenExercise = { id -> navController.navigate(Routes.exerciseDetail(id)) },
+                    // Opened from the picker, the detail screen offers "Add to workout" — so it lands
+                    // the movement in this same draft and returns.
+                    onOpenExerciseFromPicker = { id ->
+                        navController.navigate(Routes.exerciseDetail(id, origin = Routes.ORIGIN_PICKER))
+                    },
                     onOpenSavedWorkout = { id -> navController.navigate(Routes.savedWorkout(id)) },
                 )
             }

@@ -5,11 +5,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.calistapp.app.data.ai.AiResult
 import com.calistapp.app.data.ai.ExerciseCoachRepository
+import com.calistapp.app.data.ai.FaqAnswerResult
 import com.calistapp.app.data.exercise.ExercisePrefsRepository
 import com.calistapp.app.data.exercise.ExerciseRepository
+import com.calistapp.app.data.session.PlanDraftRepository
 import com.calistapp.app.data.session.SavedWorkoutRepository
 import com.calistapp.app.data.session.SessionRepository
+import com.calistapp.app.ui.navigation.Routes
 import com.calistapp.core.model.Exercise
+import com.calistapp.core.model.Faq
 import com.calistapp.core.model.SavedWorkout
 import com.calistapp.core.model.SetLog
 import com.calistapp.core.progress.ExerciseProgress
@@ -30,6 +34,13 @@ sealed interface ExerciseAiState {
     data object Idle : ExerciseAiState
     data object Loading : ExerciseAiState
     data class Error(val message: String) : ExerciseAiState
+}
+
+/** State of the "Ask AI" FAQ box — separate from [ExerciseAiState] so the two can run independently. */
+sealed interface FaqAskState {
+    data object Idle : FaqAskState
+    data object Loading : FaqAskState
+    data class Error(val message: String) : FaqAskState
 }
 
 /** One session's best set of this movement, for the Progress trend. */
@@ -53,11 +64,20 @@ class ExerciseDetailViewModel @Inject constructor(
     private val repository: ExerciseRepository,
     private val coach: ExerciseCoachRepository,
     private val prefs: ExercisePrefsRepository,
+    private val drafts: PlanDraftRepository,
     sessionRepository: SessionRepository,
     savedWorkoutRepository: SavedWorkoutRepository,
 ) : ViewModel() {
 
     private val exerciseId: String = checkNotNull(savedStateHandle["exerciseId"])
+
+    /**
+     * How this screen was opened. When it's the planner's exercise picker, the bottom action becomes
+     * "Add to workout" (drops the movement into the draft and returns) instead of "Start workout" —
+     * the picker is where adding is the whole intent. Null everywhere else.
+     */
+    val openedFromPicker: Boolean =
+        savedStateHandle.get<String>(Routes.EXERCISE_DETAIL_ORIGIN) == Routes.ORIGIN_PICKER
 
     val exercise: StateFlow<Exercise?> = repository.observe(exerciseId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -88,6 +108,11 @@ class ExerciseDetailViewModel @Inject constructor(
     val favourite: StateFlow<Boolean> = prefs.favourites
         .map { exerciseId in it }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** This movement's Q&A for the Guide tab — authored entries plus any the user has generated. */
+    val faqs: StateFlow<List<Faq>> = exercise
+        .map { it?.faqs.orEmpty() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
         // Opening a movement's detail is the clearest signal it's on your mind — surface it in Recent.
@@ -124,6 +149,35 @@ class ExerciseDetailViewModel @Inject constructor(
                 is AiResult.Failure -> _aiState.value = ExerciseAiState.Error(result.message)
             }
         }
+    }
+
+    private val _faqAsk = MutableStateFlow<FaqAskState>(FaqAskState.Idle)
+    val faqAsk: StateFlow<FaqAskState> = _faqAsk.asStateFlow()
+
+    /**
+     * Answer a user's typed question and cache it on this movement for good. The new answer streams
+     * back in through the [exercise] flow (the repository upsert re-emits), so [faqs] updates itself —
+     * this only has to drive the box's loading/error state.
+     */
+    fun askFaq(question: String) {
+        val current = exercise.value ?: return
+        if (_faqAsk.value is FaqAskState.Loading) return
+        _faqAsk.value = FaqAskState.Loading
+        viewModelScope.launch {
+            when (val result = coach.answerFaq(current, question)) {
+                is FaqAnswerResult.Success -> _faqAsk.value = FaqAskState.Idle
+                is FaqAnswerResult.Failure -> _faqAsk.value = FaqAskState.Error(result.message)
+            }
+        }
+    }
+
+    fun clearFaqError() {
+        if (_faqAsk.value is FaqAskState.Error) _faqAsk.value = FaqAskState.Idle
+    }
+
+    /** Picker action: drop this movement into the draft the planner is building, then the screen pops. */
+    fun addToDraft() {
+        exercise.value?.let { drafts.add(it) }
     }
 }
 

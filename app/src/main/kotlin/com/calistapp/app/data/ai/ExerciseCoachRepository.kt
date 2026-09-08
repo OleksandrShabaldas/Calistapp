@@ -2,6 +2,7 @@ package com.calistapp.app.data.ai
 
 import com.calistapp.app.data.exercise.ExerciseRepository
 import com.calistapp.core.model.Exercise
+import com.calistapp.core.model.Faq
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
@@ -28,6 +29,15 @@ data class ExerciseAiSuggestion(
 sealed interface CoachSuggestResult {
     data class Success(val suggestion: ExerciseAiSuggestion) : CoachSuggestResult
     data class Failure(val message: String) : CoachSuggestResult
+}
+
+/** The AI shape of one answered FAQ, before it's turned into a [Faq]. */
+@Serializable
+private data class FaqDraft(val question: String = "", val answer: String = "")
+
+sealed interface FaqAnswerResult {
+    data class Success(val faq: Faq) : FaqAnswerResult
+    data class Failure(val message: String) : FaqAnswerResult
 }
 
 /**
@@ -92,6 +102,66 @@ class ExerciseCoachRepository @Inject constructor(
             }
             is AiResult.Failure -> CoachSuggestResult.Failure(result.message)
         }
+
+    /**
+     * Answer a user's typed question about [exercise] in the FAQ voice, and cache it onto the
+     * exercise row (as a [Faq] with `generated = true`) so it stays on the movement for good. Asking
+     * the same question again returns the cached answer rather than stacking a duplicate or spending
+     * another call. A single Q&A is light, so it rides the FAST tier.
+     */
+    suspend fun answerFaq(exercise: Exercise, question: String): FaqAnswerResult {
+        val q = question.trim()
+        if (q.isBlank()) return FaqAnswerResult.Failure("Type a question first.")
+
+        val existing = exercise.faqs.firstOrNull { it.question.trim().equals(q, ignoreCase = true) }
+        if (existing != null) return FaqAnswerResult.Success(existing)
+
+        return when (val result = gemini.generate(buildFaqPrompt(exercise, q))) {
+            is AiResult.Success -> {
+                val faq = parseFaq(result.text, fallbackQuestion = q)
+                    ?: return FaqAnswerResult.Failure("Couldn't parse the AI response.")
+                // Re-check against the (possibly cleaned) question the model returned before appending.
+                val already = exercise.faqs.firstOrNull {
+                    it.question.trim().equals(faq.question.trim(), ignoreCase = true)
+                }
+                if (already == null) {
+                    exerciseRepository.upsert(exercise.copy(faqs = exercise.faqs + faq))
+                }
+                FaqAnswerResult.Success(already ?: faq)
+            }
+            is AiResult.Failure -> FaqAnswerResult.Failure(result.message)
+        }
+    }
+
+    private fun parseFaq(text: String, fallbackQuestion: String): Faq? {
+        val start = text.indexOf('{')
+        val end = text.lastIndexOf('}')
+        if (start !in 0 until end) return null
+        val parsed = runCatching {
+            json.decodeFromString(FaqDraft.serializer(), text.substring(start, end + 1))
+        }.getOrNull() ?: return null
+        val answer = parsed.answer.trim()
+        if (answer.isBlank()) return null
+        return Faq(
+            question = parsed.question.trim().ifBlank { fallbackQuestion },
+            answer = answer,
+            generated = true,
+        )
+    }
+
+    private fun buildFaqPrompt(e: Exercise, question: String): String = buildString {
+        appendLine("You are an expert strength & conditioning coach answering a FAQ about one exercise.")
+        appendLine("Respond with ONLY minified JSON (no markdown, no prose) with keys:")
+        appendLine("""  "question": the user's question, tidied into a clean, concise FAQ question,""")
+        appendLine("""  "answer": a direct, accurate 1-3 sentence answer specific to THIS exercise.""")
+        appendLine()
+        appendLine("Exercise: ${e.name}")
+        appendLine("Body part: ${e.bodyPart.displayName}; Difficulty: ${e.difficulty.displayName}")
+        appendLine("Equipment: ${e.equipment.joinToString().ifBlank { "body only" }}")
+        if (e.primaryMuscles.isNotEmpty()) appendLine("Primary muscles: ${e.primaryMuscles.joinToString()}")
+        appendLine("""User question: "$question"""")
+        appendLine("Be specific and accurate to THIS exercise. Don't invent equipment it doesn't use.")
+    }
 
     private fun buildSuggestPrompt(e: Exercise): String = buildString {
         appendLine("You are an expert strength & conditioning coach.")

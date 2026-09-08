@@ -48,6 +48,9 @@ val OnyxBorder = Color(0x1AFFFFFF)
 /** Effort, heart rate, destructive. Kept red, nudged to sit on warm onyx. */
 val Coral = Color(0xFFFF6B6B)
 
+/** Positive cue — coaching tips, "goes well" notes. The one green allowed on the warm palette. */
+val Mint = Color(0xFF3FBF7F)
+
 /** Highlight and warning. */
 val Amber = Color(0xFFF5C242)
 

@@ -75,6 +75,22 @@ data class Skills(
 }
 
 /**
+ * One question-and-answer about a movement, shown as an accordion row in the detail screen's Guide.
+ *
+ * Two provenances share the shape: hand-authored entries ship in the dataset overlay ([generated] =
+ * false), and answers the app generates on demand from a user's typed question are cached back onto
+ * the exercise row ([generated] = true). Keeping them distinct lets the library re-sync refresh the
+ * authored set without wiping the ones a user asked for — those persist for the life of the install.
+ */
+@Serializable
+data class Faq(
+    val question: String,
+    val answer: String,
+    /** True for an answer the in-app "Ask AI" produced; false for an authored/curated entry. */
+    val generated: Boolean = false,
+)
+
+/**
  * A single exercise in the gallery. Basic fields (muscles, equipment, images, instructions) come
  * from the open free-exercise-db; the richer coaching fields ([overview], [commonMistakes], [tips],
  * [problematicAreas], [efficiency], [skills]) are authored by Calistapp for the curated set.
@@ -114,6 +130,13 @@ data class Exercise(
     val isCalisthenics: Boolean = false,
     /** Training-attribute profile (0..100 per axis). Null until authored. */
     val skills: Skills? = null,
+    /**
+     * Question-and-answer entries for the Guide tab. Authored ones are merged from the dataset
+     * overlay at sync time; ones a user generates via "Ask AI" are cached here (see [Faq.generated]).
+     * Additive with a default, so every stored exercise written before FAQs existed keeps
+     * deserializing unchanged.
+     */
+    val faqs: List<Faq> = emptyList(),
 ) {
     val isBodyweight: Boolean
         get() = equipment.isEmpty() || equipment.any { it.equals("body only", true) || it.contains("bar", true) }

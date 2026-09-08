@@ -28,8 +28,15 @@ object Routes {
     const val DETAIL = "detail/{sessionId}"
     fun detail(sessionId: String) = "detail/$sessionId"
 
-    const val EXERCISE_DETAIL = "exerciseDetail/{exerciseId}"
-    fun exerciseDetail(exerciseId: String) = "exerciseDetail/$exerciseId"
+    const val EXERCISE_DETAIL = "exerciseDetail/{exerciseId}?origin={origin}"
+    const val EXERCISE_DETAIL_ARG = "exerciseId"
+    const val EXERCISE_DETAIL_ORIGIN = "origin"
+
+    /** [origin] the screen was opened from — [ORIGIN_PICKER] flips its CTA to "Add to workout". */
+    const val ORIGIN_PICKER = "picker"
+
+    fun exerciseDetail(exerciseId: String, origin: String? = null): String =
+        if (origin == null) "exerciseDetail/$exerciseId" else "exerciseDetail/$exerciseId?origin=$origin"
 
     const val EXERCISE_EDIT = "exerciseEdit?exerciseId={exerciseId}"
     const val EXERCISE_EDIT_ARG = "exerciseId"

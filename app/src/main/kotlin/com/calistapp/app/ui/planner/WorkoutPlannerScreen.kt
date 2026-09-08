@@ -3,6 +3,7 @@ package com.calistapp.app.ui.planner
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,12 +38,9 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -57,7 +55,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
@@ -70,6 +73,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.calistapp.app.ui.common.DecimalPadSheet
 import com.calistapp.app.ui.common.EditableStepper
 import com.calistapp.app.ui.common.GlassCard
+import com.calistapp.app.ui.common.GlowBox
 import com.calistapp.app.ui.common.NumberPadSheet
 import com.calistapp.app.ui.common.PillChip
 import com.calistapp.app.ui.common.WatchStatusStrip
@@ -84,7 +88,13 @@ import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.AshFaint
 import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.Flame
+import com.calistapp.app.ui.theme.FlameGlow
+import com.calistapp.app.ui.theme.FlameHot
+import com.calistapp.app.ui.theme.FlameSoft
+import com.calistapp.app.ui.theme.Onyx
+import com.calistapp.app.ui.theme.OnyxBorder
 import com.calistapp.app.ui.theme.OnyxFill
+import com.calistapp.app.ui.theme.OnyxFillStrong
 import com.calistapp.app.ui.theme.Violet
 import com.calistapp.core.model.EffortScale
 import com.calistapp.core.model.EffortTarget
@@ -105,6 +115,7 @@ fun WorkoutPlannerScreen(
     onStarted: () -> Unit,
     onBack: () -> Unit,
     onOpenExercise: (String) -> Unit,
+    onOpenExerciseFromPicker: (String) -> Unit,
     onOpenSavedWorkout: (String) -> Unit,
     viewModel: WorkoutPlannerViewModel = hiltViewModel(),
 ) {
@@ -132,7 +143,7 @@ fun WorkoutPlannerScreen(
     if (picking) {
         ExercisePicker(
             viewModel = viewModel,
-            onOpenExercise = onOpenExercise,
+            onOpenExercise = onOpenExerciseFromPicker,
             onDone = { picking = false },
         )
         return
@@ -268,39 +279,68 @@ fun WorkoutPlannerScreen(
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
-                onClick = { picking = true },
-                modifier = Modifier.weight(1f),
-                shape = Capsule,
+            // The dashed orange "add" affordance from the redesign — reads as a slot waiting to be
+            // filled rather than another solid button competing with Continue.
+            Box(
+                Modifier.weight(1f).height(50.dp).clip(Capsule)
+                    .dashedCapsuleBorder(Flame.copy(alpha = 0.55f))
+                    .clickable { picking = true },
+                contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text("  Add exercise")
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Icon(Icons.Filled.Add, null, tint = Flame, modifier = Modifier.size(18.dp))
+                    Text("Add exercise", color = Flame, style = MaterialTheme.typography.labelLarge)
+                }
             }
             if (!plan.isEmpty) {
                 // Reflects whether the plan as it stands is already stored: a filled bookmark and
                 // "Saved" once it is, back to "Save" the moment you change anything. Re-saving an
                 // unchanged plan overwrites rather than piling up a duplicate.
-                OutlinedButton(onClick = { saving = true }, shape = Capsule) {
+                Row(
+                    Modifier.height(50.dp).clip(Capsule)
+                        .background(if (isSaved) FlameSoft else OnyxFill)
+                        .border(1.dp, if (isSaved) Flame.copy(alpha = 0.5f) else OnyxBorder, Capsule)
+                        .clickable { saving = true }
+                        .padding(horizontal = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
                     Icon(
                         if (isSaved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
                         contentDescription = null,
                         tint = if (isSaved) Flame else Chalk,
                         modifier = Modifier.size(18.dp),
                     )
-                    Text(if (isSaved) "  Saved" else "  Save", color = if (isSaved) Flame else Chalk)
+                    Text(if (isSaved) "Saved" else "Save", color = if (isSaved) Flame else Chalk, style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
         WatchStatusStrip(state = watchLink, onReconnect = viewModel::reconnectWatch)
 
-        Button(
-            onClick = onStarted,
-            enabled = !plan.isEmpty,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+        val canStart = !plan.isEmpty
+        GlowBox(
+            color = FlameHot,
             shape = Capsule,
-            colors = ButtonDefaults.buttonColors(containerColor = Flame),
+            glowRadius = if (canStart) 16.dp else 0.dp,
+            glowAlpha = if (canStart) 0.45f else 0f,
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Continue", fontWeight = FontWeight.Bold)
+            Box(
+                Modifier.fillMaxWidth().height(54.dp).clip(Capsule)
+                    .background(
+                        if (canStart) Brush.horizontalGradient(listOf(FlameHot, FlameGlow))
+                        else Brush.horizontalGradient(listOf(OnyxFillStrong, OnyxFillStrong)),
+                    )
+                    .clickable(enabled = canStart, onClick = onStarted),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "Continue",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (canStart) Onyx else AshFaint,
+                )
+            }
         }
         Box(Modifier.height(8.dp))
     }
@@ -455,7 +495,13 @@ private fun PlannedExerciseCard(
     var expanded by rememberSaveable { mutableStateOf(false) }
 
     GlassCard(
-        accent = if (isDragging) Flame else if (slot.isWeighted) Amber else null,
+        // Expanded reads as the one card you're editing — lift it to the orange accent (border +
+        // faint wash), the same "active" cue dragging uses; a weighted-but-collapsed card keeps amber.
+        accent = when {
+            isDragging || expanded -> Flame
+            slot.isWeighted -> Amber
+            else -> null
+        },
         contentPadding = 12,
     ) {
         // The whole header toggles, not just the name — the chevron says which way it goes. A card
@@ -828,6 +874,7 @@ private fun ExercisePicker(
     val plan by viewModel.plan.collectAsStateWithLifecycle()
     val favourites by viewModel.favourites.collectAsStateWithLifecycle()
     var showFilters by remember { mutableStateOf(false) }
+    var favOpen by rememberSaveable { mutableStateOf(true) }
     val resultsState = rememberLazyListState()
 
     // A new search should show its best matches, which are at the top — the list used to keep the old
@@ -884,13 +931,34 @@ private fun ExercisePicker(
             }
         }
 
+        // Favourites float to their own group at the top so the movements you reach for most aren't
+        // hunted out of 800 — the rest follow under "All exercises". Both honour the live search.
+        val favResults = results.filter { it.id in favourites }
+        val otherResults = results.filterNot { it.id in favourites }
+
         LazyColumn(
             Modifier.weight(1f),
             state = resultsState,
             verticalArrangement = Arrangement.spacedBy(6.dp),
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {
-            items(results, key = { it.id }) { exercise ->
+            if (favResults.isNotEmpty()) {
+                item(key = "fav-header") { FavouritesHeader(favResults.size, favOpen) { favOpen = !favOpen } }
+                if (favOpen) {
+                    items(favResults, key = { "fav-${it.id}" }) { exercise ->
+                        PickerRow(
+                            exercise = exercise,
+                            timesAdded = plan.exercises.count { it.exerciseId == exercise.id },
+                            isFavourite = true,
+                            onToggleFavourite = { viewModel.toggleFavourite(exercise.id) },
+                            onAdd = { viewModel.add(exercise) },
+                            onOpen = { onOpenExercise(exercise.id) },
+                        )
+                    }
+                }
+                item(key = "all-header") { PickerSectionLabel("All exercises") }
+            }
+            items(otherResults, key = { it.id }) { exercise ->
                 PickerRow(
                     exercise = exercise,
                     // How many times it's already in the plan. This is what closing the picker after
@@ -942,21 +1010,18 @@ private fun PickerRow(
                 phaseKey = exercise.id,
                 modifier = Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)),
             )
-            Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+            Column(Modifier.weight(1f).padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Text(
                     exercise.name,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.titleSmall,
                     color = Chalk,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    "${exercise.bodyPart.displayName} · ${exercise.difficulty.displayName}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Ash,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    MiniChip(exercise.bodyPart.displayName, Flame, tinted = true)
+                    MiniChip(exercise.difficulty.displayName, Ash, tinted = false)
+                }
             }
             IconButton(onClick = onToggleFavourite, modifier = Modifier.size(36.dp)) {
                 Icon(
@@ -990,4 +1055,53 @@ private fun PickerRow(
             }
         }
     }
+}
+
+/** The collapsible "Favourites" group header at the top of the picker. */
+@Composable
+private fun FavouritesHeader(count: Int, open: Boolean, onToggle: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(top = 10.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(Icons.Filled.Star, null, tint = Amber, modifier = Modifier.size(16.dp))
+        Text("Favourites", style = MaterialTheme.typography.labelLarge, color = Amber)
+        Text("$count", style = MaterialTheme.typography.labelMedium, color = Ash)
+        Box(Modifier.weight(1f))
+        Icon(
+            if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            contentDescription = if (open) "Collapse favourites" else "Expand favourites",
+            tint = Ash,
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+@Composable
+private fun PickerSectionLabel(text: String) {
+    Text(text, style = MaterialTheme.typography.labelLarge, color = Chalk, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+}
+
+/** A muscle/level tag under a picker row — tinted for the muscle, neutral for the level. */
+@Composable
+private fun MiniChip(text: String, color: Color, tinted: Boolean) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = if (tinted) color else Ash,
+        modifier = Modifier.clip(RoundedCornerShape(6.dp))
+            .background(if (tinted) color.copy(alpha = 0.14f) else OnyxFill)
+            .padding(horizontal = 7.dp, vertical = 4.dp),
+    )
+}
+
+/** A dashed capsule outline — the "add exercise" affordance's border, since border() can't dash. */
+private fun Modifier.dashedCapsuleBorder(color: Color): Modifier = drawBehind {
+    val r = size.height / 2f
+    drawRoundRect(
+        color = color,
+        cornerRadius = CornerRadius(r, r),
+        style = Stroke(width = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(11f, 8f), 0f)),
+    )
 }
