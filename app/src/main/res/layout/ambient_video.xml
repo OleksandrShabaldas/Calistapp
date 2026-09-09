@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Ambient routine-footage backdrop for the workout-detail screen. The player is blurred in code
+  (RenderEffect, API 31+); the dim/vignette and film grain are plain sibling Views inside the same
+  FrameLayout, so they composite over the player's texture layer — a Compose scrim would not (see
+  CLAUDE.md). resize_mode=zoom center-crops so there are never bars behind the content.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/ambient_player"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:surface_type="texture_view"
+        app:use_controller="false"
+        app:resize_mode="zoom"
+        app:shutter_background_color="@android:color/transparent" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/ambient_scrim" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0.55"
+        android:background="@drawable/ambient_grain_tile" />
+</FrameLayout>

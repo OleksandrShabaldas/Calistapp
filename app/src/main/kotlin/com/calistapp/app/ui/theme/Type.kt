@@ -83,6 +83,20 @@ val TitleSans = TextStyle(
     letterSpacing = (-0.3).sp,
 )
 
+/**
+ * The redesign's eyebrow voice — a tiny uppercase monospace kicker over titles and section heads
+ * ("ROUTINE", "OVERVIEW", "APPEARS IN"). System monospace gives it the technical, spec-sheet feel
+ * the exercise-screens prototype leans on, with none of the cost of bundling another font. Callers
+ * uppercase the text themselves so the style stays reusable for the odd mixed-case label.
+ */
+val Eyebrow = TextStyle(
+    fontFamily = FontFamily.Monospace,
+    fontWeight = FontWeight.Medium,
+    fontSize = 10.sp,
+    lineHeight = 13.sp,
+    letterSpacing = 1.6.sp,
+)
+
 val CalistTypography = Typography(
     // ---- Space Grotesk: page titles and hero headings (heavy weight + tight tracking) ----
     displayLarge = TextStyle(

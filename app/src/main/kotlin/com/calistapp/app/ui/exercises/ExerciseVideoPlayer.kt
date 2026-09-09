@@ -1,5 +1,8 @@
 package com.calistapp.app.ui.exercises
 
+import android.graphics.RenderEffect
+import android.graphics.Shader
+import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -202,3 +205,57 @@ fun NextUpVideoPlayer(urls: List<String>, modifier: Modifier = Modifier) {
 
 /** How many times a player re-prepares after a transient playback error before giving up. */
 private const val MAX_RETRIES = 3
+
+/**
+ * A full-bleed, heavily blurred, dimmed and grained loop of a workout's demo footage — the "ambient"
+ * backdrop behind the saved-workout detail screen, so the screen feels alive while the typography
+ * still leads. The blur is a code RenderEffect on the player (API 31+); the dim/vignette and grain are
+ * baked into `ambient_video.xml` as view-hierarchy siblings so they composite over the texture layer
+ * (a Compose scrim would not — see CLAUDE.md). Muted, looping, released with the composition.
+ */
+@Composable
+fun AmbientVideoBackground(urls: List<String>, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val exoPlayer = remember(urls) {
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(ExerciseMediaStore.dataSourceFactory(context)))
+            .build()
+            .apply {
+                setMediaItems(urls.map { MediaItem.fromUri(it) })
+                repeatMode = Player.REPEAT_MODE_ALL
+                volume = 0f
+                playWhenReady = true
+                prepare()
+            }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, exoPlayer) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
+                Lifecycle.Event.ON_RESUME -> exoPlayer.play()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            exoPlayer.release()
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            val root = android.view.LayoutInflater.from(ctx).inflate(R.layout.ambient_video, null)
+            root.findViewById<PlayerView>(R.id.ambient_player).apply {
+                player = exoPlayer
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setRenderEffect(RenderEffect.createBlurEffect(48f, 48f, Shader.TileMode.CLAMP))
+                }
+            }
+            root
+        },
+        modifier = modifier,
+    )
+}

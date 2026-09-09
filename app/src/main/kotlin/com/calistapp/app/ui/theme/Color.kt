@@ -43,6 +43,23 @@ val OnyxFill = Color(0x0DFFFFFF)
 val OnyxFillStrong = Color(0x14FFFFFF)
 val OnyxBorder = Color(0x1AFFFFFF)
 
+/**
+ * The exercise-screens redesign's **solid, opaque** card fill — the prototype's exact flat `#131215`.
+ * Use this — not the translucent [OnyxFill]/[OnyxFillStrong] or the sheened `GlassCard` — for the flat
+ * cards on Workout Detail / Build / Add exercise / Exercise Detail, so they read as crisp lifted
+ * surfaces rather than glass. Pair with [OnyxBorder].
+ */
+val CardFlat = Color(0xFF131215)
+
+/**
+ * The prototype's warm page field for those same four screens — a warm charcoal ([PageWarm]) fading
+ * through [PageDim] to a near-black [PageInk], so the background reads as ashy warm charcoal rather
+ * than the app's cold pitch [Onyx]. Paint as a vertical gradient of the three (prototype's own values).
+ */
+val PageWarm = Color(0xFF1C140D)
+val PageDim = Color(0xFF0D0C0E)
+val PageInk = Color(0xFF0A0A0B)
+
 // ---- Semantic accents ------------------------------------------------------------------------
 
 /** Effort, heart rate, destructive. Kept red, nudged to sit on warm onyx. */

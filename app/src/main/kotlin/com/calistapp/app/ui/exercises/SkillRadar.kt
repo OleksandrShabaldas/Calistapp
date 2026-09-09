@@ -38,11 +38,11 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.calistapp.app.ui.theme.Ash
+import com.calistapp.app.ui.theme.CardFlat
 import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Flame
 import com.calistapp.app.ui.theme.FlameGlow
 import com.calistapp.app.ui.theme.OnyxBorder
-import com.calistapp.app.ui.theme.OnyxFillStrong
 import com.calistapp.core.model.Skills
 import kotlin.math.cos
 import kotlin.math.min
@@ -72,7 +72,7 @@ fun SkillProfileCard(skills: Skills, modifier: Modifier = Modifier) {
             .height(288.dp)
             .graphicsLayer { rotationY = rotation; cameraDistance = 14f * density }
             .clip(RoundedCornerShape(20.dp))
-            .background(OnyxFillStrong)
+            .background(CardFlat)
             .border(1.dp, OnyxBorder, RoundedCornerShape(20.dp))
             .clickable { flipped = !flipped }
             .padding(14.dp),

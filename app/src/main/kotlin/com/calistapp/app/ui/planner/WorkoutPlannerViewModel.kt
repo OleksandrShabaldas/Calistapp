@@ -141,9 +141,10 @@ class WorkoutPlannerViewModel @Inject constructor(
      * auto-syncs (no re-tapping Save, no duplicate). Re-saving an already-backed draft (e.g. to
      * rename) overwrites the same row via its origin id rather than minting a new one.
      */
-    fun saveCurrentWorkout(name: String) {
+    /** Returns the saved workout's id (so Build can jump to its detail), or null if the plan is empty. */
+    fun saveCurrentWorkout(name: String): String? {
         val plan = drafts.draft.value
-        if (plan.isEmpty) return
+        if (plan.isEmpty) return null
         val trimmed = name.trim().ifBlank { "Workout" }
         // Re-save the same row (origin, or a name/plan match) keeping its history; otherwise a new one.
         val existingId = drafts.originId.value
@@ -151,13 +152,15 @@ class WorkoutPlannerViewModel @Inject constructor(
                 it.name.equals(trimmed, ignoreCase = true) || samePlan(it.plan, plan)
             }?.id
         drafts.rename(trimmed)
-        if (existingId != null) {
+        return if (existingId != null) {
             drafts.markSavedAs(existingId)
             viewModelScope.launch { savedWorkouts0.syncPlan(existingId, plan.copy(name = trimmed)) }
+            existingId
         } else {
             val id = UUID.randomUUID().toString()
             drafts.markSavedAs(id)
             viewModelScope.launch { savedWorkouts0.save(trimmed, plan.copy(name = trimmed), id) }
+            id
         }
     }
 

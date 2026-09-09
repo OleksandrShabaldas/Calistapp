@@ -8,6 +8,7 @@ import com.calistapp.app.data.session.PlanDraftRepository
 import com.calistapp.app.data.session.SavedWorkoutRepository
 import com.calistapp.app.data.session.SessionRepository
 import com.calistapp.app.ui.navigation.Routes
+import com.calistapp.core.model.MediaType
 import com.calistapp.core.model.SavedWorkout
 import com.calistapp.core.model.SessionOverview
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -42,11 +43,22 @@ class SavedWorkoutDetailViewModel @Inject constructor(
             .map { list -> list.firstOrNull { it.id == id } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** Thumbnails for the read-only exercise list, keyed by exercise id. */
-    val thumbnails: StateFlow<Map<String, List<String>>> =
-        exerciseRepository.observeAll()
-            .map { list -> list.associate { it.id to it.imageUrls } }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    /**
+     * One looping demo clip per exercise (in plan order, de-duped) for the screen's ambient video
+     * backdrop — resolved from the movements' media, not carried on the plan. Empty when none of the
+     * workout's movements has a video, and the screen falls back to the warm ambient wash.
+     */
+    val videoUrls: StateFlow<List<String>> =
+        combine(workout, exerciseRepository.observeAll()) { w, all ->
+            if (w == null) {
+                emptyList()
+            } else {
+                val byId = all.associateBy { it.id }
+                w.plan.exercises
+                    .mapNotNull { slot -> byId[slot.exerciseId]?.media?.firstOrNull { it.type == MediaType.VIDEO }?.url }
+                    .distinct()
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * The sessions run from this workout.
