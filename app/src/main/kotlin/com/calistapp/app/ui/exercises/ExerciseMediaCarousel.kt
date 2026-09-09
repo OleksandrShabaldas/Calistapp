@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -60,7 +61,7 @@ fun ExerciseMediaCarousel(
                 is MediaPage.Images -> ExerciseImage(only.urls, exercise.name, modifier = Modifier.fillMaxSize())
                 null -> ExerciseImage(exercise.imageUrls, exercise.name, modifier = Modifier.fillMaxSize())
             }
-            only?.label?.let { AngleBadge(it, Modifier.align(Alignment.BottomStart)) }
+            only?.label?.let { AngleBadge(it, Modifier.align(Alignment.TopEnd)) }
         }
         return
     }
@@ -84,7 +85,7 @@ fun ExerciseMediaCarousel(
             }
         }
 
-        pages[pagerState.currentPage].label?.let { AngleBadge(it, Modifier.align(Alignment.BottomStart)) }
+        pages[pagerState.currentPage].label?.let { AngleBadge(it, Modifier.align(Alignment.TopEnd)) }
 
         PageDots(
             count = pages.size,
@@ -118,7 +119,8 @@ private fun AngleBadge(label: String, modifier: Modifier = Modifier) {
     Surface(
         shape = RoundedCornerShape(50),
         color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f),
-        modifier = modifier.padding(10.dp),
+        // Top-right, below the floating chrome — clear of the hero's bottom fade and the overlaid title.
+        modifier = modifier.statusBarsPadding().padding(top = 50.dp, end = 12.dp),
     ) {
         Text(
             label,

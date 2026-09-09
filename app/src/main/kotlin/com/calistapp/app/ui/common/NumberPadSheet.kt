@@ -163,7 +163,7 @@ private fun NumberPadBody(
     val value = entry.toDoubleOrNull() ?: 0.0
 
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 22.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 18.dp, bottom = 22.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {

@@ -34,6 +34,8 @@ class StatsSummaryTest {
         activeMs: Long = 600_000,
         slots: List<PlannedExercise> = listOf(slot("s1", "Pull-Up")),
         sets: List<Pair<String, Int>> = listOf("s1" to 10),
+        /** Weight banked on the set log itself, per set index (0-based). Empty leaves logs unweighted. */
+        logWeights: Map<Int, Double> = emptyMap(),
     ): PerformedSession {
         val start = at(atText)
         return PerformedSession(
@@ -50,6 +52,7 @@ class StatsSummaryTest {
                     exerciseName = name,
                     setIndex = i + 1,
                     reps = reps,
+                    weightKg = logWeights[i] ?: 0.0,
                     startMs = start + i * 60_000L,
                     endMs = start + i * 60_000L + 40_000,
                 )
@@ -105,6 +108,24 @@ class StatsSummaryTest {
         assertEquals(17, s.totalReps)            // 5 + 12
         assertEquals(100.0, s.totalVolumeKg, 0.0) // 20kg × 5, the dip adds nothing
         assertEquals(2, s.exercises)              // two distinct movements
+    }
+
+    @Test
+    fun `volume counts weight banked on the set log when the plan slot is unloaded`() {
+        // Total load must come from what was actually lifted (per-set log weight), not only from the
+        // plan slot — otherwise weighted work entered live scores zero volume.
+        val sessions = listOf(
+            session(
+                "w",
+                "2026-08-10T09:00:00",
+                slots = listOf(slot("s1", "Weighted Pull-Up", addedKg = 0.0)),
+                sets = listOf("s1" to 5),
+                logWeights = mapOf(0 to 20.0),
+            ),
+        )
+        val s = statsSummary(sessions, StatsPeriod.WEEK, now, zone)
+
+        assertEquals(100.0, s.totalVolumeKg, 0.0) // 20kg × 5
     }
 
     @Test

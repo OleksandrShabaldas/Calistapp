@@ -1,5 +1,6 @@
 package com.calistapp.core.progress
 
+import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.SetLog
 import com.calistapp.core.model.UserProfile
 import com.calistapp.core.model.WorkoutPlan
@@ -38,6 +39,16 @@ data class PerformedSession(
 
 /** A single set worth remembering — the most reps, or the most weight. */
 data class BestSet(val reps: Int, val addedWeightKg: Double, val atMs: Long)
+
+/**
+ * The added load to credit a performed set with: the weight banked on the set log itself (the ground
+ * truth of what was lifted, recorded per set at bank time), falling back to the plan slot's load for
+ * older logs written before per-set weight was carried on the log. Reading the log first fixes
+ * weighted history that went missing when the stored plan slot had lost its load or its id no longer
+ * matched the log after the session was threaded with warm-ups.
+ */
+internal fun effectiveAddedKg(log: SetLog, slot: PlannedExercise?): Double =
+    if (log.weightKg > 0.0) log.weightKg else (slot?.addedWeightKg ?: 0.0)
 
 /** Everything one movement has accumulated across every session it appeared in. */
 data class ExerciseProgress(
@@ -225,7 +236,7 @@ fun bestProgression(
             if (key != exerciseKey) continue
             val slot = session.plan.slot(log.slotId)
             if (slot?.isWarmup(log.setIndex) == true) continue
-            val kg = slot?.addedWeightKg ?: 0.0
+            val kg = effectiveAddedKg(log, slot)
             val metric = when (kind) {
                 RecordKind.REPS -> log.reps.toDouble()
                 RecordKind.WEIGHT -> kg
@@ -254,7 +265,7 @@ private fun bestsByExercise(sessions: List<PerformedSession>): Map<String, Best>
             val slot = session.plan.slot(log.slotId)
             if (slot?.isWarmup(log.setIndex) == true) continue
             val best = byExercise.getOrPut(key) { Best(log.exerciseName) }
-            val kg = slot?.addedWeightKg ?: 0.0
+            val kg = effectiveAddedKg(log, slot)
             // Stamp the time whenever a metric reaches a new high, so the beaten record can be dated.
             if (log.reps > best.reps) { best.reps = log.reps; best.repsAtMs = log.startMs }
             if (kg > best.weightKg) { best.weightKg = kg; best.weightAtMs = log.startMs }
@@ -361,7 +372,7 @@ private fun exerciseProgress(sessions: List<PerformedSession>): List<ExercisePro
             acc.reps += log.reps
             acc.lastMs = maxOf(acc.lastMs, log.startMs)
 
-            val addedKg = slot?.addedWeightKg ?: 0.0
+            val addedKg = effectiveAddedKg(log, slot)
             if (log.reps > 0 && log.reps > (acc.mostReps?.reps ?: 0)) {
                 acc.mostReps = BestSet(log.reps, addedKg, log.startMs)
             }
@@ -413,7 +424,7 @@ fun exerciseHistory(sessions: List<PerformedSession>, key: String): List<Exercis
             if (slot?.isWarmup(log.setIndex) == true) continue
             sets++
             reps += log.reps
-            top = maxOf(top, slot?.addedWeightKg ?: 0.0)
+            top = maxOf(top, effectiveAddedKg(log, slot))
         }
         if (sets > 0) ExerciseSessionEntry(session.startMs, sets, reps, top) else null
     }.sortedByDescending { it.atMs }

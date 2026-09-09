@@ -35,6 +35,8 @@ class TrainingProgressTest {
         activeMs: Long = 600_000,
         slots: List<PlannedExercise> = listOf(slot("s1", "Pull-Up")),
         sets: List<Pair<String, Int>> = listOf("s1" to 10),
+        /** Weight banked on the set log itself, per set index (0-based). Empty leaves logs unweighted. */
+        logWeights: Map<Int, Double> = emptyMap(),
     ): PerformedSession {
         val start = at(atText)
         return PerformedSession(
@@ -51,6 +53,7 @@ class TrainingProgressTest {
                     exerciseName = name,
                     setIndex = i + 1,
                     reps = reps,
+                    weightKg = logWeights[i] ?: 0.0,
                     startMs = start + i * 60_000L,
                     endMs = start + i * 60_000L + 40_000,
                 )
@@ -202,6 +205,25 @@ class TrainingProgressTest {
         assertEquals(20.0, pullUp.heaviest!!.addedWeightKg, 1e-9)
         assertEquals(5, pullUp.heaviest.reps)
         assertEquals(12, pullUp.mostReps!!.reps)
+    }
+
+    @Test
+    fun `weight banked on the set log drives the heaviest set even when the plan slot is unloaded`() {
+        // The regression: added weight is recorded per set on the log at bank time, but the plan slot
+        // carries no load (weight entered live, or the slot lost its load after warm-up threading).
+        // Progress must read the log's own weight, not fall through to the zero-load slot.
+        val weighted = session(
+            "a",
+            "2026-08-10T09:00:00",
+            slots = listOf(slot("s1", "Pull-Up", addedKg = 0.0)),
+            sets = listOf("s1" to 5),
+            logWeights = mapOf(0 to 20.0),
+        )
+
+        val pullUp = summarizeProgress(listOf(weighted), now, zone = zone).exercises.single()
+
+        assertEquals(20.0, pullUp.heaviest!!.addedWeightKg, 1e-9)
+        assertEquals(5, pullUp.heaviest.reps)
     }
 
     @Test

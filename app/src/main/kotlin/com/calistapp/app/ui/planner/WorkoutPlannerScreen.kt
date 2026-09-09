@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -111,8 +112,6 @@ import com.calistapp.app.ui.theme.PageDim
 import com.calistapp.app.ui.theme.PageInk
 import com.calistapp.app.ui.theme.PageWarm
 import com.calistapp.core.model.BodyPart
-import com.calistapp.core.model.EffortScale
-import com.calistapp.core.model.EffortTarget
 import com.calistapp.core.model.Exercise
 import com.calistapp.core.model.ExerciseMeasure
 import com.calistapp.core.model.PlannedExercise
@@ -267,7 +266,6 @@ fun WorkoutPlannerScreen(
                             onWeight = { viewModel.setAddedWeight(slot.slotId, it) },
                             onSetReps = { i, v -> viewModel.setSetReps(slot.slotId, i, v) },
                             onSetWeight = { i, kg -> viewModel.setSetWeight(slot.slotId, i, kg) },
-                            onSetEffort = { i, e -> viewModel.setSetEffort(slot.slotId, i, e) },
                             onToggleSetWarmup = { i -> viewModel.toggleSetWarmup(slot.slotId, i) },
                             onAddSet = { viewModel.addSet(slot.slotId) },
                             onRemoveSet = { i -> viewModel.removeSet(slot.slotId, i) },
@@ -481,7 +479,6 @@ private fun PlannedExerciseCard(
     onWeight: (Double) -> Unit,
     onSetReps: (Int, Int) -> Unit,
     onSetWeight: (Int, Double) -> Unit,
-    onSetEffort: (Int, EffortTarget?) -> Unit,
     onToggleSetWarmup: (Int) -> Unit,
     onAddSet: () -> Unit,
     onRemoveSet: (Int) -> Unit,
@@ -506,7 +503,13 @@ private fun PlannedExerciseCard(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClickLabel = if (expanded) "Collapse" else "Expand") { expanded = !expanded }
+                // No ripple: a rectangular ripple inset inside the rounded card read as "only the
+                // inner part highlights". The expand + orange active border are the feedback.
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClickLabel = if (expanded) "Collapse" else "Expand",
+                ) { expanded = !expanded }
                 .then(dragHandleModifier),
         ) {
             // Collapsed: a small glowing muscle-coloured dot. Expanded: it morphs into the movement's
@@ -549,53 +552,30 @@ private fun PlannedExerciseCard(
 
         AnimatedVisibility(visible = expanded) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Reps ↔ Timer, as a segmented pill (no explainer text).
+                MeasureToggle(secs = slot.measure == ExerciseMeasure.SECONDS, onToggle = onToggleMeasure)
+
                 if (showSets) {
-                    // Split: an editable row per set — reps/seconds, added load and a target effort
-                    // each set at a time, so a pyramid or a top-set-plus-back-offs is one card, not a
-                    // compromise averaged into a single number.
+                    // Split: an editable row per set — reps/seconds and added load, tapped in on the
+                    // shared numeric pad, so a pyramid or a top-set-plus-back-offs is one card.
                     PerSetEditor(
                         slot = slot,
                         onSetReps = onSetReps,
                         onSetWeight = onSetWeight,
-                        onSetEffort = onSetEffort,
                         onToggleWarmup = onToggleSetWarmup,
                         onAddSet = onAddSet,
                         onRemoveSet = onRemoveSet,
                     )
                 } else {
-                    // Circuit: one definition, repeated each round (rounds live in the plan header).
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            if (slot.measure == ExerciseMeasure.SECONDS) "SECONDS" else "REPS",
-                            style = Eyebrow,
-                            color = Ash,
-                            modifier = Modifier.weight(1f),
-                        )
-                        ProtoStepper(
-                            value = target,
-                            onChange = onTarget,
-                            step = if (slot.measure == ExerciseMeasure.SECONDS) 5 else 1,
-                        )
-                    }
-                    PillChip(
-                        label = "Added weight",
-                        selected = slot.isWeighted,
-                        accent = Flame,
-                        leading = {
-                            Icon(Icons.Filled.FitnessCenter, contentDescription = null, modifier = Modifier.size(14.dp))
-                        },
-                        onClick = onToggleWeighted,
+                    // Circuit: one definition, repeated each round — entered the same tap-a-chip way as
+                    // a split set, so both modes read and edit identically.
+                    CircuitDefEditor(
+                        secs = slot.measure == ExerciseMeasure.SECONDS,
+                        target = target,
+                        addedKg = slot.addedWeightKg,
+                        onTarget = onTarget,
+                        onWeight = onWeight,
                     )
-                    if (slot.isWeighted) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("KILOGRAMS", style = Eyebrow, color = Ash, modifier = Modifier.weight(1f))
-                            ProtoStepper(
-                                value = slot.addedWeightKg.toInt(),
-                                onChange = { onWeight(it.toDouble()) },
-                                step = 5,
-                            )
-                        }
-                    }
                 }
 
                 // Superset is offered only where it means something — it needs a movement above it to
@@ -609,18 +589,7 @@ private fun PlannedExerciseCard(
                     )
                 }
 
-                // Measure toggle on the left; Remove lives here now that the header is a clean row.
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onToggleMeasure, modifier = Modifier.weight(1f)) {
-                        Text(
-                            if (slot.measure == ExerciseMeasure.SECONDS) {
-                                "Counted as a hold — switch to reps"
-                            } else {
-                                "Counted in reps — switch to a timed hold"
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                        )
-                    }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onRemove) {
                         Icon(Icons.Filled.Close, null, tint = Coral, modifier = Modifier.size(15.dp))
                         Text("  Remove", color = Coral, style = MaterialTheme.typography.labelSmall)
@@ -642,7 +611,6 @@ private fun PerSetEditor(
     slot: PlannedExercise,
     onSetReps: (Int, Int) -> Unit,
     onSetWeight: (Int, Double) -> Unit,
-    onSetEffort: (Int, EffortTarget?) -> Unit,
     onToggleWarmup: (Int) -> Unit,
     onAddSet: () -> Unit,
     onRemoveSet: (Int) -> Unit,
@@ -672,7 +640,6 @@ private fun PerSetEditor(
                 onWarmup = { onToggleWarmup(i) },
                 onReps = { editing = SetField.Reps(i, set.reps) },
                 onWeight = { editing = SetField.Weight(i, set.weightKg) },
-                onEffort = { editing = SetField.Effort(i, set.effort) },
                 onRemove = { onRemoveSet(i) },
             )
         }
@@ -700,16 +667,11 @@ private fun PerSetEditor(
             onConfirm = { onSetWeight(e.index, it); editing = null },
             onDismiss = { editing = null },
         )
-        is SetField.Effort -> EffortPad(
-            initial = e.effort,
-            onConfirm = { onSetEffort(e.index, it); editing = null },
-            onDismiss = { editing = null },
-        )
         null -> {}
     }
 }
 
-/** One set's row: a warm-up/number badge, then tappable reps · weight · effort chips, then remove. */
+/** One set's row: a warm-up/number badge, then tappable reps · weight chips, then remove. */
 @Composable
 private fun SetRow(
     number: Int,
@@ -719,7 +681,6 @@ private fun SetRow(
     onWarmup: () -> Unit,
     onReps: () -> Unit,
     onWeight: () -> Unit,
-    onEffort: () -> Unit,
     onRemove: () -> Unit,
 ) {
     Row(
@@ -750,12 +711,6 @@ private fun SetRow(
             Modifier.weight(1f),
             accent = if (set.weightKg > 0) Amber else null,
             onClick = onWeight,
-        )
-        SetChip(
-            set.effort?.label ?: "Effort",
-            Modifier.weight(1.2f),
-            dim = set.effort == null,
-            onClick = onEffort,
         )
         if (canRemove) {
             IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) {
@@ -794,37 +749,70 @@ private fun SetChip(
     }
 }
 
-/**
- * The effort pad: the shared numeric keypad wearing its RIR/RPE/%RM tabs and the scale help blurb.
- * Confirming 0 clears the target — the clean way to remove one you set by mistake.
- */
-@Composable
-private fun EffortPad(
-    initial: EffortTarget?,
-    onConfirm: (EffortTarget?) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var scaleIndex by remember { mutableStateOf(initial?.scale?.ordinal ?: EffortScale.RPE.ordinal) }
-    val scale = EffortScale.entries[scaleIndex]
-    NumberPadSheet(
-        title = "Target effort",
-        initial = initial?.value?.toInt() ?: 0,
-        unit = scale.label,
-        tabs = EffortScale.entries.map { it.label },
-        selectedTab = scaleIndex,
-        onSelectTab = { scaleIndex = it },
-        help = scale.blurb,
-        onConfirm = { v -> onConfirm(if (v <= 0) null else EffortTarget(EffortScale.entries[scaleIndex], v.toDouble())) },
-        onDismiss = onDismiss,
-    )
-}
-
 /** Which figure of which set the numeric pad is currently editing. */
 private sealed interface SetField {
     val index: Int
     data class Reps(override val index: Int, val value: Int) : SetField
     data class Weight(override val index: Int, val value: Double) : SetField
-    data class Effort(override val index: Int, val effort: EffortTarget?) : SetField
+}
+
+/** Reps ↔ Timer as a two-option segmented pill — replaces the old orange explainer text. */
+@Composable
+private fun MeasureToggle(secs: Boolean, onToggle: () -> Unit) {
+    Row(
+        Modifier.clip(Capsule).background(OnyxFill).border(1.dp, OnyxBorder, Capsule).padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        MeasureOption("Reps", active = !secs) { if (secs) onToggle() }
+        MeasureOption("Timer", active = secs) { if (!secs) onToggle() }
+    }
+}
+
+@Composable
+private fun MeasureOption(label: String, active: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.clip(Capsule).background(if (active) Flame.copy(alpha = 0.18f) else Color.Transparent)
+            .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = if (active) Flame else Ash)
+    }
+}
+
+/**
+ * A circuit exercise's single definition — reps/seconds and added load as the same tap-a-chip cells a
+ * split set uses (opening the shared numeric pad), so both modes enter numbers identically. A weight
+ * of 0 reads "BW"; tapping it and typing a number adds load.
+ */
+@Composable
+private fun CircuitDefEditor(secs: Boolean, target: Int, addedKg: Double, onTarget: (Int) -> Unit, onWeight: (Double) -> Unit) {
+    var editReps by remember { mutableStateOf(false) }
+    var editWeight by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        SetChip("$target${if (secs) "s" else ""}", Modifier.weight(1f)) { editReps = true }
+        SetChip(
+            if (addedKg > 0) "+${addedKg.toInt()} kg" else "BW",
+            Modifier.weight(1f),
+            accent = if (addedKg > 0) Amber else null,
+        ) { editWeight = true }
+    }
+    if (editReps) {
+        NumberPadSheet(
+            title = if (secs) "Seconds" else "Reps",
+            initial = target,
+            unit = if (secs) "sec" else "reps",
+            onConfirm = { onTarget(it); editReps = false },
+            onDismiss = { editReps = false },
+        )
+    }
+    if (editWeight) {
+        DecimalPadSheet(
+            title = "Added weight",
+            initial = addedKg,
+            onConfirm = { onWeight(it); editWeight = false },
+            onDismiss = { editWeight = false },
+        )
+    }
 }
 
 /**

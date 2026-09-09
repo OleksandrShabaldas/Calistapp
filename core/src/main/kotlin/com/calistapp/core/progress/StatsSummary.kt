@@ -70,7 +70,7 @@ fun statsSummary(
             val slot = session.plan.slot(log.slotId)
             if (slot?.isWarmup(log.setIndex) == true) continue
             reps += log.reps
-            volume += (slot?.addedWeightKg ?: 0.0) * log.reps
+            volume += effectiveAddedKg(log, slot) * log.reps
             val key = log.exerciseId.ifBlank { log.exerciseName }
             if (key.isNotBlank()) movements += key
         }

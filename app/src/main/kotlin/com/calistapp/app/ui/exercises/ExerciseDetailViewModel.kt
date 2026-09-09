@@ -195,8 +195,9 @@ private fun trendFor(exerciseId: String, sessions: List<PerformedSession>): List
     sessions.mapNotNull { s ->
         val sets = s.setLogs.filter { it.exerciseId == exerciseId }
         if (sets.isEmpty()) return@mapNotNull null
-        // Added load lives on the plan slot for older sessions; prefer it, fall back to the set's own.
-        fun weight(log: SetLog) = s.plan.slot(log.slotId)?.addedWeightKg ?: log.weightKg
+        // The set log carries the weight actually banked per set — the ground truth. Fall back to the
+        // plan slot only for older logs written before per-set weight was stored on the log.
+        fun weight(log: SetLog) = if (log.weightKg > 0.0) log.weightKg else (s.plan.slot(log.slotId)?.addedWeightKg ?: 0.0)
         ExerciseTrendPoint(
             atMs = s.startMs,
             bestReps = sets.maxOf { it.reps },
