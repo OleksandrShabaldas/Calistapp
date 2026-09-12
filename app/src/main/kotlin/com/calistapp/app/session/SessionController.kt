@@ -3,6 +3,7 @@ package com.calistapp.app.session
 import android.content.Context
 import com.calistapp.app.data.fitpal.FitPalExportManager
 import com.calistapp.app.data.profile.ProfileRepository
+import com.calistapp.app.data.session.SessionPrefsRepository
 import com.calistapp.app.data.session.SessionRepository
 import com.calistapp.app.data.sync.LiveSessionBus
 import com.calistapp.app.data.sync.WatchAppLauncher
@@ -65,6 +66,7 @@ class SessionController @Inject constructor(
     @ApplicationScope private val scope: CoroutineScope,
     private val engine: CalorieEngine,
     private val sessionRepository: SessionRepository,
+    private val sessionPrefs: SessionPrefsRepository,
     private val profileRepository: ProfileRepository,
     private val bus: LiveSessionBus,
     private val watch: WatchCommandSender,
@@ -88,6 +90,17 @@ class SessionController @Inject constructor(
     private val recentBpm = ArrayDeque<Int>()
     private var lastSampleAtMs = 0L
     private var lastCheckpointMs = 0L
+
+    /**
+     * Reps the same workout was performed with last time, keyed slotId → (setIndex → reps). When the
+     * "start from last time" setting is on, a work block opens on these instead of the plan's target —
+     * so a workout you've done before pre-fills the counter with what you actually did, ready to match
+     * or beat. Scoped by slotId, which only exists in this one saved workout, so the same movement in a
+     * different workout never leaks its reps in. Empty when the setting is off or it's a new workout.
+     * Exposed so the live screen can label the counter "last time" instead of "target" for these sets.
+     */
+    private val _previousReps = MutableStateFlow<Map<String, Map<Int, Int>>>(emptyMap())
+    val previousReps: StateFlow<Map<String, Map<Int, Int>>> = _previousReps.asStateFlow()
 
     val isRunning: Boolean
         get() = _live.value?.status.let { it == SessionStatus.ACTIVE || it == SessionStatus.PAUSED }
@@ -172,6 +185,20 @@ class SessionController @Inject constructor(
     }
 
     /**
+     * Rate how the set in progress felt, on the exercise screen while it's fresh. Held as pending and
+     * copied onto the set's log when it's banked (see [closeOpenSegment]); effort never enters the
+     * calorie estimate, only history and the coach. Only meaningful during a work block.
+     */
+    fun setCurrentEffort(scale: EffortScale?, value: Double?) = scope.launch {
+        mutex.withLock {
+            val cur = _live.value ?: return@withLock
+            if (cur.currentSegment != SegmentType.ACTIVE) return@withLock
+            _live.update { it?.copy(pendingEffortScale = scale, pendingEffortValue = value) }
+        }
+        refresh()
+    }
+
+    /**
      * Change the load on the exercise in progress — you added a plate, or forgot to set it when
      * building the plan. Rewrites the live plan slot and the open segment so both the running score
      * and the stored record reflect the weight actually lifted, and syncs the plan to the watch.
@@ -234,7 +261,14 @@ class SessionController @Inject constructor(
             if (cur.currentSegment != SegmentType.ACTIVE) return@withLock
             val target = defaultRepsFor(cur.plan.slot(cur.currentSlotId), cur.setIndex)
             accumulator?.setCurrentReps(target)
-            _live.update { it?.copy(currentReps = target, segmentStartMs = System.currentTimeMillis()) }
+            _live.update {
+                it?.copy(
+                    currentReps = target,
+                    segmentStartMs = System.currentTimeMillis(),
+                    pendingEffortScale = null,
+                    pendingEffortValue = null,
+                )
+            }
         }
         refresh()
     }
@@ -465,13 +499,22 @@ class SessionController @Inject constructor(
                 segments = openSegments,
                 plan = cur.plan,
                 setLogs = setLogs.toList(),
-                exerciseName = cur.plan.exercises.firstOrNull()?.name,
+                exerciseName = sessionTitle(cur.plan),
                 summary = cur.summary,
             )
         }
         // Outside the lock: a database write must never stall the incoming heart-rate stream.
         runCatching { sessionRepository.saveSession(snapshot) }
     }
+
+    /**
+     * What a finished session is called in history. A named workout ("Main Calisthenics") keeps its
+     * own name; only a nameless plan — a single exercise launched from the gallery — falls back to the
+     * first movement's name. The old code always used the first exercise, so a five-exercise workout
+     * showed up as "Pull-Up" rather than the name the user typed when they built it.
+     */
+    private fun sessionTitle(plan: WorkoutPlan): String? =
+        plan.name.takeIf { it.isNotBlank() } ?: plan.exercises.firstOrNull()?.name
 
     // ---- Lifecycle -----------------------------------------------------------------------------
 
@@ -487,6 +530,7 @@ class SessionController @Inject constructor(
         val firstSlot = plan.exercises.firstOrNull()
 
         clearBuffers()
+        _previousReps.value = loadPreviousReps(plan)
         // Sessions open in REST. You start the app before you start the set — walking to the bar,
         // finding the timer — and counting that as work inflates both the clock and the calories.
         accumulator = LiveCalorieAccumulator(profile).apply { begin(now, SegmentType.REST) }
@@ -558,7 +602,7 @@ class SessionController @Inject constructor(
                 segments = segments.toList(),
                 plan = cur.plan,
                 setLogs = setLogs.toList(),
-                exerciseName = cur.plan.exercises.firstOrNull()?.name,
+                exerciseName = sessionTitle(cur.plan),
                 summary = summary,
             )
             sessionRepository.saveSession(completed)
@@ -642,6 +686,9 @@ class SessionController @Inject constructor(
                 setIndex = setIndex,
                 currentReps = openingReps,
                 segmentStartMs = now,
+                // The set just banked consumed its effort; the next one starts unrated.
+                pendingEffortScale = null,
+                pendingEffortValue = null,
             )
         }
 
@@ -703,6 +750,8 @@ class SessionController @Inject constructor(
                 setIndex = (it.completedSets[slotId] ?: 0) + 1,
                 currentReps = 0,
                 segmentStartMs = now,
+                pendingEffortScale = null,
+                pendingEffortValue = null,
             )
         }
 
@@ -738,6 +787,9 @@ class SessionController @Inject constructor(
                 startMs = sealed.startMs,
                 endMs = now,
                 weightKg = weightForSet(slot, cur.setIndex),
+                // Effort rated on the exercise screen during the set rides along onto its log.
+                effortScale = cur.pendingEffortScale,
+                effortValue = cur.pendingEffortValue,
             )
         }
     }
@@ -806,8 +858,36 @@ class SessionController @Inject constructor(
      */
     private fun defaultRepsFor(slot: PlannedExercise?, setIndex: Int): Int {
         slot ?: return 0
+        // A workout done before opens each rep set on what was actually done last time, not the plan's
+        // target — so you're matching or beating yourself, not chasing a number you may have set once.
+        // Timed holds keep their planned duration; the map is empty when the setting is off.
+        if (slot.measure == ExerciseMeasure.REPS) {
+            _previousReps.value[slot.slotId]?.get(setIndex)?.let { return it }
+        }
         slot.sets().getOrNull(setIndex - 1)?.let { return it.reps }
         return if (slot.measure == ExerciseMeasure.SECONDS) slot.targetSeconds else slot.targetReps
+    }
+
+    /**
+     * Load, per rep-counted slot, the reps that slot was performed with in the most recent earlier
+     * session — the "start from last time" data. Off (empty) unless the setting is on. Runs once at
+     * session start, off the sample path; failures degrade to the plan's targets.
+     */
+    private suspend fun loadPreviousReps(plan: WorkoutPlan): Map<String, Map<Int, Int>> {
+        if (plan.isEmpty || !sessionPrefs.prefs.first().startFromLastTime) return emptyMap()
+        val performed = runCatching { sessionRepository.observePerformed().first() }.getOrDefault(emptyList())
+        val bySlot = HashMap<String, Map<Int, Int>>()
+        for (slot in plan.exercises) {
+            if (slot.measure != ExerciseMeasure.REPS) continue
+            val prior = performed
+                .filter { s -> s.setLogs.any { it.slotId == slot.slotId && it.reps > 0 } }
+                .maxByOrNull { it.startMs } ?: continue
+            val reps = prior.setLogs
+                .filter { it.slotId == slot.slotId && it.reps > 0 }
+                .associate { it.setIndex to it.reps }
+            if (reps.isNotEmpty()) bySlot[slot.slotId] = reps
+        }
+        return bySlot
     }
 
     /** Added load for a given set of a slot — per-set when present, else the slot's nominal weight. */
@@ -821,6 +901,7 @@ class SessionController @Inject constructor(
         segments.clear()
         setLogs.clear()
         recentBpm.clear()
+        _previousReps.value = emptyMap()
         lastSampleAtMs = 0L
         lastCheckpointMs = 0L
         accumulator = null

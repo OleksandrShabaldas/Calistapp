@@ -63,6 +63,44 @@ class GeminiClient @Inject constructor(
         AiResult.Failure(lastMessage)
     }
 
+    /**
+     * A one-shot connectivity check for a single model, using [apiKey] as typed in Settings (so it can
+     * be tested before it's saved), falling back to the build key. Any 2xx is "connected"; otherwise
+     * the API's own error message (bad key, unknown model, quota) is surfaced verbatim so the user can
+     * see exactly which slot is wrong.
+     */
+    suspend fun testModel(model: String, apiKey: String): AiResult = withContext(io) {
+        val key = apiKey.ifBlank { BuildConfig.GEMINI_API_KEY }
+        if (key.isBlank()) return@withContext AiResult.Failure("No API key set.")
+        val id = model.trim()
+        if (id.isBlank()) return@withContext AiResult.Failure("No model id.")
+
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/$id:generateContent?key=$key"
+        val body = json.encodeToString(
+            GeminiRequest.serializer(),
+            GeminiRequest(
+                contents = listOf(GeminiRequest.Content(parts = listOf(GeminiRequest.Part("Reply with OK.")))),
+                generationConfig = GeminiRequest.GenerationConfig(maxOutputTokens = 16),
+            ),
+        ).toRequestBody(jsonMedia)
+        val request = Request.Builder().url(url).post(body).build()
+        try {
+            okHttp.newCall(request).execute().use { resp ->
+                val raw = resp.body?.string().orEmpty()
+                if (resp.isSuccessful) {
+                    AiResult.Success("Connected")
+                } else {
+                    val msg = runCatching {
+                        json.decodeFromString(GeminiError.serializer(), raw).error?.message
+                    }.getOrNull() ?: "HTTP ${resp.code}"
+                    AiResult.Failure(msg)
+                }
+            }
+        } catch (e: Exception) {
+            AiResult.Failure("Network error: ${e.message ?: "unknown"}")
+        }
+    }
+
     private fun callOnce(model: String, key: String, prompt: String, maxOutputTokens: Int): CallOutcome {
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$key"
         val body = json.encodeToString(

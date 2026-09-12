@@ -1,5 +1,8 @@
 package com.calistapp.app.ui.dashboard
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,24 +21,37 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import com.calistapp.app.data.recommend.RecommendationsUi
 import com.calistapp.app.ui.common.GlowBox
 import com.calistapp.app.ui.common.GlowIcon
@@ -49,7 +65,6 @@ import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Coral
 import com.calistapp.app.ui.theme.FlameGlow
 import com.calistapp.app.ui.theme.FlameHot
-import kotlin.math.roundToInt
 
 /** Which recommendation gauge is open in the detail overlay. */
 enum class GaugeKind { READINESS, CONDITIONS }
@@ -201,6 +216,59 @@ private fun StartButton(onClick: () -> Unit) {
     }
 }
 
+/**
+ * Shown in place of Next Up once you've trained today: a "today's workout" summary. Each of today's
+ * finished sessions is a tappable row that opens its full summary; a green-lit check reads as done.
+ */
+@Composable
+fun TodaySummaryCard(
+    sessions: List<com.calistapp.core.model.SessionOverview>,
+    onOpenSession: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (sessions.isEmpty()) return
+    DashCard(modifier, contentPadding = 0.dp) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 18.dp, top = 16.dp, end = 18.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            GlowIcon(Icons.Filled.CheckCircle, contentDescription = null, tint = FlameHot, size = 20.dp, glowRadius = 6.dp, glowAlpha = 0.5f)
+            Text(
+                if (sessions.size > 1) "TODAY'S WORKOUTS · ${sessions.size}" else "TODAY'S WORKOUT",
+                style = MaterialTheme.typography.labelSmall,
+                color = FlameHot,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        sessions.forEachIndexed { i, s ->
+            Column(
+                Modifier.fillMaxWidth().clickable { onOpenSession(s.id) }.padding(horizontal = 18.dp, vertical = 12.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(s.title, style = MaterialTheme.typography.titleMedium, color = Chalk, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            buildString {
+                                append("${s.totalKcal} kcal")
+                                if (s.totalReps > 0) append(" · ${s.totalReps} reps")
+                                if (s.avgHr > 0) append(" · ${s.avgHr} bpm")
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Ash,
+                        )
+                    }
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Open summary", tint = FlameHot)
+                }
+            }
+            if (i < sessions.lastIndex) {
+                Box(Modifier.fillMaxWidth().padding(horizontal = 18.dp).height(1.dp).background(CardBorder))
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+    }
+}
+
 @Composable
 internal fun Badge(text: String, modifier: Modifier = Modifier) {
     Box(
@@ -214,7 +282,12 @@ internal fun Badge(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-/** Steps today + the daily energy-goal ring — one card, split into two centred halves. */
+/**
+ * Steps today + the daily energy-goal ring — one card, two centred halves. The ring is two-tone:
+ * orange for the calories walking earned, red for the calories training earned, stacked toward the
+ * goal. Once the goal is met the ring stays full while the inner percentage keeps climbing past 100%.
+ * Under the step count sits the day's EEA — workout calories expressed as the steps they're worth.
+ */
 @Composable
 fun StepsWidget(state: StepsState, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     DashCard(if (onClick != null) modifier.clickable(onClick = onClick) else modifier, contentPadding = 20.dp) {
@@ -236,13 +309,119 @@ fun StepsWidget(state: StepsState, modifier: Modifier = Modifier, onClick: (() -
                     color = Chalk,
                     fontWeight = FontWeight.Bold,
                 )
+                if (state.eeaSteps > 0) {
+                    Spacer(Modifier.height(7.dp))
+                    EeaLine(state.eeaSteps)
+                }
             }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                ProgressRing(progress = state.progress, accent = FlameHot, diameter = 96.dp, strokeWidth = 9.dp) {
-                    Text("${(state.progress * 100).roundToInt()}%", style = MaterialTheme.typography.titleLarge, color = Chalk)
+                val target = state.targetKcal.coerceAtLeast(1).toFloat()
+                StepsRing(
+                    stepFrac = state.stepKcal / target,
+                    workoutFrac = state.workoutKcal / target,
+                    diameter = 96.dp,
+                    strokeWidth = 9.dp,
+                ) {
+                    Text("${state.percentOfTarget}%", style = MaterialTheme.typography.titleLarge, color = Chalk)
                 }
             }
         }
+    }
+}
+
+/**
+ * The energy-goal ring, split into an orange (walking) and a red (training) arc that stack toward the
+ * goal. The combined fill is capped at a full ring — kept in proportion when today's burn is over the
+ * goal — so a met goal reads as a complete ring while the percentage in the middle carries on past 100.
+ */
+@Composable
+private fun StepsRing(
+    stepFrac: Float,
+    workoutFrac: Float,
+    modifier: Modifier = Modifier,
+    diameter: Dp = 96.dp,
+    strokeWidth: Dp = 9.dp,
+    content: @Composable () -> Unit,
+) {
+    val total = stepFrac + workoutFrac
+    val scale = if (total > 1f) 1f / total else 1f
+    val animStep by animateFloatAsState((stepFrac * scale).coerceIn(0f, 1f), tween(700), label = "stepArc")
+    val animWork by animateFloatAsState((workoutFrac * scale).coerceIn(0f, 1f), tween(700), label = "workArc")
+    Box(modifier.size(diameter), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(diameter)) {
+            val stroke = strokeWidth.toPx()
+            val inset = stroke / 2f
+            val arcSize = Size(size.width - stroke, size.height - stroke)
+            val topLeft = Offset(inset, inset)
+            drawArc(Color.White.copy(alpha = 0.07f), 0f, 360f, false, topLeft, arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
+            if (animStep > 0f) {
+                drawArc(FlameHot, -90f, 360f * animStep, false, topLeft, arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
+            }
+            if (animWork > 0f) {
+                drawArc(Coral, -90f + 360f * animStep, 360f * animWork, false, topLeft, arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
+            }
+        }
+        content()
+    }
+}
+
+/** The "+ N EEA" line under the step count, red-accented, with a "?" that explains what EEA is. */
+@Composable
+private fun EeaLine(eeaSteps: Int) {
+    var showInfo by remember { mutableStateOf(false) }
+    Box {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(
+                "+ %,d EEA".format(eeaSteps),
+                style = MaterialTheme.typography.labelMedium,
+                color = Coral,
+                fontWeight = FontWeight.Bold,
+            )
+            Box(
+                Modifier
+                    .size(17.dp)
+                    .clip(CircleShape)
+                    .background(Coral.copy(alpha = 0.16f))
+                    .border(1.dp, Coral.copy(alpha = 0.55f), CircleShape)
+                    .clickable { showInfo = !showInfo },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("?", style = MaterialTheme.typography.labelSmall, color = Coral, fontWeight = FontWeight.Bold)
+            }
+        }
+        if (showInfo) {
+            Popup(
+                alignment = Alignment.TopStart,
+                offset = IntOffset(0, 60),
+                properties = PopupProperties(focusable = true),
+                onDismissRequest = { showInfo = false },
+            ) {
+                EeaInfoCard(eeaSteps, onDismiss = { showInfo = false })
+            }
+        }
+    }
+}
+
+@Composable
+private fun EeaInfoCard(eeaSteps: Int, onDismiss: () -> Unit) {
+    Column(
+        Modifier
+            .width(232.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(CardSurface)
+            .border(1.dp, CardBorder, RoundedCornerShape(16.dp))
+            .clickable(onClick = onDismiss)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text("EEA — Estimated Exercise Activity", style = MaterialTheme.typography.labelLarge, color = Coral, fontWeight = FontWeight.Bold)
+        Text(
+            "Steps only count the walking a pedometer sees, so a workout barely moves the number. EEA " +
+                "converts today's workout calories into the steps it would take to burn the same — about " +
+                "%,d — so hard training still shows up next to your step count.".format(eeaSteps),
+            style = MaterialTheme.typography.bodySmall,
+            color = Ash,
+        )
     }
 }
 
@@ -261,6 +440,10 @@ fun RecommendationsRow(
         val r = state.readiness
         if (state.readinessLoading || r == null) {
             GaugePlaceholder()
+        } else if (shortReadiness(r.score) == "Train") {
+            // A clear "yes, train today": a filled ring with just a glowing check, per the ask — the
+            // score still lives in the detail popup a tap away.
+            ReadyCheckGauge(onClick = { onTap(GaugeKind.READINESS) })
         } else {
             RecGauge(
                 progress = r.score / 100f,
@@ -309,6 +492,27 @@ fun RecGauge(
 private fun GaugePlaceholder() {
     ProgressRing(progress = 0f, accent = AshFaint, diameter = 118.dp, strokeWidth = 9.dp) {
         Text("Loading…", style = MaterialTheme.typography.labelMedium, color = Ash, textAlign = TextAlign.Center)
+    }
+}
+
+/** The readiness gauge when the answer is simply "train": full ring, a glowing check, nothing else. */
+@Composable
+private fun ReadyCheckGauge(onClick: () -> Unit) {
+    ProgressRing(
+        progress = 1f,
+        accent = FlameHot,
+        modifier = Modifier.clip(CircleShape).clickable(onClick = onClick),
+        diameter = 118.dp,
+        strokeWidth = 9.dp,
+    ) {
+        GlowIcon(
+            Icons.Filled.Check,
+            contentDescription = "Ready to train",
+            tint = FlameHot,
+            size = 46.dp,
+            glowRadius = 12.dp,
+            glowAlpha = 0.6f,
+        )
     }
 }
 

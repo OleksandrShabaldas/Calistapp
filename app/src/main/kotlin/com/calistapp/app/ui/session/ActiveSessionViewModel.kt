@@ -45,6 +45,14 @@ class ActiveSessionViewModel @Inject constructor(
     val live: StateFlow<LiveSession?> = controller.live
     val plan: StateFlow<WorkoutPlan> = drafts.draft
 
+    /**
+     * Reps this same workout was performed with last time, slotId → (setIndex → reps). Drives the
+     * "last time" label on the counter for a workout you've done before; empty when the setting is off
+     * or it's the first time. The counter itself already opens on these — this is just so the screen
+     * can say the number is last time's rather than the plan's target.
+     */
+    val previousReps: StateFlow<Map<String, Map<Int, Int>>> = controller.previousReps
+
     /** Link health comes from the monitor, which distinguishes paired / reachable / streaming. */
     val watchLink: StateFlow<WatchLinkState> = watchConnection.state
 
@@ -71,9 +79,13 @@ class ActiveSessionViewModel @Inject constructor(
     ) { id, performed -> historyFor(id, performed) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** Artwork per exercise id — kept for any caller that only needs the thumbnail frames. */
+    /**
+     * Artwork per exercise id, for the journal's thumbnails. Falls back to a frame of the exercise's
+     * first clip when it has video but no still/GIF — otherwise those rows showed the generic dumbbell
+     * placeholder even though a demonstration existed (and had been downloaded offline).
+     */
     val thumbnails: StateFlow<Map<String, List<String>>> = exercisesById
-        .map { m -> m.mapValues { it.value.imageUrls } }
+        .map { m -> m.mapValues { thumbUrlsFor(it.value) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     private val exerciseId: String? = savedStateHandle[Routes.ACTIVE_ARG]
@@ -117,6 +129,9 @@ class ActiveSessionViewModel @Inject constructor(
     fun resume() = controller.resume()
     fun discard() = controller.discard()
 
+    /** Rate the effort of the set in progress, on the exercise screen — banked onto the set. */
+    fun setCurrentEffort(scale: EffortScale?, value: Double?) = controller.setCurrentEffort(scale, value)
+
     // Journal edits — annotate banked sets.
     fun setSetEffort(slotId: String, setIndex: Int, scale: EffortScale?, value: Double?) =
         controller.setSetEffort(slotId, setIndex, scale, value)
@@ -133,6 +148,16 @@ class ActiveSessionViewModel @Inject constructor(
     fun finish(onDone: (String) -> Unit) {
         viewModelScope.launch { controller.stop()?.let(onDone) }
     }
+}
+
+/**
+ * Thumbnail frames for an exercise: its stills/GIF, or — when it only has video — a `videoframe://`
+ * marker of its first clip, which the Coil loader resolves offline-first to a frame.
+ */
+private fun thumbUrlsFor(exercise: Exercise): List<String> = exercise.imageUrls.ifEmpty {
+    exercise.media.firstOrNull { it.type == com.calistapp.core.model.MediaType.VIDEO }
+        ?.let { listOf(com.calistapp.app.ui.exercises.VideoThumbUrlMapper.SCHEME + it.url) }
+        ?: emptyList()
 }
 
 /** Last-time and best figures for one exercise, pulled from finished sessions. */

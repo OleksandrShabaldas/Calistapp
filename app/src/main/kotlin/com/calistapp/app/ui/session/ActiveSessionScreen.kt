@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material3.AlertDialog
@@ -71,6 +72,7 @@ import com.calistapp.app.ui.theme.Capsule
 import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Coral
 import com.calistapp.app.ui.theme.Flame
+import com.calistapp.app.ui.theme.FlameSoft
 import com.calistapp.app.ui.theme.Onyx
 import com.calistapp.app.ui.theme.TitleSans
 import com.calistapp.core.model.Exercise
@@ -79,8 +81,8 @@ import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionStatus
-import com.calistapp.core.model.SetLog
 import com.calistapp.core.model.WorkoutPlan
+import com.calistapp.core.model.formatKg
 
 @Composable
 fun ActiveSessionScreen(
@@ -99,6 +101,7 @@ fun ActiveSessionScreen(
     val heroHistory by viewModel.heroHistory.collectAsStateWithLifecycle()
     val prefs by viewModel.prefs.collectAsStateWithLifecycle()
     val thumbnails by viewModel.thumbnails.collectAsStateWithLifecycle()
+    val previousReps by viewModel.previousReps.collectAsStateWithLifecycle()
 
     val session = live
     KeepScreenOn(enabled = session != null)
@@ -123,6 +126,7 @@ fun ActiveSessionScreen(
             prefs = prefs,
             watchLink = watchLink,
             imageUrlsFor = { id -> thumbnails[id].orEmpty() },
+            previousReps = previousReps,
             onFinished = onFinished,
             onDiscarded = onDiscarded,
             onCollapse = onCollapse,
@@ -141,8 +145,13 @@ private fun KeepScreenOn(enabled: Boolean) {
     }
 }
 
-/** An action held back by the zero-rep confirmation, with the wording for its confirm button. */
-private class PendingAction(val label: String, val run: () -> Unit)
+/** An action held back by a pre-bank confirmation — no reps, or no effort rated — with its wording. */
+private class PendingConfirm(
+    val title: String,
+    val body: String,
+    val confirmLabel: String,
+    val run: () -> Unit,
+)
 
 @Composable
 private fun LiveControls(
@@ -153,6 +162,7 @@ private fun LiveControls(
     prefs: com.calistapp.app.data.session.SessionPrefs,
     watchLink: WatchLinkState,
     imageUrlsFor: (String) -> List<String>,
+    previousReps: Map<String, Map<Int, Int>>,
     onFinished: (String) -> Unit,
     onDiscarded: () -> Unit,
     onCollapse: () -> Unit,
@@ -191,18 +201,44 @@ private fun LiveControls(
     val counterKey = "${live.currentSlotId}|${live.setIndex}|${live.currentSegment}"
     var counterTouched by remember(counterKey) { mutableStateOf(false) }
 
-    // Guards against banking an empty set.
-    var confirming by remember { mutableStateOf<PendingAction?>(null) }
-    fun guard(action: PendingAction, run: () -> Unit) {
-        if (isActive && exercise != null && live.currentReps == 0) confirming = action else run()
+    // Guards against banking an empty or unrated set. `guardReps` covers the shared zero-rep case
+    // (bank, skip); the bank action additionally nudges when effort wasn't rated.
+    var confirming by remember { mutableStateOf<PendingConfirm?>(null) }
+    val zeroBody = "This set is recorded as 0 ${if (isHold) "seconds" else "reps"}. Log them first " +
+        "if you forgot — they feed the calorie estimate."
+    fun guardReps(confirmLabel: String, run: () -> Unit) {
+        if (isActive && exercise != null && live.currentReps == 0) {
+            confirming = PendingConfirm("No reps logged", zeroBody, confirmLabel, run)
+        } else {
+            run()
+        }
+    }
+    fun attemptBank(bank: () -> Unit) {
+        when {
+            isActive && exercise != null && live.currentReps == 0 ->
+                confirming = PendingConfirm("No reps logged", zeroBody, "Bank it anyway", bank)
+            // Effort is how a set felt — not expected on a warm-up, expected on a working set. Nudge
+            // once if you're about to end a working set without rating it, but never block.
+            isActive && exercise != null && !live.hasPendingEffort && !live.isCurrentSetWarmup ->
+                confirming = PendingConfirm(
+                    "Effort not rated",
+                    "You haven't said how hard this set felt. Rating it (RIR / RPE / %RM) feeds your " +
+                        "history and the AI coach — it never changes the calories. Rate it first, or " +
+                        "end the set as is.",
+                    "End without rating",
+                    bank,
+                )
+            else -> bank()
+        }
     }
 
     var showJournal by remember { mutableStateOf(false) }
     var hudExpanded by remember { mutableStateOf(false) }
     var repsNumpad by remember { mutableStateOf(false) }
     var weightNumpad by remember { mutableStateOf(false) }
-    // The set being rated from the rest-state "Rate that set" chip (the set you just banked).
-    var ratingSet by remember { mutableStateOf<SetLog?>(null) }
+    // Whether the effort sheet for the set in progress is open — effort is rated on the exercise
+    // screen now, while the set is fresh, rather than after banking on the rest screen.
+    var ratingCurrent by remember { mutableStateOf(false) }
 
     // How far the sheet is pulled up (0 = resting low, 1 = detail open). Drives both the sheet and
     // the video fading down behind it. Owned here so the two stay in lockstep frame-for-frame.
@@ -212,19 +248,13 @@ private fun LiveControls(
     // The lead-in should read on the video, not through a half-open detail sheet — tuck it away.
     LaunchedEffect(countdown != null) { if (countdown != null) sheetExpand.animateTo(0f) }
 
-    if (confirming != null) {
-        val pending = confirming!!
+    confirming?.let { pending ->
         AlertDialog(
             onDismissRequest = { confirming = null },
-            title = { Text("No reps logged") },
-            text = {
-                Text(
-                    "This set is recorded as 0 ${if (isHold) "seconds" else "reps"}. Log them first if " +
-                        "you forgot — they feed the calorie estimate.",
-                )
-            },
+            title = { Text(pending.title) },
+            text = { Text(pending.body) },
             confirmButton = {
-                TextButton(onClick = { confirming = null; pending.run() }) { Text(pending.label, color = Coral) }
+                TextButton(onClick = { confirming = null; pending.run() }) { Text(pending.confirmLabel, color = Coral) }
             },
             dismissButton = { TextButton(onClick = { confirming = null }) { Text("Go back") } },
         )
@@ -245,7 +275,7 @@ private fun LiveControls(
         isActive -> {
             primaryLabel = if (live.bankingEndsWorkout) "Done — log last set" else "Done — log & rest"
             val bank = { if (prefs.vibration) haptics.setBanked(); vm.toggleSegment(); Unit }
-            primaryClick = { guard(PendingAction("Bank it anyway", bank)) { bank() } }
+            primaryClick = { attemptBank(bank) }
         }
         live.allSetsDone -> {
             primaryLabel = "Finish & save workout"; primaryClick = { vm.finish(onFinished) }
@@ -258,9 +288,14 @@ private fun LiveControls(
     val canSkip = live.nextExercise != null && !live.allSetsDone && !live.isOpeningWarmup &&
         (isActive || !live.nextIsNewExercise)
     val canReveal = (heroExercise != null || heroPlanned != null) && countdown == null
-    // The set you just banked — offered for a quick effort rating while you rest, so logging effort
-    // is a natural one-tap step here rather than something hidden away in the Journal.
-    val justBankedSet = if (!isActive && countdown == null && !live.isOpeningWarmup) live.setLogs.lastOrNull() else null
+    // Reps this set was performed with last time in this same workout, when the "start from last time"
+    // setting is on — the counter opens on these and the caption says so, so you're matching or beating
+    // yourself rather than chasing a planned number. Null for a first-time workout, a hold, or off.
+    val currentHistoryReps = if (isActive && exercise != null && !isHold) {
+        live.currentSlotId?.let { previousReps[it]?.get(live.setIndex) }
+    } else {
+        null
+    }
     val kcalInt = s.totalKcal.toInt()
     val elapsedMin = live.elapsedMs / 60_000.0
     val kcalPerMin = if (elapsedMin > 0.1) s.totalKcal / elapsedMin else 0.0
@@ -329,19 +364,32 @@ private fun LiveControls(
                     .graphicsLayer { alpha = 1f - sheetExpand.value },
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                heroPlanned?.let {
+                // The set the hero is for: the current one while working, otherwise the one coming up.
+                val heroSetIndex = if (isActive) live.setIndex else (live.upNext?.setIndex ?: live.setIndex)
+                val heroHistoryReps = heroPlanned
+                    ?.takeIf { it.measure == com.calistapp.core.model.ExerciseMeasure.REPS }
+                    ?.let { hp -> previousReps[hp.slotId]?.get(heroSetIndex) }
+                heroPlanned?.let { hp ->
+                    // A workout done before shows last time's reps as the number to hit; otherwise the plan target.
                     Text(
-                        heroTargetLabel(it),
+                        heroHistoryReps?.let { "$it reps" } ?: heroTargetLabel(hp),
                         style = MaterialTheme.typography.titleMedium,
                         color = Flame,
                         fontWeight = FontWeight.Bold,
                     )
                 }
+                // Name without the load — the weight sits in its own chip below rather than merged in.
                 Text(
-                    heroPlanned?.displayName ?: exercise?.displayName ?: "",
+                    heroPlanned?.name ?: exercise?.name ?: "",
                     style = TitleSans,
                     color = Chalk,
                 )
+                val heroWeightKg = heroPlanned?.let { hp ->
+                    if (isActive) live.currentSetWeightKg else hp.sets().getOrNull(heroSetIndex - 1)?.weightKg ?: hp.addedWeightKg
+                } ?: 0.0
+                if (heroWeightKg > 0.0) {
+                    HeroWeightChip(heroWeightKg)
+                }
             }
 
             LiveSheet(
@@ -365,8 +413,11 @@ private fun LiveControls(
                         countdown != null -> Unit
                         isActive && exercise != null -> RepCounterContent(
                             reps = live.currentReps,
-                            target = live.currentSet?.reps ?: if (isHold) exercise.targetSeconds else exercise.targetReps,
+                            target = currentHistoryReps
+                                ?: live.currentSet?.reps
+                                ?: if (isHold) exercise.targetSeconds else exercise.targetReps,
                             isHold = isHold,
+                            fromHistory = currentHistoryReps != null,
                             touched = counterTouched,
                             onDelta = { counterTouched = true; vm.adjustReps(it) },
                             onOpenNumpad = { repsNumpad = true },
@@ -382,9 +433,11 @@ private fun LiveControls(
                         )
                     }
 
-                    // Rate the set you just did — effort logging where it's natural, not in the Journal.
-                    justBankedSet?.let { set ->
-                        RateSetChip(effortLabel = set.effortLabel, onClick = { ratingSet = set })
+                    // Rate how this set felt, here on the exercise screen while it's fresh — the rating
+                    // rides onto the set when you bank it, and ending a working set unrated asks first.
+                    // Warm-ups aren't asked to rate effort.
+                    if (isActive && exercise != null && !live.isCurrentSetWarmup) {
+                        RateSetChip(effortLabel = live.pendingEffortLabel, onClick = { ratingCurrent = true })
                     }
 
                     if (isActive || countdown != null || canSkip) {
@@ -402,7 +455,7 @@ private fun LiveControls(
                             }
                             if (canSkip) live.nextExercise?.let { next ->
                                 TextButton(
-                                    onClick = { guard(PendingAction("Skip anyway") { vm.advanceToNext() }) { vm.advanceToNext() } },
+                                    onClick = { guardReps("Skip anyway") { vm.advanceToNext() } },
                                 ) {
                                     Text("Skip to ${next.name}", color = Ash)
                                 }
@@ -505,17 +558,17 @@ private fun LiveControls(
             onDismiss = { weightNumpad = false },
         )
     }
-    ratingSet?.let { rating ->
-        // Pre-fill from what's already logged, else the plan's target effort for that set.
-        val planTarget = live.plan.slot(rating.slotId)?.sets()?.getOrNull(rating.setIndex - 1)?.effort
+    if (ratingCurrent && exercise != null) {
+        // Pre-fill from what's already rated for the set in progress, else the plan's target effort.
+        val planTarget = live.currentEffortTarget
         EffortInputSheet(
-            initialScale = rating.effortScale ?: planTarget?.scale,
-            initialValue = rating.effortValue?.toInt() ?: planTarget?.value?.toInt(),
+            initialScale = live.pendingEffortScale ?: planTarget?.scale,
+            initialValue = live.pendingEffortValue?.toInt() ?: planTarget?.value?.toInt(),
             onConfirm = { scale, value ->
-                vm.setSetEffort(rating.slotId, rating.setIndex, scale, value.toDouble())
-                ratingSet = null
+                vm.setCurrentEffort(scale, value.toDouble())
+                ratingCurrent = false
             },
-            onDismiss = { ratingSet = null },
+            onDismiss = { ratingCurrent = false },
         )
     }
 }
@@ -549,6 +602,27 @@ private fun LiveTopBar(roundLabel: String, onCollapse: () -> Unit, onPause: () -
 /** "8 reps" / "45s" for the hero label. */
 private fun heroTargetLabel(p: PlannedExercise): String =
     if (p.measure == ExerciseMeasure.SECONDS) "${p.targetSeconds}s" else "${p.targetReps} reps"
+
+/** The added load, as its own orange chip under the exercise name (not merged into the name). */
+@Composable
+private fun HeroWeightChip(weightKg: Double) {
+    Row(
+        Modifier
+            .clip(Capsule)
+            .background(FlameSoft)
+            .padding(horizontal = 11.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Icon(Icons.Filled.FitnessCenter, null, tint = Flame, modifier = Modifier.size(13.dp))
+        Text(
+            "+${formatKg(weightKg)} kg",
+            style = MaterialTheme.typography.labelLarge,
+            color = Flame,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
 
 /** One segment per plan exercise: done, the current one, or still to come. */
 private fun segmentStates(live: LiveSession): List<SegState> = live.plan.exercises.map { slot ->

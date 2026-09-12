@@ -129,8 +129,12 @@ fun SessionDetailScreen(
     val justFinished = remember(current.endMs) {
         current.endMs?.let { System.currentTimeMillis() - it < 30 * 60_000L } ?: false
     }
-    val title = current.exerciseName
-        ?: current.plan.name.ifBlank { null }
+    // Prefer the workout's own name over the stored per-session name: sessions banked before the
+    // naming fix stored the first exercise's name in `exerciseName`, so reading the plan's name first
+    // shows "Main Calisthenics" rather than "Pull-Up" for those too. A nameless plan (a single gallery
+    // exercise) still falls back to the movement name, then the workout type.
+    val title = current.plan.name.ifBlank { null }
+        ?: current.exerciseName
         ?: current.exerciseType.displayName
     val performedKeys = timeline.map { it.key }.toSet()
     val skipped = remember(current.plan, performedKeys) {

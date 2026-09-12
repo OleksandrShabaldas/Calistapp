@@ -1,5 +1,6 @@
 package com.calistapp.app.session
 
+import com.calistapp.core.model.EffortScale
 import com.calistapp.core.model.EffortTarget
 import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.NextUp
@@ -54,7 +55,25 @@ data class LiveSession(
     val setLogs: List<SetLog> = emptyList(),
     /** Effective max heart rate (measured, or estimated from age) — drives the HUD's zone read-out. */
     val maxHr: Int = 190,
+    /**
+     * Effort rated for the set in progress, before it's banked — so effort is logged on the exercise
+     * screen while the set is fresh, not tucked into the rest screen after. Copied onto the [SetLog]
+     * when the set is banked, then cleared for the next set. Null until rated.
+     */
+    val pendingEffortScale: EffortScale? = null,
+    val pendingEffortValue: Double? = null,
 ) {
+    /** Whether the set in progress has had its effort rated yet. */
+    val hasPendingEffort: Boolean get() = pendingEffortScale != null && pendingEffortValue != null
+
+    /** "8 RPE" / "2 RIR" / null — the rated effort for the set in progress, for the live chip. */
+    val pendingEffortLabel: String?
+        get() {
+            val scale = pendingEffortScale ?: return null
+            val v = pendingEffortValue ?: return null
+            val n = if (v % 1.0 == 0.0) v.toInt().toString() else v.toString()
+            return if (scale == EffortScale.PERCENT_RM) "$n %RM" else "$n ${scale.label}"
+        }
     val elapsedMs: Long get() = nowMs - startMs
     val currentExercise: PlannedExercise? get() = plan.slot(currentSlotId)
     val nextExercise: PlannedExercise? get() = plan.next(currentSlotId)

@@ -25,6 +25,12 @@ data class SessionPrefs(
     val autoplayVideo: Boolean = true,
     /** Speak cues aloud so the phone needn't be touched. */
     val handsFree: Boolean = false,
+    /**
+     * When a workout has been done before, open each set's counter on the reps you actually did last
+     * time (scoped to that same saved workout) instead of the plan's target — so you're matching or
+     * beating yourself. On by default; a setting turns it off to always show the planned target.
+     */
+    val startFromLastTime: Boolean = true,
 )
 
 @Singleton
@@ -35,6 +41,7 @@ class SessionPrefsRepository @Inject constructor(
     private val vibrationKey = booleanPreferencesKey("vibration")
     private val autoplayKey = booleanPreferencesKey("autoplay_video")
     private val handsFreeKey = booleanPreferencesKey("hands_free")
+    private val startFromLastTimeKey = booleanPreferencesKey("start_from_last_time")
 
     val prefs: Flow<SessionPrefs> = context.sessionPrefs.data.map {
         SessionPrefs(
@@ -42,6 +49,7 @@ class SessionPrefsRepository @Inject constructor(
             vibration = it[vibrationKey] ?: true,
             autoplayVideo = it[autoplayKey] ?: true,
             handsFree = it[handsFreeKey] ?: false,
+            startFromLastTime = it[startFromLastTimeKey] ?: true,
         )
     }
 
@@ -59,5 +67,9 @@ class SessionPrefsRepository @Inject constructor(
 
     suspend fun setHandsFree(on: Boolean) {
         context.sessionPrefs.edit { it[handsFreeKey] = on }
+    }
+
+    suspend fun setStartFromLastTime(on: Boolean) {
+        context.sessionPrefs.edit { it[startFromLastTimeKey] = on }
     }
 }

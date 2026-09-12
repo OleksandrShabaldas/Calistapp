@@ -191,12 +191,18 @@ class DashboardViewModel @Inject constructor(
         combine(today, stepDays, earnedByDate, goals, perStepRate) { t, days, earned, g, rate ->
             val todayStr = t.format(ISO_DATE)
             val target = DailyEnergyGoal.dailyTargetKcal(g.dailyStepGoal, rate)
+            val row = days.firstOrNull { it.date == todayStr }
+            val stepK = row?.calories ?: 0.0
             val earnedToday = earned[t] ?: 0.0
+            val workoutK = (earnedToday - stepK).coerceAtLeast(0.0)
             StepsState(
-                steps = days.firstOrNull { it.date == todayStr }?.steps ?: 0,
+                steps = row?.steps ?: 0,
                 stepGoal = g.dailyStepGoal,
                 earnedKcal = earnedToday.roundToInt(),
+                stepKcal = stepK.roundToInt(),
+                workoutKcal = workoutK.roundToInt(),
                 targetKcal = target,
+                eeaSteps = if (rate > 0) (workoutK / rate).roundToInt() else 0,
                 progress = DailyEnergyGoal.progress(earnedToday, target),
                 goalMet = DailyEnergyGoal.hit(earnedToday, target),
             )
@@ -220,13 +226,21 @@ class DashboardViewModel @Inject constructor(
                 steps = row?.steps ?: 0,
                 stepGoal = g.dailyStepGoal,
                 earnedKcal = earned.roundToInt(),
+                stepKcal = stepK.roundToInt(),
+                workoutKcal = workoutK.roundToInt(),
                 targetKcal = target,
+                eeaSteps = if (rate > 0) (workoutK / rate).roundToInt() else 0,
                 progress = DailyEnergyGoal.progress(earned, target),
                 sessions = daySessions,
             )
         }.stateIn(viewModelScope, started, null)
 
-    val week: StateFlow<WeekState> =
+    /** The daily energy target — the streak/goal figure, drawn as the week strip's reference line. */
+    private val dailyTargetKcal: StateFlow<Int> =
+        combine(goals, perStepRate) { g, rate -> DailyEnergyGoal.dailyTargetKcal(g.dailyStepGoal, rate) }
+            .stateIn(viewModelScope, started, 0)
+
+    private val weekBase: StateFlow<WeekState> =
         combine(selectedWeekStart, stepKcalByDate, workoutKcalByDate, sessions, selectedWeekPlan) { weekStart, stepMap, workoutMap, s, plan ->
             val todayDate = LocalDate.now(zone)
             val currentWeekStart = todayDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
@@ -259,6 +273,21 @@ class DashboardViewModel @Inject constructor(
                 isCurrentWeek = weekStart == currentWeekStart,
             )
         }.stateIn(viewModelScope, started, WeekState())
+
+    val week: StateFlow<WeekState> = combine(weekBase, dailyTargetKcal) { base, target ->
+        base.copy(dailyTargetKcal = target)
+    }.stateIn(viewModelScope, started, WeekState())
+
+    /**
+     * Sessions finished today, newest first — when there are any, the home screen shows this as a
+     * "today's workout" summary in place of the Next Up card (you've already trained; the next planned
+     * workout is no longer the thing to surface).
+     */
+    val todaysSessions: StateFlow<List<SessionOverview>> =
+        combine(today, sessions) { t, list ->
+            list.filter { Instant.ofEpochMilli(it.startMs).atZone(zone).toLocalDate() == t }
+                .sortedByDescending { it.startMs }
+        }.stateIn(viewModelScope, started, emptyList())
 
     val nextUp: StateFlow<NextUpState?> =
         combine(today, currentWeekPlan, savedWorkouts, sessions) { t, plan, saved, s ->

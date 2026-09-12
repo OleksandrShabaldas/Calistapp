@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
@@ -36,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -54,6 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.health.connect.client.PermissionController
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -81,6 +85,7 @@ private enum class SettingsCategory(
 ) {
     PROFILE("Profile & body", "The metrics that personalise every calorie estimate", Icons.Filled.Person),
     GOALS("Goals", "Your daily step goal (drives the streak) and weekly targets", Icons.Filled.Flag),
+    WORKOUT("Workout", "How the live workout screen behaves", Icons.Filled.FitnessCenter),
     AI("AI", "API key, and the models for analysis and coaching", Icons.Filled.AutoAwesome),
     OFFLINE("Offline media", "Download exercise videos to use the app with no connection", Icons.Filled.CloudDownload),
     FITPAL("FitPal sync", "Send workouts to FitPal and import your steps", Icons.Filled.Sync),
@@ -122,6 +127,7 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
             when (cat) {
                 SettingsCategory.PROFILE -> ProfileDetail(viewModel)
                 SettingsCategory.GOALS -> GoalsDetail(viewModel)
+                SettingsCategory.WORKOUT -> WorkoutDetail(viewModel)
                 SettingsCategory.AI -> AiSettingsDetail(viewModel)
                 SettingsCategory.OFFLINE -> OfflineDetail(viewModel)
                 SettingsCategory.FITPAL -> FitPalDetail(viewModel)
@@ -301,6 +307,39 @@ private fun ProfileDetail(viewModel: ProfileViewModel) {
     }
 }
 
+/** Live-workout behaviour toggles surfaced in Settings (the rest live on the pause screen). */
+@Composable
+private fun WorkoutDetail(viewModel: ProfileViewModel) {
+    val prefs by viewModel.sessionPrefs.collectAsStateWithLifecycle()
+    val p = prefs ?: return
+    SectionCard(title = "Set targets") {
+        ToggleRow(
+            title = "Start each set from last time",
+            subtitle = "When you repeat a workout you've done before, the counter opens on the reps you " +
+                "actually did last time in that same workout — so you're matching or beating yourself. " +
+                "Turn off to always show the plan's target.",
+            checked = p.startFromLastTime,
+            onCheckedChange = viewModel::setStartFromLastTime,
+        )
+    }
+}
+
+@Composable
+private fun ToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
 @Composable
 private fun GoalsDetail(viewModel: ProfileViewModel) {
     val goals by viewModel.goals.collectAsStateWithLifecycle()
@@ -362,6 +401,7 @@ private fun SleepConnectSection(
 @Composable
 private fun AiSettingsDetail(viewModel: ProfileViewModel) {
     val settings by viewModel.aiSettings.collectAsStateWithLifecycle()
+    val modelTests by viewModel.modelTests.collectAsStateWithLifecycle()
     val s = settings
     if (s == null) {
         Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -411,9 +451,9 @@ private fun AiSettingsDetail(viewModel: ProfileViewModel) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            ModelField("Primary", t0) { t0 = it; touched() }
-            ModelField("Fallback 1", t1) { t1 = it; touched() }
-            ModelField("Fallback 2", t2) { t2 = it; touched() }
+            ModelField("Primary", t0, modelTests[t0.trim()], { viewModel.testModel(t0, key) }) { t0 = it; touched() }
+            ModelField("Fallback 1", t1, modelTests[t1.trim()], { viewModel.testModel(t1, key) }) { t1 = it; touched() }
+            ModelField("Fallback 2", t2, modelTests[t2.trim()], { viewModel.testModel(t2, key) }) { t2 = it; touched() }
         }
 
         SectionCard(title = "Fast models") {
@@ -423,9 +463,9 @@ private fun AiSettingsDetail(viewModel: ProfileViewModel) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            ModelField("Primary", f0) { f0 = it; touched() }
-            ModelField("Fallback 1", f1) { f1 = it; touched() }
-            ModelField("Fallback 2", f2) { f2 = it; touched() }
+            ModelField("Primary", f0, modelTests[f0.trim()], { viewModel.testModel(f0, key) }) { f0 = it; touched() }
+            ModelField("Fallback 1", f1, modelTests[f1.trim()], { viewModel.testModel(f1, key) }) { f1 = it; touched() }
+            ModelField("Fallback 2", f2, modelTests[f2.trim()], { viewModel.testModel(f2, key) }) { f2 = it; touched() }
         }
 
         Button(
@@ -491,15 +531,49 @@ private fun EnrichLibraryCard(viewModel: ProfileViewModel) {
 }
 
 @Composable
-private fun ModelField(label: String, value: String, onChange: (String) -> Unit) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onChange,
-        label = { Text(label) },
-        singleLine = true,
-        placeholder = { Text("model id, e.g. gemini-3.5-flash") },
-        modifier = Modifier.fillMaxWidth(),
-    )
+private fun ModelField(
+    label: String,
+    value: String,
+    testResult: ModelTestResult?,
+    onTest: () -> Unit,
+    onChange: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onChange,
+            label = { Text(label) },
+            singleLine = true,
+            placeholder = { Text("model id, e.g. gemini-3.5-flash") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        val testing = testResult?.state == ModelTestState.TESTING
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(
+                onClick = onTest,
+                enabled = value.isNotBlank() && !testing,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                Text(if (testing) "Testing…" else "Test connection")
+            }
+            when (testResult?.state) {
+                ModelTestState.OK -> Text(
+                    "✓ Connected",
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                ModelTestState.FAIL -> Text(
+                    "✗ ${testResult.message ?: "Failed"}",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                else -> Unit
+            }
+        }
+    }
 }
 
 /** Download every exercise video for offline use, with progress and a way to reclaim the space. */

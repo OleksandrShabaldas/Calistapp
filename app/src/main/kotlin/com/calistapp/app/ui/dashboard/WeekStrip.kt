@@ -137,7 +137,13 @@ fun WeekStrip(
             verticalAlignment = Alignment.Bottom,
         ) {
             week.days.forEach { day ->
-                DayColumn(day, week.maxKcal, isSelected = day.date == selectedDate, onClick = { onSelectDay(day.date) })
+                DayColumn(
+                    day,
+                    week.maxKcal,
+                    targetKcal = week.dailyTargetKcal,
+                    isSelected = day.date == selectedDate,
+                    onClick = { onSelectDay(day.date) },
+                )
             }
         }
 
@@ -163,7 +169,7 @@ fun WeekStrip(
 }
 
 @Composable
-private fun DayColumn(day: DayCell, maxKcal: Int, isSelected: Boolean, onClick: () -> Unit) {
+private fun DayColumn(day: DayCell, maxKcal: Int, targetKcal: Int, isSelected: Boolean, onClick: () -> Unit) {
     val selShape = RoundedCornerShape(12.dp)
     Column(
         Modifier
@@ -192,6 +198,21 @@ private fun DayColumn(day: DayCell, maxKcal: Int, isSelected: Boolean, onClick: 
                 }
             } else {
                 Box(Modifier.width(24.dp).height(barHeight).clip(barShape).background(barBrush))
+            }
+            // The daily energy target, as a thin reference line at the height a just-on-target day
+            // would reach (same 8dp base + 46dp scale as the bars). One dash per day, all at the same
+            // height, so they read across the strip as the level to clear. Drawn over the bar.
+            if (targetKcal > 0) {
+                val targetFrac = (targetKcal.toFloat() / maxKcal).coerceIn(0f, 1f)
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 8.dp + 46.dp * targetFrac)
+                        .width(30.dp)
+                        .height(2.dp)
+                        .clip(barShape)
+                        .background(Chalk.copy(alpha = 0.38f)),
+                )
             }
         }
         Spacer(Modifier.height(8.dp))

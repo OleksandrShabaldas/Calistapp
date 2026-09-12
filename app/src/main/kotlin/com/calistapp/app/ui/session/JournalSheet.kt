@@ -169,7 +169,11 @@ private fun JournalExerciseRow(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(OnyxFillStrong.copy(alpha = 0.5f))
+            // A flat onyx card, not the old `OnyxFillStrong.copy(alpha = 0.5f)` — `.copy(alpha)`
+            // overrode the token's 8% to 50% white, which is why these rows glared bright grey against
+            // the rest of the app. The token as-is plus a hairline border matches the app's cards.
+            .background(OnyxFillStrong)
+            .border(1.dp, OnyxBorder, RoundedCornerShape(14.dp))
             .clickable { expanded = !expanded }
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),

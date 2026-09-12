@@ -3,8 +3,10 @@ package com.calistapp.app.ui.profile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.calistapp.app.data.ai.AiModelTier
+import com.calistapp.app.data.ai.AiResult
 import com.calistapp.app.data.ai.AiSettings
 import com.calistapp.app.data.ai.AiSettingsRepository
+import com.calistapp.app.data.ai.GeminiClient
 import com.calistapp.app.data.exercise.ExerciseEnrichmentManager
 import com.calistapp.app.data.exercise.ExercisePrefsRepository
 import com.calistapp.app.data.exercise.ExerciseRepository
@@ -17,6 +19,8 @@ import com.calistapp.app.data.profile.ProfileRepository
 import com.calistapp.app.data.profile.WeightRepository
 import com.calistapp.app.data.recommend.RecommendationsRepository
 import com.calistapp.app.data.recommend.SleepRepository
+import com.calistapp.app.data.session.SessionPrefs
+import com.calistapp.app.data.session.SessionPrefsRepository
 import com.calistapp.app.data.session.SessionRepository
 import com.calistapp.core.model.Exercise
 import com.calistapp.core.model.TrainingGoals
@@ -30,6 +34,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -41,6 +46,7 @@ class ProfileViewModel @Inject constructor(
     private val weightRepository: WeightRepository,
     private val exercisePrefs: ExercisePrefsRepository,
     private val aiSettingsRepository: AiSettingsRepository,
+    private val geminiClient: GeminiClient,
     private val mediaDownloads: MediaDownloadManager,
     private val enrichmentManager: ExerciseEnrichmentManager,
     private val sessionRepository: SessionRepository,
@@ -48,6 +54,7 @@ class ProfileViewModel @Inject constructor(
     private val stepsImportRepository: StepsImportRepository,
     private val sleepRepository: SleepRepository,
     private val recommendationsRepository: RecommendationsRepository,
+    private val sessionPrefsRepository: SessionPrefsRepository,
     private val json: Json,
     exerciseRepository: ExerciseRepository,
 ) : ViewModel() {
@@ -131,6 +138,36 @@ class ProfileViewModel @Inject constructor(
 
     fun resetAiModels() = viewModelScope.launch { aiSettingsRepository.resetModels() }
 
+    // ---- Live-workout behaviour -------------------------------------------------------------------
+
+    /** The live-workout preferences (the settings-surfaced ones), null until first read. */
+    val sessionPrefs: StateFlow<SessionPrefs?> = sessionPrefsRepository.prefs
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Open each set's counter on last time's reps (for a workout done before) vs. the plan's target. */
+    fun setStartFromLastTime(on: Boolean) = viewModelScope.launch { sessionPrefsRepository.setStartFromLastTime(on) }
+
+    /** Per-model connection-test results, keyed by the trimmed model id. Drives the Test buttons. */
+    private val _modelTests = MutableStateFlow<Map<String, ModelTestResult>>(emptyMap())
+    val modelTests: StateFlow<Map<String, ModelTestResult>> = _modelTests.asStateFlow()
+
+    /**
+     * Ping one model with the API key currently in the form (so it can be checked before saving) and
+     * record whether it answered. Keyed by model id, so the same id used in two slots shares a result.
+     */
+    fun testModel(model: String, apiKey: String) {
+        val id = model.trim()
+        if (id.isBlank()) return
+        _modelTests.update { it + (id to ModelTestResult(ModelTestState.TESTING)) }
+        viewModelScope.launch {
+            val result = when (val r = geminiClient.testModel(id, apiKey)) {
+                is AiResult.Success -> ModelTestResult(ModelTestState.OK, "Connected")
+                is AiResult.Failure -> ModelTestResult(ModelTestState.FAIL, r.message)
+            }
+            _modelTests.update { it + (id to result) }
+        }
+    }
+
     /** Bulk AI enrichment of the whole exercise library — a background, resumable, cached job. */
     val enrichmentProgress = enrichmentManager.progress
     fun startEnrichAll() = enrichmentManager.start()
@@ -207,3 +244,8 @@ class ProfileViewModel @Inject constructor(
         return json.encodeToString(ListSerializer(PerformedSession.serializer()), sessions)
     }
 }
+
+/** State of a single AI model's connection test. */
+enum class ModelTestState { TESTING, OK, FAIL }
+
+data class ModelTestResult(val state: ModelTestState, val message: String? = null)

@@ -20,14 +20,22 @@ import com.calistapp.core.model.SegmentType
  */
 object HeartRateRecovery {
 
-    /** Window after effort ends over which the drop is measured. The standard is one minute. */
+    /** The standard window after effort ends over which recovery is measured — one minute. */
     const val WINDOW_MS = 60_000L
+
+    /**
+     * Shortest rest that still yields a recovery reading. Below this the drop is too brief to mean
+     * much; between here and a full minute it's measured over the actual rest and reported per-minute,
+     * so a workout with brisk rests still gives a reading for every exercise rather than only the one
+     * rest that happened to run a full minute (which read as "recovery data for one exercise only").
+     */
+    private const val MIN_REST_MS = 30_000L
 
     /** How far back before the transition to look for the peak the recovery is measured from. */
     private const val PEAK_LOOKBACK_MS = 30_000L
 
     /** A reading this far from the target instant is too stale to anchor on. */
-    private const val TOLERANCE_MS = 15_000L
+    private const val TOLERANCE_MS = 12_000L
 
     fun analyze(samples: List<HeartRateSample>, segments: List<Segment>): HrRecovery? {
         if (samples.isEmpty() || segments.isEmpty()) return null
@@ -42,13 +50,15 @@ object HeartRateRecovery {
             if (previous.type != SegmentType.ACTIVE) return@forEachIndexed
 
             val restStart = segment.startMs
-            // The rest has to have lasted the full window, or the drop is measured over less time
-            // than it claims.
             val restEnd = segment.endMs ?: return@forEachIndexed
-            if (restEnd - restStart < WINDOW_MS) return@forEachIndexed
+            val restLen = restEnd - restStart
+            // Too short to read anything into.
+            if (restLen < MIN_REST_MS) return@forEachIndexed
+            // Measure over a full minute when the rest ran that long, otherwise over the whole rest.
+            val window = minOf(restLen, WINDOW_MS)
 
             val peak = peakBefore(ordered, restStart) ?: return@forEachIndexed
-            val after = nearest(ordered, restStart + WINDOW_MS) ?: return@forEachIndexed
+            val after = nearest(ordered, restStart + window) ?: return@forEachIndexed
 
             val drop = peak - after.bpm
             // A rise isn't a recovery measurement — it's a sensor artefact or you kept moving.
@@ -59,15 +69,18 @@ object HeartRateRecovery {
                     endBpm = after.bpm,
                     dropBpm = drop,
                     atMs = restStart,
+                    windowSeconds = (window / 1000).toInt(),
                 )
             }
         }
 
         if (drops.isEmpty()) return null
-        val dropBpms = drops.map { it.dropBpm }
+        // Normalise to bpm/min before averaging so a 40-second rest and a full-minute one compare on
+        // the same scale.
+        val rates = drops.map { it.perMinuteDrop }
         return HrRecovery(
-            meanDropBpm = dropBpms.average().toInt(),
-            bestDropBpm = dropBpms.max(),
+            meanDropBpm = rates.average().toInt(),
+            bestDropBpm = rates.max(),
             measuredRests = drops.size,
             drops = drops,
         )

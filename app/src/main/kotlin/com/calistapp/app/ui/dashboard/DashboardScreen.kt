@@ -77,6 +77,7 @@ fun DashboardScreen(
     val dayView by viewModel.dayView.collectAsStateWithLifecycle()
     val streak by viewModel.streak.collectAsStateWithLifecycle()
     val stepsInsights by viewModel.stepsInsights.collectAsStateWithLifecycle()
+    val todaysSessions by viewModel.todaysSessions.collectAsStateWithLifecycle()
 
     var expandedGauge by remember { mutableStateOf<GaugeKind?>(null) }
     var showMonth by remember { mutableStateOf(false) }
@@ -155,7 +156,10 @@ fun DashboardScreen(
                         steps = viewing.steps,
                         stepGoal = viewing.stepGoal,
                         earnedKcal = viewing.earnedKcal,
+                        stepKcal = viewing.stepKcal,
+                        workoutKcal = viewing.workoutKcal,
                         targetKcal = viewing.targetKcal,
+                        eeaSteps = viewing.eeaSteps,
                         progress = viewing.progress,
                         goalMet = viewing.earnedKcal >= viewing.targetKcal,
                     ),
@@ -167,21 +171,27 @@ fun DashboardScreen(
             Entrance(slot++) { PastDayNotice(viewing.dateLabel, hadWorkout = viewing.sessions.isNotEmpty(), onBack = viewModel::clearSelectedDay) }
         } else {
             Entrance(slot++) {
-                nextUp?.let { nu ->
-                    NextUpCard(
-                        state = nu,
-                        onOpenInfo = { onOpenWorkout(nu.savedWorkoutId) },
-                        onStart = { viewModel.startSavedWorkout(nu.savedWorkoutId); onStartSetup() },
+                when {
+                    // Already trained today → the day's summary, not the next planned workout.
+                    todaysSessions.isNotEmpty() -> TodaySummaryCard(
+                        sessions = todaysSessions,
+                        onOpenSession = onOpenSession,
                     )
-                } ?: DashCard {
-                    Text("No workout yet", style = MaterialTheme.typography.titleLarge, color = Chalk)
-                    Text(
-                        "Build one and it'll wait here, ready to start.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Ash,
+                    nextUp != null -> NextUpCard(
+                        state = nextUp!!,
+                        onOpenInfo = { onOpenWorkout(nextUp!!.savedWorkoutId) },
+                        onStart = { viewModel.startSavedWorkout(nextUp!!.savedWorkoutId); onStartSetup() },
                     )
-                    TextButton(onClick = onStartWorkout, contentPadding = ButtonDefaults.TextButtonContentPadding) {
-                        Text("Build a workout", color = FlameHot)
+                    else -> DashCard {
+                        Text("No workout yet", style = MaterialTheme.typography.titleLarge, color = Chalk)
+                        Text(
+                            "Build one and it'll wait here, ready to start.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Ash,
+                        )
+                        TextButton(onClick = onStartWorkout, contentPadding = ButtonDefaults.TextButtonContentPadding) {
+                            Text("Build a workout", color = FlameHot)
+                        }
                     }
                 }
             }

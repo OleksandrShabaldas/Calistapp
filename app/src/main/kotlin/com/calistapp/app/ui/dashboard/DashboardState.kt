@@ -40,9 +40,14 @@ data class WeekState(
     /** "This week" for the current week, otherwise a date range like "1–7 Sep". */
     val title: String = "This week",
     val isCurrentWeek: Boolean = true,
+    /** The daily energy target — drawn as a thin reference line across the bars. 0 hides it. */
+    val dailyTargetKcal: Int = 0,
 ) {
-    /** For scaling bar heights; never zero so an empty week doesn't divide by nothing. */
-    val maxKcal: Int get() = (days.maxOfOrNull { it.kcal } ?: 0).coerceAtLeast(1)
+    /**
+     * For scaling bar heights; never zero so an empty week doesn't divide by nothing. Includes the
+     * target so its reference line stays on-scale even in a week where no day out-burned it.
+     */
+    val maxKcal: Int get() = (days.maxOfOrNull { it.kcal } ?: 0).coerceAtLeast(dailyTargetKcal).coerceAtLeast(1)
 }
 
 /** Today's steps and the daily energy-goal ring. */
@@ -50,10 +55,22 @@ data class StepsState(
     val steps: Int = 0,
     val stepGoal: Int = TrainingGoals.DEFAULT_DAILY_STEP_GOAL,
     val earnedKcal: Int = 0,
+    /** Calories from walking (orange arc of the ring). */
+    val stepKcal: Int = 0,
+    /** Calories from workouts (red arc of the ring). */
+    val workoutKcal: Int = 0,
     val targetKcal: Int = 0,
+    /**
+     * Estimated Exercise Activity: today's workout calories expressed as the steps it would take to
+     * burn the same — so training "counts" toward the step figure without inflating the real count.
+     */
+    val eeaSteps: Int = 0,
     val progress: Float = 0f,
     val goalMet: Boolean = false,
-)
+) {
+    /** Percent of the daily target reached — uncapped, so it keeps climbing past 100%. */
+    val percentOfTarget: Int get() = if (targetKcal <= 0) 0 else (earnedKcal * 100 / targetKcal)
+}
 
 /** One square in the streak heatmap: a day, its burn, and how it compares to the goal. */
 data class HeatCell(
@@ -96,7 +113,10 @@ data class DayView(
     val steps: Int,
     val stepGoal: Int,
     val earnedKcal: Int,
+    val stepKcal: Int,
+    val workoutKcal: Int,
     val targetKcal: Int,
+    val eeaSteps: Int,
     val progress: Float,
     val sessions: List<SessionOverview>,
 )

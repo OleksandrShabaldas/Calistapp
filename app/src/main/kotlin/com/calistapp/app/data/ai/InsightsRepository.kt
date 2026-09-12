@@ -149,6 +149,23 @@ internal fun buildCoachPrompt(
             "Ground every claim in the numbers above; never invent data you weren't given. This is " +
                 "coaching, not clinical advice — no medical diagnosis or injury prediction.",
         )
+        appendLine()
+
+        appendLine("FORMATTING")
+        appendLine(
+            "- Markdown: **bold** for key terms and figures, *italic* for lighter emphasis. Write the " +
+                "word \"at\" in full — never the \"@\" sign (e.g. \"3 sets of 10 at +15 kg\").",
+        )
+        appendLine(
+            "- After the analysis, output a line containing only ===GLOSSARY===. Then, for EVERY " +
+                "technical or jargon term you used that a non-specialist might not know — e.g. detraining, " +
+                "Banister TRIMP, acute:chronic ratio, time under tension (TUT), eccentric, RPE, TRIMP — " +
+                "write one line as:  term :: a plain one-sentence explanation in everyday language.",
+        )
+        appendLine(
+            "- Use the exact spelling the term appears with in your text, define each term once, and keep " +
+                "each explanation to a single short sentence. The glossary is required, even if short.",
+        )
     }
 
     /** "Push-Up: 6 sessions · best +15 kg × 14 · last 3 Sep" — a movement's headline for the trend block. */

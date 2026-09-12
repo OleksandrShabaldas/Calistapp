@@ -51,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.calistapp.app.ui.common.GlowBox
 import com.calistapp.app.ui.common.GlowIcon
 import com.calistapp.app.ui.dashboard.CardBorder
 import com.calistapp.app.ui.dashboard.CardSurface
@@ -317,9 +318,12 @@ fun RecoveryOverlay(
                     ) {
                         Column {
                             Text(drop.afterExercise ?: "Rest ${i + 1}", style = MaterialTheme.typography.titleSmall, color = Chalk)
-                            Text("${drop.peakBpm} → ${drop.endBpm} bpm over 1 min", style = MaterialTheme.typography.labelMedium, color = Ash)
+                            val window = if (drop.windowSeconds >= 60) "1 min" else "${drop.windowSeconds}s"
+                            Text("${drop.peakBpm} → ${drop.endBpm} bpm over $window", style = MaterialTheme.typography.labelMedium, color = Ash)
                         }
-                        Text("−${drop.dropBpm}", style = MaterialTheme.typography.titleMedium, color = recoveryBand(drop.dropBpm).color, fontWeight = FontWeight.Bold)
+                        // The raw drop over its window; coloured by the per-minute rate so a short rest's
+                        // band matches the headline scale.
+                        Text("−${drop.dropBpm}", style = MaterialTheme.typography.titleMedium, color = recoveryBand(drop.perMinuteDrop).color, fontWeight = FontWeight.Bold)
                     }
                 }
                 Text(
@@ -348,16 +352,45 @@ private fun RecSection(title: String, content: @Composable ColumnScope.() -> Uni
     }
 }
 
-/** Where the athlete's drop sits on the normal range — blunted / typical / strong — with a marker. */
+/**
+ * Where the athlete's drop sits on the normal range — blunted / typical / strong — with a marker.
+ * The band the value lands in is lit and glows (shaped to the band so the halo doesn't spill as a
+ * circle), the other two stay dim, so the eye lands on where today actually sits.
+ */
 @Composable
 private fun RecoveryScale(value: Int) {
     val frac = (value / 30f).coerceIn(0.02f, 0.98f)
+    val weights = listOf(12f, 8f, 10f)
+    val colors = listOf(Amber, Sky, Flame)
+    val activeIndex = when {
+        value >= 20 -> 2
+        value >= 12 -> 1
+        else -> 0
+    }
+    val before = weights.take(activeIndex).sum()
+    val after = weights.drop(activeIndex + 1).sum()
+    val bandShape = RoundedCornerShape(5.dp)
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        // The outer Box is deliberately un-clipped so the active band's glow isn't sliced at its edge.
         Box(Modifier.fillMaxWidth().height(14.dp)) {
             Row(Modifier.fillMaxSize().clip(RoundedCornerShape(999.dp))) {
-                Box(Modifier.weight(12f).fillMaxHeight().background(Amber.copy(alpha = 0.5f)))
-                Box(Modifier.weight(8f).fillMaxHeight().background(Sky.copy(alpha = 0.5f)))
-                Box(Modifier.weight(10f).fillMaxHeight().background(Flame.copy(alpha = 0.5f)))
+                Box(Modifier.weight(12f).fillMaxHeight().background(Amber.copy(alpha = 0.26f)))
+                Box(Modifier.weight(8f).fillMaxHeight().background(Sky.copy(alpha = 0.26f)))
+                Box(Modifier.weight(10f).fillMaxHeight().background(Flame.copy(alpha = 0.26f)))
+            }
+            // The active band, at full colour with a shaped glow.
+            Row(Modifier.fillMaxWidth().fillMaxHeight()) {
+                if (before > 0f) Spacer(Modifier.weight(before))
+                GlowBox(
+                    color = colors[activeIndex],
+                    shape = bandShape,
+                    glowRadius = 9.dp,
+                    glowAlpha = 0.6f,
+                    modifier = Modifier.weight(weights[activeIndex]).fillMaxHeight(),
+                ) {
+                    Box(Modifier.matchParentSize().clip(bandShape).background(colors[activeIndex]))
+                }
+                if (after > 0f) Spacer(Modifier.weight(after))
             }
             Row(Modifier.fillMaxWidth().fillMaxHeight()) {
                 Spacer(Modifier.weight(frac))

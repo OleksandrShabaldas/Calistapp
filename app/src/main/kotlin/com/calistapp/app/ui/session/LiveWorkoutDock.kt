@@ -202,6 +202,8 @@ fun RepCounterContent(
     onOpenNumpad: () -> Unit,
     weightKg: Double,
     onOpenWeight: () -> Unit,
+    /** True when [target] is what you did last time (not the plan) — labels the ghost accordingly. */
+    fromHistory: Boolean = false,
 ) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 4.dp),
@@ -235,7 +237,7 @@ fun RepCounterContent(
             )
             if (!touched) {
                 Text(
-                    "target $target · tap to log",
+                    if (fromHistory) "last time $target · tap to log" else "target $target · tap to log",
                     style = MaterialTheme.typography.labelSmall,
                     color = Ash.copy(alpha = 0.8f),
                 )

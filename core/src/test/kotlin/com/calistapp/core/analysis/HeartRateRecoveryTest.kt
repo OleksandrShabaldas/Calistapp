@@ -54,15 +54,34 @@ class HeartRateRecoveryTest {
     }
 
     @Test
-    fun `a rest shorter than the window is not measured`() {
-        // 40 seconds of rest can't produce a 60-second recovery figure.
-        val samples = ramp(0, 60_000, 120, 170) + ramp(62_000, 100_000, 168, 150)
+    fun `a rest shorter than the floor is not measured`() {
+        // 20 seconds is too brief to read a recovery into.
+        val samples = ramp(0, 60_000, 120, 170) + ramp(62_000, 80_000, 168, 158)
+        val segments = listOf(
+            Segment(SegmentType.ACTIVE, 0, 60_000),
+            Segment(SegmentType.REST, 60_000, 80_000),
+        )
+
+        assertNull(HeartRateRecovery.analyze(samples, segments))
+    }
+
+    @Test
+    fun `a sub-minute rest is measured over its window and reported per minute`() {
+        // A 40-second rest: peak 170, down to ~150 by +40s → a 20-bpm drop over 40s, which is 30
+        // bpm/min once normalised, and the window it was measured over is recorded.
+        val samples = ramp(0, 60_000, 120, 170) + ramp(61_000, 100_000, 168, 150)
         val segments = listOf(
             Segment(SegmentType.ACTIVE, 0, 60_000),
             Segment(SegmentType.REST, 60_000, 100_000),
         )
 
-        assertNull(HeartRateRecovery.analyze(samples, segments))
+        val recovery = HeartRateRecovery.analyze(samples, segments)!!
+
+        assertEquals(1, recovery.measuredRests)
+        assertEquals(40, recovery.drops.single().windowSeconds)
+        // ~20 bpm raw over 40s → ~30 bpm/min.
+        assertEquals(30.0, recovery.meanDropBpm.toDouble(), 6.0)
+        assert(recovery.drops.single().dropBpm < recovery.meanDropBpm)
     }
 
     @Test

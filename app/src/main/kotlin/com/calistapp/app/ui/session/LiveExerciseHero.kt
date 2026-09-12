@@ -70,7 +70,7 @@ fun LiveExerciseHero(
             )
 
             pages.size == 1 -> {
-                HeroPageContent(pages[0], active = true, playing = playing) { playing = !playing }
+                HeroPageContent(pages[0], active = true, playing = playing, posterUrls = exercise?.imageUrls.orEmpty()) { playing = !playing }
                 PausedGlyph(visible = pages[0] is HeroPage.Video && !playing)
             }
 
@@ -81,6 +81,7 @@ fun LiveExerciseHero(
                         page = pages[i],
                         active = pager.currentPage == i && !pager.isScrollInProgress,
                         playing = playing,
+                        posterUrls = exercise?.imageUrls.orEmpty(),
                         onTap = { playing = !playing },
                     )
                 }
@@ -101,10 +102,22 @@ private fun HeroPageContent(
     page: HeroPage,
     active: Boolean,
     playing: Boolean,
+    posterUrls: List<String>,
     onTap: () -> Unit,
 ) {
     when (page) {
         is HeroPage.Video -> Box(Modifier.fillMaxSize().clickable(onClick = onTap)) {
+            // A still frame of this same clip behind the player (the TextureView's shutter is
+            // transparent), so a clip that's still buffering — or one that never loads — shows the
+            // exercise rather than a black rectangle. Offline-first, so a downloaded clip needs no network.
+            if (posterUrls.isNotEmpty()) {
+                ExerciseImage(
+                    urls = posterUrls,
+                    contentDescription = null,
+                    animate = false,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
             ExerciseVideoPlaylist(
                 urls = page.urls,
                 active = active,

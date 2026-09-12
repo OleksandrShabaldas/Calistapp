@@ -29,13 +29,29 @@ data class RestDrop(
     val afterExercise: String?,
     /** Highest reading in the run-up to the rest — what the heart was recovering from. */
     val peakBpm: Int,
-    /** Reading one minute into the rest. */
+    /** Reading [windowSeconds] into the rest. */
     val endBpm: Int,
-    /** [peakBpm] − [endBpm]; always positive (a rise isn't a recovery). */
+    /** [peakBpm] − [endBpm] over [windowSeconds]; always positive (a rise isn't a recovery). */
     val dropBpm: Int,
     /** When the rest began — orders the drops along the session. */
     val atMs: Long,
-)
+    /**
+     * How long the drop was actually measured over, in seconds. A full minute for a rest that lasted
+     * one, or the whole (shorter) rest when it didn't — so a workout with brisk rests still yields a
+     * recovery reading per exercise rather than only for the one rest that happened to run a minute.
+     * Defaults to 60 so recoveries stored before per-window measurement read as full-minute drops.
+     */
+    val windowSeconds: Int = 60,
+) {
+    /**
+     * The drop expressed as bpm/min, so drops measured over different windows compare on one scale —
+     * what the headline number and the band colours are built from. Heart-rate recovery is fastest in
+     * the first half-minute, so a short window extrapolated this way reads a little high; the measured
+     * window is shown alongside it so the figure stays honest.
+     */
+    val perMinuteDrop: Int
+        get() = if (windowSeconds <= 0) dropBpm else Math.round(dropBpm * 60.0 / windowSeconds).toInt()
+}
 
 /**
  * How fast heart rate fell in the minute after sets ended — a marker of aerobic fitness that the
