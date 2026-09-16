@@ -45,7 +45,7 @@ class WearSessionService : Service() {
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("Workout in progress")
             .setContentText("Tracking heart rate")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(open)
             .setOngoing(true)
             .build()

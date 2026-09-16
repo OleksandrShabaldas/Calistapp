@@ -9,6 +9,7 @@ import com.calistapp.core.model.SetLog
 import com.calistapp.core.model.UserProfile
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.WorkoutSession
+import com.calistapp.core.model.WorkoutStyle
 import com.calistapp.core.progress.PerformedSession
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -66,5 +67,35 @@ class CoachPromptTest {
         // The current session isn't duplicated into the "recent training" list.
         val recentBlock = prompt.substringAfter("RECENT TRAINING").substringBefore("TRENDS")
         assertFalse(recentBlock.contains("cur"))
+    }
+
+    @Test
+    fun `a one-round circuit is described as a circuit and its planned sets are the round count`() {
+        // A circuit's slots keep the default targetSets of 3, but the real per-exercise target is the
+        // round count — reading targetSets made the coach report "1 of 3 planned" for a 1-round circuit.
+        val circuitPlan = WorkoutPlan(
+            id = "c",
+            exercises = listOf(
+                PlannedExercise(slotId = "s1", exerciseId = "dip", name = "Dip", targetSets = 3, targetReps = 8),
+                PlannedExercise(slotId = "s2", exerciseId = "push-up", name = "Push-Up", targetSets = 3, targetReps = 12),
+            ),
+            style = WorkoutStyle.CIRCUIT,
+            rounds = 1,
+        )
+        val profile = UserProfile(sex = Sex.MALE, ageYears = 30, weightKg = 75.0, heightCm = 178.0, restingHr = 55, maxHr = 190)
+        val session = WorkoutSession(
+            id = "cur", exerciseType = ExerciseType.CALISTHENICS, startMs = now - 60_000, endMs = now,
+            plan = circuitPlan,
+            setLogs = listOf(SetLog("s1", "dip", "Dip", 1, 7, 0, now - 60_000, now - 30_000)),
+        )
+        val summary = SessionSummary.EMPTY.copy(totalReps = 7)
+
+        val prompt = buildCoachPrompt(session, summary, profile, emptyList(), now)
+
+        // The coach is told it's a circuit and how the round count maps to sets.
+        assertTrue(prompt.contains("Format: CIRCUIT"))
+        // The planned figure is the round count, not the default "3 × 8".
+        assertTrue(prompt.contains("Dip: planned 1 round × 8 reps"))
+        assertFalse(prompt.contains("3 × 8"))
     }
 }

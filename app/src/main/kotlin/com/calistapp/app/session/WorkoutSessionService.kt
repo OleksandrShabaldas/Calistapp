@@ -142,7 +142,7 @@ class WorkoutSessionService : Service() {
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(detail)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

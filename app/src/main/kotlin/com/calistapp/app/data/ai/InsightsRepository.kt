@@ -1,8 +1,11 @@
 package com.calistapp.app.data.ai
 
+import com.calistapp.core.model.ExerciseMeasure
 import com.calistapp.core.model.HrZone
+import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.SessionSummary
 import com.calistapp.core.model.UserProfile
+import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.WorkoutSession
 import com.calistapp.core.model.formatKg
 import com.calistapp.core.progress.ExerciseProgress
@@ -95,10 +98,21 @@ internal fun buildCoachPrompt(
             }
         }
         if (!session.plan.isEmpty) {
+            val plan = session.plan
+            appendLine(
+                if (plan.isCircuit) {
+                    "- Format: CIRCUIT — ${plan.rounds} ${if (plan.rounds == 1) "round" else "rounds"} " +
+                        "through ${plan.exercises.size} exercises, one set of each per round. So the " +
+                        "planned sets per exercise IS the round count (${plan.rounds}); there is no " +
+                        "separate per-exercise sets target to fall short of."
+                } else {
+                    "- Format: exercise-by-exercise (all sets of one movement, then the next)."
+                },
+            )
             appendLine("- Planned vs performed:")
-            session.plan.exercises.forEach { slot ->
+            plan.exercises.forEach { slot ->
                 val done = session.setLogs.filter { it.slotId == slot.slotId }
-                appendLine("    ${slot.name}: planned ${slot.targetLabel}, performed ${done.size} sets (${done.sumOf { it.reps }} reps)")
+                appendLine("    ${slot.name}: planned ${plannedLabel(plan, slot)}, performed ${done.size} sets (${done.sumOf { it.reps }} reps)")
             }
         }
         if (session.notes.isNotBlank()) appendLine("- Athlete's note: ${session.notes}")
@@ -166,6 +180,20 @@ internal fun buildCoachPrompt(
             "- Use the exact spelling the term appears with in your text, define each term once, and keep " +
                 "each explanation to a single short sentence. The glossary is required, even if short.",
         )
+    }
+
+    /**
+     * The planned target for a slot, phrased correctly for the workout style. For an exercise-by-exercise
+     * split, [PlannedExercise.targetLabel] already reads right ("3 × 10"). For a circuit it does NOT:
+     * `sets()` returns the slot's ignored `targetSets` (a default 3), not the round count that actually
+     * drives a circuit — which is what made the coach report "1 of 3 planned" for a one-round circuit.
+     * Here the planned set count is the round count, and the reps are the per-round target.
+     */
+    private fun plannedLabel(plan: WorkoutPlan, slot: PlannedExercise): String {
+        if (!plan.isCircuit) return slot.targetLabel
+        val sets = plan.targetSetsFor(slot.slotId)
+        val unit = if (slot.measure == ExerciseMeasure.SECONDS) "${slot.targetSeconds}s" else "${slot.targetReps} reps"
+        return "$sets ${if (sets == 1) "round" else "rounds"} × $unit"
     }
 
     /** "Push-Up: 6 sessions · best +15 kg × 14 · last 3 Sep" — a movement's headline for the trend block. */

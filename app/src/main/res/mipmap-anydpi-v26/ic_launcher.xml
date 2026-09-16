@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Foreground is a raster PNG (the user's own artwork, drawable-nodpi/ic_launcher_foreground.png),
+     scaled+centered into the adaptive-icon safe zone at export time — see that file's neighbours for
+     the compositing. No <monochrome> layer: that needs a silhouette-only asset this mark doesn't have
+     yet, so it's omitted rather than shipped mismatched (falls back to the full-colour icon on
+     Android 13+ themed-icon launchers, same as most apps that haven't added one). -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/ic_launcher_background" />
+    <background android:drawable="@drawable/ic_launcher_background" />
     <foreground android:drawable="@drawable/ic_launcher_foreground" />
 </adaptive-icon>

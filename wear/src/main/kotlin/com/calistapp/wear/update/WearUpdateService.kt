@@ -100,7 +100,7 @@ class WearUpdateService : Service() {
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(open)
             .setOngoing(ongoing)
             .setAutoCancel(!ongoing)
@@ -151,7 +151,7 @@ class WearUpdateService : Service() {
                     Notification.Builder(context, CHANNEL_ID)
                         .setContentTitle("Calistapp $versionName is ready")
                         .setContentText("Tap to install")
-                        .setSmallIcon(R.drawable.ic_launcher_foreground)
+                        .setSmallIcon(R.drawable.ic_notification)
                         .setContentIntent(
                             PendingIntent.getActivity(
                                 context,
