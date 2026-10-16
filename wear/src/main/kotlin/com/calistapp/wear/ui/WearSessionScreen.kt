@@ -500,7 +500,7 @@ private fun RunningScreen(
                 Chip(
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(next.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    secondaryLabel = { Text("Next · ${next.targetLabel}") },
+                    secondaryLabel = { Text("Next · ${state.plan.targetLabelFor(next)}") },
                     onClick = onNext,
                     colors = ChipDefaults.secondaryChipColors(),
                 )

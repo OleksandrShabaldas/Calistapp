@@ -310,17 +310,12 @@ private fun LiveControls(
                     translationY = sheetExpand.value * heroShiftPx
                 },
         ) {
-            LiveExerciseHero(heroExercise, autoplay = prefs.autoplayVideo, modifier = Modifier.fillMaxSize())
+            LiveExerciseHero(heroExercise, autoplay = prefs.autoplayVideo,
+                dimAmount = 0.6f * sheetExpand.value,
+                onOpenExercise = { (heroPlanned?.exerciseId ?: heroExercise?.id)?.let(onOpenExercise) },
+                modifier = Modifier.fillMaxSize())
         }
 
-        // Base legibility scrim so overlaid text reads over any frame.
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(0.35f to Color.Transparent, 1f to Onyx.copy(alpha = 0.92f)),
-            ),
-        )
-        // Extra darkening that fades in as the detail opens, so the reading surface wins over the video.
-        Box(Modifier.fillMaxSize().background(Onyx).graphicsLayer { alpha = 0.6f * sheetExpand.value })
 
         // Top chrome: minimise / round / pause, then the progress dashes, then clock + HUD chip.
         Column(Modifier.fillMaxWidth().statusBarsPadding()) {
@@ -383,6 +378,9 @@ private fun LiveControls(
                     heroPlanned?.name ?: exercise?.name ?: "",
                     style = TitleSans,
                     color = Chalk,
+                    modifier = Modifier.clickable {
+                        (heroPlanned?.exerciseId ?: heroExercise?.id)?.let(onOpenExercise)
+                    },
                 )
                 val heroWeightKg = heroPlanned?.let { hp ->
                     if (isActive) live.currentSetWeightKg else hp.sets().getOrNull(heroSetIndex - 1)?.weightKg ?: hp.addedWeightKg
@@ -399,8 +397,10 @@ private fun LiveControls(
                     ThisExerciseContent(
                         exercise = heroExercise,
                         planned = heroPlanned,
+                        targetLabel = heroPlanned?.let(live.plan::targetLabelFor),
                         history = heroHistory,
                         nowMs = live.nowMs,
+                        onOpenExercise = { (heroPlanned?.exerciseId ?: heroExercise?.id)?.let(onOpenExercise) },
                     )
                     heroPlanned?.exerciseId?.let { exId ->
                         TextButton(onClick = { onOpenExercise(exId) }) {
@@ -429,7 +429,9 @@ private fun LiveControls(
                             elapsedSeconds = live.restElapsedSeconds ?: 0,
                             isWarmup = live.isOpeningWarmup,
                             upNextName = live.upNextExercise?.displayName,
-                            upNextIsNew = live.nextIsNewExercise,
+                            // Before set 1 the first exercise is "up next", not a "next set" of one
+                            // you haven't started.
+                            upNextIsNew = live.nextIsNewExercise || live.isOpeningWarmup,
                         )
                     }
 
@@ -539,6 +541,7 @@ private fun LiveControls(
             onSetWeight = vm::setSetWeight,
             onSetEffort = { slot, idx, scale, value -> vm.setSetEffort(slot, idx, scale, value.toDouble()) },
             onSetNote = vm::setSetNote,
+            onOpenExercise = { id -> showJournal = false; onOpenExercise(id) },
             onDismiss = { showJournal = false },
         )
     }
@@ -680,7 +683,7 @@ private fun StartControls(
                 plan.exercises.forEach { slot ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(slot.name, style = MaterialTheme.typography.bodyMedium, color = Chalk, modifier = Modifier.weight(1f))
-                        Text(slot.targetLabel, style = MaterialTheme.typography.bodySmall, color = Ash)
+                        Text(plan.targetLabelFor(slot), style = MaterialTheme.typography.bodySmall, color = Ash)
                     }
                 }
             }

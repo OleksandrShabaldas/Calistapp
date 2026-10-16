@@ -13,6 +13,7 @@ import com.calistapp.core.model.SessionSummary
 import com.calistapp.core.model.SetLog
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.WorkoutSession
+import com.calistapp.core.model.withSessionTiming
 import com.calistapp.core.progress.PerformedSession
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -47,7 +48,8 @@ class SessionRepositoryImpl @Inject constructor(
         // whole row: the AI insight, and the FitPal sync stamp (so an unrelated save doesn't reset
         // it and force a needless re-push).
         val existing = dao.getById(session.id)
-        dao.upsert(session.toEntity(existing?.aiInsight, existing?.aiInsightAtMs, existing?.fitpalSyncedAt))
+        val timed = session.copy(summary = session.summary?.withSessionTiming(session.segments, session.endMs))
+        dao.upsert(timed.toEntity(existing?.aiInsight, existing?.aiInsightAtMs, existing?.fitpalSyncedAt))
     }
 
     override suspend fun updateInsight(id: String, insight: String) =
@@ -147,5 +149,5 @@ class SessionRepositoryImpl @Inject constructor(
             ?.let { json.decodeFromString(setLogListSerializer, it) }
             ?: emptyList(),
         rpe = rpe,
-    )
+    ).let { it.copy(summary = it.summary?.withSessionTiming(it.segments, it.endMs)) }
 }

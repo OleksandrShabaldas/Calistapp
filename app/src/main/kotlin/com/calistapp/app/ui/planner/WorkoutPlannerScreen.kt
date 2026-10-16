@@ -131,6 +131,8 @@ fun WorkoutPlannerScreen(
     onOpenExercise: (String) -> Unit,
     onOpenExerciseFromPicker: (String) -> Unit,
     onOpenSavedWorkout: (String) -> Unit,
+    /** After Save: the saved workout's detail, replacing this builder (it's done its job). */
+    onSaved: (String) -> Unit,
     viewModel: WorkoutPlannerViewModel = hiltViewModel(),
 ) {
     val plan by viewModel.plan.collectAsStateWithLifecycle()
@@ -316,7 +318,7 @@ fun WorkoutPlannerScreen(
                         else Brush.horizontalGradient(listOf(OnyxFillStrong, OnyxFillStrong)),
                     )
                     .clickable(enabled = canSave) {
-                        viewModel.saveCurrentWorkout(plan.name)?.let { onOpenSavedWorkout(it) }
+                        viewModel.saveCurrentWorkout(plan.name)?.let { onSaved(it) }
                     },
                 contentAlignment = Alignment.Center,
             ) {
@@ -911,7 +913,7 @@ private fun ExercisePicker(
                             timesAdded = plan.exercises.count { it.exerciseId == exercise.id },
                             isFavourite = true,
                             onToggleFavourite = { viewModel.toggleFavourite(exercise.id) },
-                            onAdd = { viewModel.add(exercise) },
+                            onAdd = { viewModel.toggleSelection(exercise) },
                             onOpen = { onOpenExercise(exercise.id) },
                         )
                     }
@@ -928,7 +930,7 @@ private fun ExercisePicker(
                     timesAdded = plan.exercises.count { it.exerciseId == exercise.id },
                     isFavourite = exercise.id in favourites,
                     onToggleFavourite = { viewModel.toggleFavourite(exercise.id) },
-                    onAdd = { viewModel.add(exercise) },
+                    onAdd = { viewModel.toggleSelection(exercise) },
                     onOpen = { onOpenExercise(exercise.id) },
                 )
             }
@@ -955,8 +957,8 @@ private fun PickerRow(
 ) {
     val muscle = muscleColor(exercise.bodyPart)
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp))
-            .background(CardFlat).border(1.dp, OnyxBorder, RoundedCornerShape(17.dp))
+        Modifier.fillMaxWidth()
+            .background(CardFlat, RoundedCornerShape(17.dp)).border(1.dp, OnyxBorder, RoundedCornerShape(17.dp))
             // The row opens the exercise; only the "+" adds it. Tapping a name to read about a
             // movement is the more common intent, and silently adding it instead is a surprise.
             .clickable(onClick = onOpen)
@@ -998,21 +1000,32 @@ private fun PickerRow(
         // In-plan exercises show a filled orange ✓ tile; the rest a hollow orange "+" — the prototype's
         // add control. (The "×N / in plan" text is gone; the tile carries the state.)
         val added = timesAdded > 0
-        Box(
-            Modifier.size(32.dp).clip(RoundedCornerShape(10.dp))
-                .then(
-                    if (added) Modifier.background(Brush.horizontalGradient(listOf(FlameHot, FlameGlow)))
-                    else Modifier.border(1.dp, Flame.copy(alpha = 0.5f), RoundedCornerShape(10.dp)),
-                )
-                .clickable(onClick = onAdd),
-            contentAlignment = Alignment.Center,
+        val selectionScale by androidx.compose.animation.core.animateFloatAsState(
+            if (added) 1f else 0.9f, androidx.compose.animation.core.spring(dampingRatio = 0.6f), label = "selection",
+        )
+        com.calistapp.app.ui.common.GlowBox(
+            color = FlameHot,
+            shape = RoundedCornerShape(10.dp),
+            glowRadius = 7.dp,
+            glowAlpha = if (added) 0.45f else 0f,
+            modifier = Modifier.size(32.dp),
         ) {
-            Icon(
-                if (added) Icons.Filled.Check else Icons.Filled.Add,
-                contentDescription = if (added) "In plan — add another ${exercise.name}" else "Add ${exercise.name}",
-                tint = if (added) Onyx else Flame,
-                modifier = Modifier.size(18.dp),
-            )
+            Box(
+                Modifier.size(32.dp).graphicsLayer { scaleX = selectionScale; scaleY = selectionScale }
+                    .then(
+                        if (added) Modifier.background(Brush.horizontalGradient(listOf(FlameHot, FlameGlow)), RoundedCornerShape(10.dp))
+                        else Modifier.border(1.dp, Flame.copy(alpha = 0.5f), RoundedCornerShape(10.dp)),
+                    )
+                    .clickable(onClick = onAdd),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    if (added) Icons.Filled.Check else Icons.Filled.Add,
+                    contentDescription = if (added) "Remove ${exercise.name} from workout" else "Add ${exercise.name}",
+                    tint = if (added) Onyx else Flame,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
     }
 }

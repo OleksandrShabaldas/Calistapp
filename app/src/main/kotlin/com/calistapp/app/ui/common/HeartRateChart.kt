@@ -68,7 +68,9 @@ fun HeartRateChart(
     val peak = samples.maxByOrNull { it.bpm }!!
 
     val spokenMinutes = ((samples.last().timestampMs - samples.first().timestampMs) / 60_000).toInt()
-    val restCount = segments.count { it.type == SegmentType.REST }
+    val firstWork = segments.filter { it.type == SegmentType.ACTIVE }.minOfOrNull { it.startMs } ?: Long.MAX_VALUE
+    val restSegments = segments.filter { it.type == SegmentType.REST && it.startMs >= firstWork }
+    val restCount = restSegments.size
     val chartDescription = buildString {
         append("Heart rate over $spokenMinutes minutes. ")
         append("Ranged from ${samples.minOf { it.bpm }} to ${samples.maxOf { it.bpm }} beats per ")
@@ -98,7 +100,7 @@ fun HeartRateChart(
                 // settled. Diagonal hatching, two-tone, so it reads as "rest" — a warm phase and a
                 // cool phase — rather than a flat grey gap.
                 val stabilizeBpm = (maxHr * HrZone.ZONE3.lowerFractionOfMax).toInt()
-                segments.filter { it.type == SegmentType.REST }.forEach { seg ->
+                restSegments.forEach { seg ->
                     val rStart = seg.startMs.coerceIn(startT, endT)
                     val rEnd = (seg.endMs ?: endT).coerceIn(startT, endT)
                     if (rEnd <= rStart) return@forEach

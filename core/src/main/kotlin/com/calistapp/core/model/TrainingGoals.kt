@@ -17,6 +17,7 @@ data class TrainingGoals(
      * `DailyEnergyGoal`. The user picks steps because that's the number they already think in.
      */
     val dailyStepGoal: Int = DEFAULT_DAILY_STEP_GOAL,
+    val reduceGoalAfterActiveDay: Boolean = false,
 ) {
     val isValid: Boolean
         get() = weeklyKcal in WEEKLY_KCAL_RANGE &&

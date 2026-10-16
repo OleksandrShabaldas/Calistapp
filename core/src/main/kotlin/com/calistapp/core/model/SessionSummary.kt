@@ -79,6 +79,7 @@ data class HrRecovery(
 data class SessionSummary(
     val totalKcal: Double,
     val activeKcal: Double,
+    /** Conservative non-working energy: opening preparation plus between-set recovery. */
     val restKcal: Double,
     val activeDurationMs: Long,
     val restDurationMs: Long,
@@ -94,8 +95,10 @@ data class SessionSummary(
     val totalReps: Int = 0,
     /** Null when no rest block was long enough to measure one. Absent from older stored summaries. */
     val hrRecovery: HrRecovery? = null,
+    /** Opening preparation, separate from between-set recovery; absent in older stored summaries. */
+    val warmupDurationMs: Long = 0,
 ) {
-    val totalDurationMs: Long get() = activeDurationMs + restDurationMs
+    val totalDurationMs: Long get() = activeDurationMs + restDurationMs + warmupDurationMs
 
     /** Fraction of the session actually spent working (0..1). */
     val activeRatio: Double

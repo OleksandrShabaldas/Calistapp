@@ -338,15 +338,9 @@ object WearSessionManager {
         var slotId = cur.currentSlotId
         var setIndex = cur.setIndex
         if (type == SegmentType.ACTIVE) {
-            // The opening work block works the selected slot itself; nextUp's circuit branch steps
-            // forward and would otherwise start the workout on exercise 2. No set banked yet == the
-            // opening block. Mirrors the phone's SessionController fix.
-            val opening = cur.completedSets.values.sum() == 0
-            if (opening && cur.plan.slot(slotId) != null) {
-                setIndex = (completed[slotId] ?: 0) + 1
-            } else {
-                cur.plan.nextUp(slotId, completed)?.let { slotId = it.slotId; setIndex = it.setIndex }
-            }
+            // The opening block works the selected slot itself; after that the plan rotates. Same
+            // `upcoming` rule the phone's controller and live screen ask.
+            cur.plan.upcoming(slotId, completed)?.let { slotId = it.slotId; setIndex = it.setIndex }
         }
 
         accumulator?.startSegment(type, now)

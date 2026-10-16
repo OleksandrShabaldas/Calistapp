@@ -39,6 +39,7 @@ class ProfileRepository @Inject constructor(
         val weeklyKcal = intPreferencesKey("goal_weekly_kcal")
         val weeklySessions = intPreferencesKey("goal_weekly_sessions")
         val dailyStepGoal = intPreferencesKey("goal_daily_steps")
+        val reduceGoal = booleanPreferencesKey("goal_reduce_after_active_day")
     }
 
     val profile: Flow<UserProfile> = context.dataStore.data.map { p ->
@@ -62,6 +63,7 @@ class ProfileRepository @Inject constructor(
             weeklyKcal = p[Keys.weeklyKcal] ?: TrainingGoals.DEFAULT_WEEKLY_KCAL,
             weeklySessions = p[Keys.weeklySessions] ?: TrainingGoals.DEFAULT_WEEKLY_SESSIONS,
             dailyStepGoal = p[Keys.dailyStepGoal] ?: TrainingGoals.DEFAULT_DAILY_STEP_GOAL,
+            reduceGoalAfterActiveDay = p[Keys.reduceGoal] ?: false,
         )
     }
 
@@ -70,6 +72,7 @@ class ProfileRepository @Inject constructor(
             p[Keys.weeklyKcal] = goals.weeklyKcal
             p[Keys.weeklySessions] = goals.weeklySessions
             p[Keys.dailyStepGoal] = goals.dailyStepGoal
+            p[Keys.reduceGoal] = goals.reduceGoalAfterActiveDay
         }
     }
 

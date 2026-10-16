@@ -1,6 +1,16 @@
 package com.calistapp.app.ui.dashboard
 
 import androidx.compose.animation.core.animateFloatAsState
+import kotlinx.coroutines.delay
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.PathMeasure
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -22,7 +32,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.PlayArrow
@@ -37,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -313,6 +323,13 @@ fun StepsWidget(state: StepsState, modifier: Modifier = Modifier, onClick: (() -
                     Spacer(Modifier.height(7.dp))
                     EeaLine(state.eeaSteps)
                 }
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = state.originalTargetKcal > state.targetKcal && state.targetKcal > 0,
+                ) {
+                    Text("Reduced goal · ${state.targetKcal} kcal\nUsual goal · ${state.originalTargetKcal} kcal",
+                        style = MaterialTheme.typography.labelSmall, color = FlameHot,
+                        modifier = Modifier.padding(top = 6.dp))
+                }
             }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 val target = state.targetKcal.coerceAtLeast(1).toFloat()
@@ -495,9 +512,20 @@ private fun GaugePlaceholder() {
     }
 }
 
-/** The readiness gauge when the answer is simply "train": full ring, a glowing check, nothing else. */
+/**
+ * The readiness gauge when the answer is simply "train": the full ring holding a frosted-glass disc
+ * with the check *cut out of it* — a hole you see the backdrop (and the disc's warm glow) through,
+ * not a glyph painted on top. The small "Ready" under it is there on purpose: a bare check on the
+ * home screen read as "today's workout is done" on a rest day, which is the opposite of what it says.
+ */
 @Composable
 private fun ReadyCheckGauge(onClick: () -> Unit) {
+    // The check draws itself on as the gauge settles, so the verdict lands rather than snapping in.
+    val drawn = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        delay(260)
+        drawn.animateTo(1f, tween(560, easing = FastOutSlowInEasing))
+    }
     ProgressRing(
         progress = 1f,
         accent = FlameHot,
@@ -505,13 +533,70 @@ private fun ReadyCheckGauge(onClick: () -> Unit) {
         diameter = 118.dp,
         strokeWidth = 9.dp,
     ) {
-        GlowIcon(
-            Icons.Filled.Check,
-            contentDescription = "Ready to train",
-            tint = FlameHot,
-            size = 46.dp,
-            glowRadius = 12.dp,
-            glowAlpha = 0.6f,
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            FrostedCheckDisc(progress = drawn.value, modifier = Modifier.size(58.dp))
+            Spacer(Modifier.height(5.dp))
+            Text("Ready", style = MaterialTheme.typography.labelMedium, color = FlameHot, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+/**
+ * A translucent, softly-lit glass disc with a rounded check knocked out of it. Drawn in its own
+ * offscreen layer so [BlendMode.Clear] punches a true hole through the disc (and only the disc).
+ * [progress] trims the check from its short stroke to its tip, for the draw-on entrance.
+ */
+@Composable
+private fun FrostedCheckDisc(progress: Float, modifier: Modifier = Modifier) {
+    // The halo starts at the disc's edge rather than its centre. A centred glow (Modifier.glow) sat
+    // *under* the disc, so the cut-out showed orange haze instead of backdrop and the check went muddy
+    // (checked on a headless-rendered replica before shipping). Drawn outside the offscreen layer, so
+    // the knockout never clears it.
+    val halo = Modifier.drawBehind {
+        val r = size.minDimension / 2f
+        val outer = r + 16.dp.toPx()
+        val edge = r / outer
+        drawCircle(
+            Brush.radialGradient(
+                0f to Color.Transparent,
+                edge to Color.Transparent,
+                (edge + 0.005f) to FlameHot.copy(alpha = 0.34f),
+                1f to Color.Transparent,
+                center = center,
+                radius = outer,
+            ),
+            radius = outer,
+        )
+    }
+    Canvas(modifier.then(halo).graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)) {
+        val r = size.minDimension / 2f
+        // Frosted body: brighter where light catches the upper-left, falling off toward the bottom.
+        drawCircle(
+            Brush.linearGradient(
+                listOf(Color.White.copy(alpha = 0.58f), Color.White.copy(alpha = 0.30f)),
+                start = Offset.Zero,
+                end = Offset(size.width, size.height),
+            ),
+            radius = r,
+        )
+        // A hairline rim, like the edge of a glass lens.
+        drawCircle(Color.White.copy(alpha = 0.26f), radius = r - 0.5.dp.toPx(), style = Stroke(1.dp.toPx()))
+        if (progress <= 0f) return@Canvas
+        val w = size.width
+        val h = size.height
+        val check = Path().apply {
+            moveTo(w * 0.30f, h * 0.53f)
+            lineTo(w * 0.45f, h * 0.67f)
+            lineTo(w * 0.71f, h * 0.36f)
+        }
+        val measure = PathMeasure().apply { setPath(check, false) }
+        val partial = Path()
+        measure.getSegment(0f, measure.length * progress.coerceIn(0f, 1f), partial, true)
+        drawPath(
+            partial,
+            color = Color.Black,
+            style = Stroke(width = w * 0.13f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+            blendMode = BlendMode.Clear,
         )
     }
 }

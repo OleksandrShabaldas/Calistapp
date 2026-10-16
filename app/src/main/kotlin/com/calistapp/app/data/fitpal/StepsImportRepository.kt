@@ -29,6 +29,7 @@ class StepsImportRepository @Inject constructor(
     private val fmt = DateTimeFormatter.ISO_LOCAL_DATE
 
     fun observeForDate(date: String): Flow<StepDayEntity?> = stepDayDao.observeForDate(date)
+    fun observeAll(): Flow<List<StepDayEntity>> = stepDayDao.observeAll()
     fun observeRange(from: String, to: String): Flow<List<StepDayEntity>> = stepDayDao.observeRange(from, to)
     fun observeLastImportedAt(): Flow<Long?> = stepDayDao.observeLastImportedAt()
 

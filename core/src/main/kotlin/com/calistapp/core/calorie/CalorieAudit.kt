@@ -103,6 +103,7 @@ data class CalorieAudit(
         val restingFloorKcal: Double,
         val kcal: Double,
         val basis: Basis,
+        val isOpeningWarmup: Boolean = false,
     )
 
     /**

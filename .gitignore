@@ -16,6 +16,7 @@ local.properties
 # Secrets
 secrets.properties
 
-# Claude Code project-local notes — not meant for a public repo
+# AI-assistant project-local notes (Claude Code, Codex) — not meant for a public repo
 CLAUDE.md
+AGENTS.md
 .claude/

@@ -220,7 +220,6 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
             }
             composable(Routes.PLANNER) {
                 WorkoutPlannerScreen(
-                    // Building leads to the pre-flight setup screen, not straight into the session.
                     onStarted = { navController.navigate(Routes.SETUP) },
                     onBack = { navController.popBackStack() },
                     onOpenExercise = { id -> navController.navigate(Routes.exerciseDetail(id)) },
@@ -230,6 +229,13 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
                         navController.navigate(Routes.exerciseDetail(id, origin = Routes.ORIGIN_PICKER))
                     },
                     onOpenSavedWorkout = { id -> navController.navigate(Routes.savedWorkout(id)) },
+                    // Saving lands on the workout's detail and drops the builder off the stack, so Back
+                    // from there returns to wherever the build (or edit) began — not to a stale builder.
+                    onSaved = { id ->
+                        navController.navigate(Routes.savedWorkout(id)) {
+                            popUpTo(Routes.PLANNER) { inclusive = true }
+                        }
+                    },
                 )
             }
             composable(Routes.SCHEDULE) {
@@ -240,11 +246,14 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
             }
             composable(Routes.SETUP) {
                 SessionSetupScreen(
-                    // Starting from setup hands the finished plan straight to the live session, and
-                    // clears the planner (and any setup/detail step) off the back stack.
+                    // Starting from setup hands the finished plan straight to the live session and
+                    // takes setup itself off the back stack. It used to pop up to the planner — which
+                    // isn't on the stack when you start from a saved workout or Next Up, so setup
+                    // stayed underneath, and discarding or minimising the session landed on a dead
+                    // "0 exercises" setup screen (its draft already handed to the session).
                     onStarted = {
                         navController.navigate(Routes.active()) {
-                            popUpTo(Routes.PLANNER) { inclusive = true }
+                            popUpTo(Routes.SETUP) { inclusive = true }
                         }
                     },
                     onBack = { navController.popBackStack() },
@@ -252,10 +261,17 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
             }
             composable(Routes.SAVED_WORKOUT) {
                 SavedWorkoutDetailScreen(
-                    // Start loads the plan into the draft (in the VM) then heads to the setup screen;
-                    // Edit and Delete both drop back to the planner, which reflects the loaded draft.
+                    // Start loads the plan into the draft (in the VM) then heads to the setup screen.
+                    // Edit loads it too, then opens the builder in this screen's place. It used to just
+                    // pop back, assuming the planner was underneath — true only when the workout was
+                    // opened from the planner's list; from the dashboard's Next Up it landed on Home.
                     onStart = { navController.navigate(Routes.SETUP) },
-                    onEdit = { navController.popBackStack() },
+                    onEdit = {
+                        navController.navigate(Routes.PLANNER) {
+                            popUpTo(Routes.SAVED_WORKOUT) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    },
                     onOpenSession = { id -> navController.navigate(Routes.detail(id)) },
                     onOpenExercise = { id -> navController.navigate(Routes.exerciseDetail(id)) },
                     onDeleted = { navController.popBackStack() },

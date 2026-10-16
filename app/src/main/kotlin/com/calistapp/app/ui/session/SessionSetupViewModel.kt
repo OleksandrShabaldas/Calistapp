@@ -70,16 +70,16 @@ class SessionSetupViewModel @Inject constructor(
     /**
      * Build the final plan and start. Warm-up runs first, then the working plan, then the stretch —
      * the routine blocks are single-set timed holds that score for calories but not volume or records.
-     * Routines are only threaded onto a split; a circuit rotates every slot by rounds, which a
-     * once-through warm-up must not be part of (see the setup screen's gate).
+     * They're marked run-once, so a circuit runs the warm-up before round 1 and the stretch after the
+     * last round instead of rotating them every round. (Routines used to be withheld from circuits
+     * entirely, which hid the pickers for every circuit workout — the feature looked missing.)
      */
     fun start() {
         val base = drafts.draft.value
         if (base.isEmpty) return
 
-        val canRoutine = !base.isCircuit
-        val warm = if (canRoutine) _warmUpId.value?.let(routines::byId)?.toBlocks().orEmpty() else emptyList()
-        val stretch = if (canRoutine) _stretchId.value?.let(routines::byId)?.toBlocks().orEmpty() else emptyList()
+        val warm = _warmUpId.value?.let(routines::byId)?.toBlocks().orEmpty()
+        val stretch = _stretchId.value?.let(routines::byId)?.toBlocks().orEmpty()
 
         val finalPlan = base.copy(exercises = warm + base.exercises + stretch)
         controller.start(typeFor(base), finalPlan)
@@ -101,6 +101,7 @@ class SessionSetupViewModel @Inject constructor(
             warmupSets = 1,
             restSeconds = 0,
             metabolics = ROUTINE_METABOLICS,
+            runsOnce = true,
         )
     }
 

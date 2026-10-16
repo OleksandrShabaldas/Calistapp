@@ -6,6 +6,8 @@ import com.calistapp.app.data.exercise.ExerciseRepository
 import com.calistapp.app.data.fitpal.StepsImportRepository
 import com.calistapp.app.data.local.StepDayEntity
 import com.calistapp.app.data.profile.ProfileRepository
+import com.calistapp.app.data.profile.DailyGoalRepository
+import com.calistapp.app.data.profile.DailyGoalHistory
 import com.calistapp.app.data.recommend.RecommendationsRepository
 import com.calistapp.app.data.recommend.RecommendationsUi
 import com.calistapp.app.data.session.PlanDraftRepository
@@ -65,10 +67,12 @@ class DashboardViewModel @Inject constructor(
     private val exerciseRepository: ExerciseRepository,
     private val recommendationsRepository: RecommendationsRepository,
     private val watchConnection: WatchConnectionMonitor,
+    dailyGoalRepository: DailyGoalRepository,
 ) : ViewModel() {
 
     private val zone: ZoneId = ZoneId.systemDefault()
     private val started = SharingStarted.WhileSubscribed(5_000)
+    private val goalHistory = dailyGoalRepository.history.stateIn(viewModelScope, started, DailyGoalHistory())
 
     // ---- passthrough state ----
 
@@ -126,11 +130,6 @@ class DashboardViewModel @Inject constructor(
             map
         }.stateIn(viewModelScope, started, emptyMap())
 
-    private val perStepRate: StateFlow<Double> = combine(stepDays, profile) { days, prof ->
-        days.filter { it.steps > 0 }.maxByOrNull { it.date }
-            ?.let { DailyEnergyGoal.perStepRate(it.steps, it.calories) }
-            ?: DailyEnergyGoal.fallbackPerStepRate(prof.weightKg)
-    }.stateIn(viewModelScope, started, DailyEnergyGoal.fallbackPerStepRate(75.0))
 
     // ---- week navigation (swipe back/forward through the strip) ----
 
@@ -177,27 +176,29 @@ class DashboardViewModel @Inject constructor(
     // ---- derived UI state ----
 
     val header: StateFlow<HeaderState> =
-        combine(profile, today, earnedByDate, goals, perStepRate) { prof, t, earned, g, rate ->
-            val target = DailyEnergyGoal.dailyTargetKcal(g.dailyStepGoal, rate)
+        combine(profile, today, goalHistory) { prof, t, history ->
             HeaderState(
                 name = prof.name,
                 greeting = greetingFor(LocalTime.now(zone)),
                 dateLabel = t.format(DATE_LABEL).uppercase(Locale.getDefault()),
-                streak = DailyEnergyGoal.currentStreak(earned, target, t),
+                streak = DailyEnergyGoal.currentStreak(history.earned, history.originalKcal, t, history::targetOn),
             )
         }.stateIn(viewModelScope, started, HeaderState())
 
     val steps: StateFlow<StepsState> =
-        combine(today, stepDays, earnedByDate, goals, perStepRate) { t, days, earned, g, rate ->
+        combine(today, stepDays, goalHistory) { t, days, history ->
+            val earned = history.earned
+            val rate = history.rate
             val todayStr = t.format(ISO_DATE)
-            val target = DailyEnergyGoal.dailyTargetKcal(g.dailyStepGoal, rate)
+            val target = history.targetOn(t)
             val row = days.firstOrNull { it.date == todayStr }
             val stepK = row?.calories ?: 0.0
             val earnedToday = earned[t] ?: 0.0
             val workoutK = (earnedToday - stepK).coerceAtLeast(0.0)
             StepsState(
                 steps = row?.steps ?: 0,
-                stepGoal = g.dailyStepGoal,
+                stepGoal = history.stepsOn(t),
+                originalTargetKcal = history.originalKcal,
                 earnedKcal = earnedToday.roundToInt(),
                 stepKcal = stepK.roundToInt(),
                 workoutKcal = workoutK.roundToInt(),
@@ -210,7 +211,8 @@ class DashboardViewModel @Inject constructor(
 
     /** The inspected past day, or null when viewing today. Drives the day-detail mode on the screen. */
     val dayView: StateFlow<DayView?> =
-        combine(selectedDay, stepDays, sessions, goals, perStepRate) { sel, days, sess, g, rate ->
+        combine(selectedDay, stepDays, sessions, goalHistory) { sel, days, sess, history ->
+            val rate = history.rate
             if (sel == null) return@combine null
             val today = LocalDate.now(zone)
             if (!sel.isBefore(today)) return@combine null
@@ -219,12 +221,13 @@ class DashboardViewModel @Inject constructor(
             val daySessions = sess.filter { Instant.ofEpochMilli(it.startMs).atZone(zone).toLocalDate() == sel }
             val workoutK = daySessions.sumOf { it.totalKcal.toDouble() }
             val earned = stepK + workoutK
-            val target = DailyEnergyGoal.dailyTargetKcal(g.dailyStepGoal, rate)
+            val target = history.targetOn(sel)
             DayView(
                 date = sel,
                 dateLabel = sel.format(DAY_VIEW_LABEL),
                 steps = row?.steps ?: 0,
-                stepGoal = g.dailyStepGoal,
+                stepGoal = history.stepsOn(sel),
+                originalTargetKcal = history.originalKcal,
                 earnedKcal = earned.roundToInt(),
                 stepKcal = stepK.roundToInt(),
                 workoutKcal = workoutK.roundToInt(),
@@ -234,11 +237,6 @@ class DashboardViewModel @Inject constructor(
                 sessions = daySessions,
             )
         }.stateIn(viewModelScope, started, null)
-
-    /** The daily energy target — the streak/goal figure, drawn as the week strip's reference line. */
-    private val dailyTargetKcal: StateFlow<Int> =
-        combine(goals, perStepRate) { g, rate -> DailyEnergyGoal.dailyTargetKcal(g.dailyStepGoal, rate) }
-            .stateIn(viewModelScope, started, 0)
 
     private val weekBase: StateFlow<WeekState> =
         combine(selectedWeekStart, stepKcalByDate, workoutKcalByDate, sessions, selectedWeekPlan) { weekStart, stepMap, workoutMap, s, plan ->
@@ -274,8 +272,9 @@ class DashboardViewModel @Inject constructor(
             )
         }.stateIn(viewModelScope, started, WeekState())
 
-    val week: StateFlow<WeekState> = combine(weekBase, dailyTargetKcal) { base, target ->
-        base.copy(dailyTargetKcal = target)
+    val week: StateFlow<WeekState> = combine(weekBase, goalHistory) { base, history ->
+        base.copy(dailyTargetKcal = history.originalKcal,
+            days = base.days.map { it.copy(targetKcal = history.targetOn(it.date)) })
     }.stateIn(viewModelScope, started, WeekState())
 
     /**
@@ -307,15 +306,16 @@ class DashboardViewModel @Inject constructor(
 
     /** Streak stats + the day-by-day calorie heatmap, for the streak-badge popup. */
     val streak: StateFlow<StreakData> =
-        combine(earnedByDate, goals, perStepRate, today) { earned, g, rate, t ->
-            val target = DailyEnergyGoal.dailyTargetKcal(g.dailyStepGoal, rate)
-            val stats = DailyEnergyGoal.stats(earned, target, t)
+        combine(goalHistory, today) { history, t ->
+            val earned = history.earned
+            val target = history.targetOn(t)
+            val stats = DailyEnergyGoal.stats(earned, history.originalKcal, t, history::targetOn)
             val cells = buildList {
                 stats.firstDay?.let { first ->
                     var d = first
                     while (!d.isAfter(t)) {
                         val e = earned[d] ?: 0.0
-                        add(HeatCell(d, e.roundToInt(), if (target > 0) (e / target).toFloat() else 0f))
+                        add(HeatCell(d, e.roundToInt(), (e / history.targetOn(d)).toFloat()))
                         d = d.plusDays(1)
                     }
                 }
@@ -325,7 +325,7 @@ class DashboardViewModel @Inject constructor(
 
     /** Steps trends + context, for the steps-widget popup. */
     val stepsInsights: StateFlow<StepsInsights> =
-        combine(today, stepDays, goals, profile) { t, days, g, prof ->
+        combine(today, stepDays, goalHistory, profile) { t, days, history, prof ->
             val byDate = days.associateBy { it.date }
             val last30 = (29 downTo 0).map { i ->
                 val d = t.minusDays(i.toLong())
@@ -339,11 +339,11 @@ class DashboardViewModel @Inject constructor(
             StepsInsights(
                 last30 = last30,
                 today = todaySteps,
-                goal = g.dailyStepGoal,
+                goal = history.stepsOn(t),
                 avg7d = if (last7.isEmpty()) 0 else last7.average().roundToInt(),
                 bestDaySteps = best?.steps ?: 0,
                 bestDay = best?.let { runCatching { LocalDate.parse(it.date) }.getOrNull() },
-                stepGoalStreak = stepGoalStreak(byDate, g.dailyStepGoal, t),
+                stepGoalStreak = stepGoalStreak(byDate, history::stepsOn, t),
                 distanceKm = todaySteps * strideMetres / 1000.0,
                 activeKcal = byDate[todayStr]?.calories?.roundToInt() ?: 0,
             )
@@ -427,7 +427,7 @@ class DashboardViewModel @Inject constructor(
         val sets = plan.totalSets
         append("$ex ${if (ex == 1) "exercise" else "exercises"}")
         append(" · $sets ${if (sets == 1) "set" else "sets"}")
-        if (plan.isCircuit) append(" · ${plan.rounds} rounds")
+        if (plan.isCircuit) append(" · ${plan.rounds} ${if (plan.rounds == 1) "round" else "rounds"}")
     }
 
     private fun whenLabel(date: LocalDate, today: LocalDate): String = when (date) {
@@ -442,11 +442,11 @@ class DashboardViewModel @Inject constructor(
         else -> "Good evening"
     }
 
-    private fun stepGoalStreak(byDate: Map<String, StepDayEntity>, goal: Int, today: LocalDate): Int {
+    private fun stepGoalStreak(byDate: Map<String, StepDayEntity>, goal: (LocalDate) -> Int, today: LocalDate): Int {
         fun stepsOn(d: LocalDate) = byDate[d.format(ISO_DATE)]?.steps ?: 0
-        var cursor = if (stepsOn(today) >= goal) today else today.minusDays(1)
+        var cursor = if (stepsOn(today) >= goal(today)) today else today.minusDays(1)
         var streak = 0
-        while (stepsOn(cursor) >= goal) { streak++; cursor = cursor.minusDays(1) }
+        while (stepsOn(cursor) >= goal(cursor)) { streak++; cursor = cursor.minusDays(1) }
         return streak
     }
 

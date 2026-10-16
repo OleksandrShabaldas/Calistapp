@@ -184,6 +184,11 @@ class WorkoutPlannerViewModel @Inject constructor(
     }
 
     fun remove(slotId: String) = drafts.remove(slotId)
+    fun toggleSelection(exercise: Exercise) {
+        if (drafts.toggleSelection(exercise)) {
+            viewModelScope.launch { prefs.markRecent(exercise.id) }
+        }
+    }
     fun move(slotId: String, delta: Int) = drafts.move(slotId, delta)
 
     /** Drag-to-reorder: move the exercise at [from] to position [to]. */

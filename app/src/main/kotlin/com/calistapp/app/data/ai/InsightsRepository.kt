@@ -8,6 +8,8 @@ import com.calistapp.core.model.UserProfile
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.WorkoutSession
 import com.calistapp.core.model.formatKg
+import com.calistapp.core.model.isUnilateral
+import com.calistapp.core.model.withSessionTiming
 import com.calistapp.core.progress.ExerciseProgress
 import com.calistapp.core.progress.PerformedSession
 import com.calistapp.core.progress.summarizeProgress
@@ -48,11 +50,12 @@ class InsightsRepository @Inject constructor(
  */
 internal fun buildCoachPrompt(
     session: WorkoutSession,
-    s: SessionSummary,
+    summary: SessionSummary,
     p: UserProfile,
     history: List<PerformedSession>,
     now: Long,
 ): String = buildString {
+        val s = summary.withSessionTiming(session.segments, session.endMs)
         val progress = summarizeProgress(history, now, profile = p)
         val recent = history.asSequence()
             .filter { it.id != session.id }
@@ -82,8 +85,9 @@ internal fun buildCoachPrompt(
         appendLine()
 
         appendLine("LATEST SESSION — ${session.exerciseType.displayName}, ${dateTimeOf(session.startMs)}")
-        appendLine("- Total time ${fmt(s.totalDurationMs)} (active ${fmt(s.activeDurationMs)}, rest ${fmt(s.restDurationMs)}); ${(s.activeRatio * 100).toInt()}% working")
-        appendLine("- Calories ${s.totalKcal.toInt()} kcal (${s.activeKcal.toInt()} active, ${s.restKcal.toInt()} rest)")
+        appendLine("- Total time ${fmt(s.totalDurationMs)} (warmup ${fmt(s.warmupDurationMs)}, active ${fmt(s.activeDurationMs)}, rest ${fmt(s.restDurationMs)}); ${(s.activeRatio * 100).toInt()}% working")
+        appendLine("- Opening warmup is preparation before the first set, not between-set rest. Do not include it when assessing rest length or training density.")
+        appendLine("- Calories ${s.totalKcal.toInt()} kcal (${s.activeKcal.toInt()} active, ${s.restKcal.toInt()} warmup + recovery; both use the conservative non-working estimate)")
         appendLine("- Heart rate: avg ${s.avgHr}, active-avg ${s.avgActiveHr}, peak ${s.peakHr}, min ${s.minHr} bpm")
         val zones = HrZone.entries.filter { (s.timeInZonesMs[it] ?: 0L) > 0 }
         if (zones.isNotEmpty()) {
@@ -94,7 +98,15 @@ internal fun buildCoachPrompt(
         if (s.perExercise.isNotEmpty()) {
             appendLine("- Total reps ${s.totalReps}. Per exercise:")
             s.perExercise.forEach { e ->
-                appendLine("    ${e.exerciseName}: ${e.sets} sets, ${e.reps} reps, ${e.kcal.toInt()} kcal, ${fmt(e.activeDurationMs)} under load")
+                appendLine("    ${e.exerciseName}: ${e.sets} sets, ${e.reps} reps${perSide(e.exerciseName, e.reps)}, ${e.kcal.toInt()} kcal, ${fmt(e.activeDurationMs)} under load")
+            }
+            if (s.perExercise.any { isUnilateral(it.exerciseName) }) {
+                appendLine(
+                    "- Movements marked PER-SIDE are worked one side at a time, and their reps (planned " +
+                        "and performed) are the TOTAL across both sides — \"40 reps\" means 20 per leg/arm. " +
+                        "Always reason and prescribe per side for these (e.g. \"3 × 20 per leg\"); never " +
+                        "read the total as one side's count.",
+                )
             }
         }
         if (!session.plan.isEmpty) {
@@ -112,7 +124,8 @@ internal fun buildCoachPrompt(
             appendLine("- Planned vs performed:")
             plan.exercises.forEach { slot ->
                 val done = session.setLogs.filter { it.slotId == slot.slotId }
-                appendLine("    ${slot.name}: planned ${plannedLabel(plan, slot)}, performed ${done.size} sets (${done.sumOf { it.reps }} reps)")
+                val reps = done.sumOf { it.reps }
+                appendLine("    ${slot.name}: planned ${plannedLabel(plan, slot)}${if (isUnilateral(slot.name)) " (PER-SIDE, total of both sides)" else ""}, performed ${done.size} sets ($reps reps${perSide(slot.name, reps)})")
             }
         }
         if (session.notes.isNotBlank()) appendLine("- Athlete's note: ${session.notes}")
@@ -190,7 +203,7 @@ internal fun buildCoachPrompt(
      * Here the planned set count is the round count, and the reps are the per-round target.
      */
     private fun plannedLabel(plan: WorkoutPlan, slot: PlannedExercise): String {
-        if (!plan.isCircuit) return slot.targetLabel
+        if (!plan.isCircuit || slot.runsOnce) return slot.targetLabel
         val sets = plan.targetSetsFor(slot.slotId)
         val unit = if (slot.measure == ExerciseMeasure.SECONDS) "${slot.targetSeconds}s" else "${slot.targetReps} reps"
         return "$sets ${if (sets == 1) "round" else "rounds"} × $unit"
@@ -199,10 +212,15 @@ internal fun buildCoachPrompt(
     /** "Push-Up: 6 sessions · best +15 kg × 14 · last 3 Sep" — a movement's headline for the trend block. */
     private fun exerciseLine(e: ExerciseProgress): String = buildString {
         append("${e.exerciseName}: ${e.sessionCount} ${if (e.sessionCount == 1) "session" else "sessions"}, ${e.totalReps} reps")
+        if (isUnilateral(e.exerciseName)) append(" (PER-SIDE: totals of both sides)")
         e.heaviest?.let { append("; best +${formatKg(it.addedWeightKg)} kg × ${it.reps}") }
         e.mostReps?.let { append("; most reps ${it.reps}") }
         append("; last ${dateOf(e.lastPerformedMs)}")
     }
+
+    /** ", PER-SIDE: ≈20 per side" for a one-side-at-a-time movement, so the total isn't read as one side. */
+    private fun perSide(name: String, reps: Int): String =
+        if (reps > 0 && isUnilateral(name)) " — PER-SIDE: total of both sides, ≈${(reps + 1) / 2} per side" else ""
 
     private fun volumeOf(session: PerformedSession): Double =
         session.setLogs.sumOf { log -> (session.plan.slot(log.slotId)?.addedWeightKg ?: 0.0) * log.reps }

@@ -271,7 +271,7 @@ private fun timeSummary(audit: CalorieAudit): String {
 }
 
 private fun totalSummary(audit: CalorieAudit): String =
-    "working ${audit.workBlocks.sumOf { it.kcal }.kcal()} + rest ${audit.restBlocks.sumOf { it.kcal }.kcal()} = ${audit.blockKcalTotal.kcal()} kcal"
+    "working ${audit.workBlocks.sumOf { it.kcal }.kcal()} + prep / rest ${audit.restBlocks.sumOf { it.kcal }.kcal()} = ${audit.blockKcalTotal.kcal()} kcal"
 
 private fun glanceSentence(audit: CalorieAudit): String = buildString {
     append("Integrated from ${audit.sampling.sampleCount} real heart-rate readings across ${audit.blocks.size} work/rest blocks")
@@ -399,7 +399,8 @@ private fun TimeBody(audit: CalorieAudit) {
         AuditRow("Sensor gaps", "none")
     }
     AuditRow("Working", formatCompact(audit.summary.activeDurationMs))
-    AuditRow("Resting", formatCompact(audit.summary.restDurationMs))
+    AuditRow("Warmup", formatCompact(audit.blocks.filter { it.isOpeningWarmup }.sumOf { it.coveredDurationMs }))
+    AuditRow("Resting", formatCompact(audit.blocks.filter { it.type == SegmentType.REST && !it.isOpeningWarmup }.sumOf { it.coveredDurationMs }))
 }
 
 @Composable
@@ -423,7 +424,8 @@ private fun BlocksBody(audit: CalorieAudit) {
 @Composable
 private fun TotalBody(audit: CalorieAudit) {
     AuditRow("Working blocks", "${audit.workBlocks.sumOf { it.kcal }.kcal()} kcal")
-    AuditRow("Rest blocks", "${audit.restBlocks.sumOf { it.kcal }.kcal()} kcal")
+    AuditRow("Warmup blocks", "${audit.restBlocks.filter { it.isOpeningWarmup }.sumOf { it.kcal }.kcal()} kcal")
+    AuditRow("Rest blocks", "${audit.restBlocks.filterNot { it.isOpeningWarmup }.sumOf { it.kcal }.kcal()} kcal")
     if (audit.unsegmentedKcal > 0) {
         AuditRow("Untagged time", "${audit.unsegmentedKcal.kcal()} kcal")
     }
@@ -659,6 +661,7 @@ private fun CalorieAudit.Block.title(): String {
     return when {
         name != null && setIndex != null -> "Set $setIndex · $name"
         name != null -> name
+        isOpeningWarmup -> "Warmup"
         type == SegmentType.REST -> "Rest"
         else -> "Work block $ordinal"
     }

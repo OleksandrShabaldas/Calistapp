@@ -74,6 +74,17 @@ class PlanDraftRepository @Inject constructor(
     fun remove(slotId: String) =
         _draft.update { it.copy(exercises = it.exercises.filterNot { e -> e.slotId == slotId }) }
 
+    /** A picker checkmark deselects the movement, including duplicates left by the old add control. */
+    fun toggleSelection(exercise: Exercise): Boolean {
+        val selected = _draft.value.exercises.any { it.exerciseId == exercise.id }
+        if (selected) {
+            _draft.update { it.copy(exercises = it.exercises.filterNot { slot -> slot.exerciseId == exercise.id }) }
+        } else {
+            add(exercise)
+        }
+        return !selected
+    }
+
     fun update(slotId: String, transform: (PlannedExercise) -> PlannedExercise) =
         _draft.update { plan ->
             plan.copy(exercises = plan.exercises.map { if (it.slotId == slotId) transform(it) else it })

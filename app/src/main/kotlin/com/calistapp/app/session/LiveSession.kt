@@ -102,8 +102,13 @@ data class LiveSession(
     val restElapsedSeconds: Int?
         get() = if (isWorking || countdownUntilMs != null) null else (segmentElapsedMs / 1000).toInt()
 
-    /** What the *next* work block will run, or null once every planned set is banked. */
-    val upNext: NextUp? get() = plan.nextUp(currentSlotId, completedSets)
+    /**
+     * What the *next* work block will run, or null once every planned set is banked. While working
+     * that's whatever follows this set; while resting (or warming up before set 1) it's the block the
+     * controller will actually start — see [WorkoutPlan.upcoming].
+     */
+    val upNext: NextUp?
+        get() = if (isWorking) plan.nextUp(currentSlotId, completedSets) else plan.upcoming(currentSlotId, completedSets)
 
     /** The movement the next work block will run — the current one again, or a new exercise. */
     val upNextExercise: PlannedExercise? get() = plan.slot(upNext?.slotId)

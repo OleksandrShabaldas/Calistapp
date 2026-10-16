@@ -29,6 +29,7 @@ data class DayCell(
     val planned: Boolean,
     /** Sunday, drawn red in the strip. */
     val isSunday: Boolean = false,
+    val targetKcal: Int = 0,
 )
 
 data class WeekState(
@@ -67,6 +68,7 @@ data class StepsState(
     val eeaSteps: Int = 0,
     val progress: Float = 0f,
     val goalMet: Boolean = false,
+    val originalTargetKcal: Int = 0,
 ) {
     /** Percent of the daily target reached — uncapped, so it keeps climbing past 100%. */
     val percentOfTarget: Int get() = if (targetKcal <= 0) 0 else (earnedKcal * 100 / targetKcal)
@@ -119,6 +121,7 @@ data class DayView(
     val eeaSteps: Int,
     val progress: Float,
     val sessions: List<SessionOverview>,
+    val originalTargetKcal: Int = 0,
 )
 
 /** The Next Up card — the next planned workout, or a saved one to fall back on. */

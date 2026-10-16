@@ -122,6 +122,13 @@ data class PlannedExercise(
      * deserializing and behaving exactly as before.
      */
     val plannedSets: List<PlannedSet> = emptyList(),
+    /**
+     * A block that runs exactly once regardless of workout style — the warm-up and stretch routines
+     * the setup screen threads onto the start and end of a plan. In a circuit every other slot is
+     * worked once per round; these sit outside the rotation (leading ones before round 1, trailing
+     * ones after the last round). Additive with a default, so stored plans read unchanged.
+     */
+    val runsOnce: Boolean = false,
 ) {
     /**
      * Extra load carried beyond bodyweight — vest, belt, dumbbells. Any movement can be weighted,
@@ -233,8 +240,14 @@ data class WorkoutPlan(
      * once per round — whereas a split runs each exercise's own set count to completion.
      */
     val totalSets: Int
-        get() = if (isCircuit) exercises.size * rounds.coerceAtLeast(1)
-        else exercises.sumOf { it.sets().size }
+        get() = if (isCircuit) {
+            rotation.size * rounds.coerceAtLeast(1) + exercises.filter { it.runsOnce }.sumOf { it.sets().size }
+        } else {
+            exercises.sumOf { it.sets().size }
+        }
+
+    /** The slots a circuit cycles through each round — everything but the [PlannedExercise.runsOnce] blocks. */
+    private val rotation: List<PlannedExercise> get() = exercises.filter { !it.runsOnce }
 
     /**
      * A rough time estimate for the whole workout, in seconds — a set's working time plus its rest,
@@ -248,9 +261,11 @@ data class WorkoutPlan(
             fun work(slot: PlannedExercise, set: PlannedSet): Int =
                 if (slot.measure == ExerciseMeasure.SECONDS) set.reps else set.reps * SECONDS_PER_REP
             return if (isCircuit) {
-                rounds.coerceAtLeast(1) * exercises.sumOf { slot ->
+                rounds.coerceAtLeast(1) * rotation.sumOf { slot ->
                     val set = slot.sets().firstOrNull() ?: PlannedSet()
                     work(slot, set) + slot.restSeconds
+                } + exercises.filter { it.runsOnce }.sumOf { slot ->
+                    slot.sets().sumOf { set -> work(slot, set) + slot.restSeconds }
                 }
             } else {
                 exercises.sumOf { slot -> slot.sets().sumOf { set -> work(slot, set) + slot.restSeconds } }
@@ -266,7 +281,21 @@ data class WorkoutPlan(
         val slot = slot(slotId) ?: return 0
         // A circuit's set count is the round count (each slot is worked once per round); a split runs
         // the slot's own column, which is now its per-set list (uniform or not).
-        return if (isCircuit) rounds.coerceAtLeast(1) else slot.sets().size
+        return if (isCircuit && !slot.runsOnce) rounds.coerceAtLeast(1) else slot.sets().size
+    }
+
+    /**
+     * The slot's target as this plan will actually run it — what every screen should print. For a
+     * split that's the slot's own [PlannedExercise.targetLabel]. For a circuit it is NOT: a circuit
+     * slot keeps its (ignored) default of 3 sets, while it's really worked once per round, so a
+     * 1-round circuit read "3 × 7" everywhere. Here the set count is the round count.
+     */
+    fun targetLabelFor(slot: PlannedExercise): String {
+        if (!isCircuit || slot.runsOnce) return slot.targetLabel
+        val sets = slot.sets()
+        if (sets.isEmpty()) return slot.targetLabel
+        val perRound = List(rounds.coerceAtLeast(1)) { sets.getOrElse(it) { sets.last() } }
+        return slot.copy(plannedSets = perRound).targetLabel
     }
 
     fun slot(slotId: String?): PlannedExercise? =
@@ -278,7 +307,7 @@ data class WorkoutPlan(
         if (i < 0) return exercises.firstOrNull()
         return when {
             i < exercises.lastIndex -> exercises[i + 1]
-            isCircuit -> exercises.firstOrNull()
+            isCircuit -> rotation.firstOrNull()
             else -> null
         }
     }
@@ -291,19 +320,42 @@ data class WorkoutPlan(
      * watch both advance the current exercise independently, and if their rules disagreed by even
      * one set the two screens would show different exercises for the rest of the workout.
      */
+    /**
+     * What the next work block will run, seen from a rest (or the opening warm-up) at [currentSlotId].
+     *
+     * [nextUp] answers "what follows the set just banked", so it always steps *past* the current slot
+     * in a circuit or superset. Before the first set there is no banked set to step past: the opening
+     * block works the selected slot itself. Asking [nextUp] there skipped exercise 1 — the live screen
+     * announced exercise 2 as "up next" while the controller (correctly) started exercise 1. This is
+     * the one rule both devices' controllers and the live screen ask, so they can't drift again.
+     */
+    fun upcoming(currentSlotId: String?, completedSets: Map<String, Int>): NextUp? {
+        val current = slot(currentSlotId)
+        if (current != null && completedSets.values.sum() == 0) return NextUp(current.slotId, 1)
+        return nextUp(currentSlotId, completedSets)
+    }
+
     fun nextUp(currentSlotId: String?, completedSets: Map<String, Int>): NextUp? {
         if (exercises.isEmpty()) return null
         fun done(id: String) = completedSets[id] ?: 0
         fun remaining(e: PlannedExercise) = targetSetsFor(e.slotId) - done(e.slotId)
 
         if (isCircuit) {
+            // Run-once blocks bracket the rounds: any leading warm-up first, in order, and any
+            // trailing stretch only once every round is done — never folded into the rotation.
+            val lead = exercises.takeWhile { it.runsOnce }
+            val trail = exercises.drop(lead.size).filter { it.runsOnce }
+            lead.firstOrNull { remaining(it) > 0 }?.let { return NextUp(it.slotId, done(it.slotId) + 1) }
             // Walk forward from the current position and take the first slot still owing a set, so
-            // an exercise skipped mid-round is picked up on the next pass rather than lost.
-            val start = exercises.indexOfFirst { it.slotId == currentSlotId }
-            for (step in 1..exercises.size) {
-                val e = exercises[(start + step).mod(exercises.size)]
+            // an exercise skipped mid-round is picked up on the next pass rather than lost. From a
+            // warm-up block (not in the rotation) the walk starts at the rotation's first slot.
+            val ring = rotation
+            val start = ring.indexOfFirst { it.slotId == currentSlotId }
+            for (step in 1..ring.size) {
+                val e = ring[(start + step).mod(ring.size)]
                 if (remaining(e) > 0) return NextUp(e.slotId, done(e.slotId) + 1)
             }
+            trail.firstOrNull { remaining(it) > 0 }?.let { return NextUp(it.slotId, done(it.slotId) + 1) }
             return null
         }
 
@@ -337,7 +389,7 @@ data class WorkoutPlan(
     /** Round currently being worked, 1-based. Always 1 for a split. */
     fun roundOf(completedSets: Map<String, Int>): Int =
         if (!isCircuit) 1
-        else (exercises.minOfOrNull { completedSets[it.slotId] ?: 0 } ?: 0) + 1
+        else ((rotation.minOfOrNull { completedSets[it.slotId] ?: 0 } ?: 0) + 1).coerceAtMost(rounds.coerceAtLeast(1))
 
     companion object {
         val EMPTY = WorkoutPlan(id = "", name = "")

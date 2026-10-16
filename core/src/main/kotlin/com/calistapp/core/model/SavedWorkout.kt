@@ -14,6 +14,6 @@ data class SavedWorkout(
         get() = buildString {
             append("${plan.exercises.size} ${if (plan.exercises.size == 1) "exercise" else "exercises"}")
             append(" · ${plan.totalSets} sets")
-            if (plan.isCircuit) append(" · ${plan.rounds} rounds")
+            if (plan.isCircuit) append(" · ${plan.rounds} ${if (plan.rounds == 1) "round" else "rounds"}")
         }
 }

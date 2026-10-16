@@ -108,35 +108,21 @@ fun SessionSetupScreen(
                 }
             }
 
-            if (plan.isCircuit) {
-                item {
-                    GlassCard {
-                        Text("Circuit workout", style = MaterialTheme.typography.titleMedium, color = Chalk)
-                        Text(
-                            "Warm-up and stretch routines run once, so they're added to exercise-by-exercise " +
-                                "workouts rather than circuits. Your settings and rest still apply.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Ash,
-                        )
-                    }
-                }
-            } else {
-                item { SectionHeading("Warm-up") }
-                item {
-                    RoutinePicker(
-                        routines = viewModel.warmUps,
-                        selectedId = warmUpId,
-                        onSelect = viewModel::selectWarmUp,
-                    )
-                }
-                item { SectionHeading("Stretching") }
-                item {
-                    RoutinePicker(
-                        routines = viewModel.stretches,
-                        selectedId = stretchId,
-                        onSelect = viewModel::selectStretch,
-                    )
-                }
+            item { SectionHeading("Warm-up") }
+            item {
+                RoutinePicker(
+                    routines = viewModel.warmUps,
+                    selectedId = warmUpId,
+                    onSelect = viewModel::selectWarmUp,
+                )
+            }
+            item { SectionHeading("Stretching") }
+            item {
+                RoutinePicker(
+                    routines = viewModel.stretches,
+                    selectedId = stretchId,
+                    onSelect = viewModel::selectStretch,
+                )
             }
 
             item { SectionHeading("During the session") }

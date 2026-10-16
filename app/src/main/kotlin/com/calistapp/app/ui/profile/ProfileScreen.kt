@@ -837,11 +837,13 @@ private fun GoalsSection(goals: TrainingGoals?, onSave: (TrainingGoals) -> Unit)
     var kcal by rememberSaveable(goals) { mutableStateOf(goals.weeklyKcal.toString()) }
     var sessions by rememberSaveable(goals) { mutableStateOf(goals.weeklySessions.toString()) }
     var steps by rememberSaveable(goals) { mutableStateOf(goals.dailyStepGoal.toString()) }
+    var reduceGoal by rememberSaveable(goals) { mutableStateOf(goals.reduceGoalAfterActiveDay) }
 
     val edited = TrainingGoals(
         weeklyKcal = kcal.toIntOrNull() ?: -1,
         weeklySessions = sessions.toIntOrNull() ?: -1,
         dailyStepGoal = steps.toIntOrNull() ?: -1,
+        reduceGoalAfterActiveDay = reduceGoal,
     )
     val changed = edited != goals
 
@@ -858,6 +860,21 @@ private fun GoalsSection(goals: TrainingGoals?, onSave: (TrainingGoals) -> Unit)
             value = steps,
             error = "Enter 1,000–50,000".takeIf { edited.dailyStepGoal !in TrainingGoals.DAILY_STEP_GOAL_RANGE },
         ) { steps = it }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Reduce goal after an active day", modifier = Modifier.weight(1f))
+            androidx.compose.material3.Switch(checked = reduceGoal, onCheckedChange = { reduceGoal = it })
+        }
+        androidx.compose.animation.AnimatedVisibility(visible = reduceGoal) {
+            Text(
+                "Tomorrow's goal drops by half the calories above 150% of your original goal. " +
+                    "On a reduced day, the threshold is 100% of the original goal. " +
+                    "Your goal never falls below 20%. Walking and workouts both count. " +
+                    "For example: 20,000 equivalent steps against a 10,000 goal makes tomorrow's goal 7,500. " +
+                    "Applies to your recorded days while enabled.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         NumberField(
             label = "Calories per week",
             value = kcal,

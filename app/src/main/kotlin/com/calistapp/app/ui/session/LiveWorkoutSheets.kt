@@ -3,6 +3,7 @@ package com.calistapp.app.ui.session
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.clickable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,17 +58,21 @@ fun EffortInputSheet(
 fun ThisExerciseContent(
     exercise: Exercise?,
     planned: PlannedExercise?,
+    /** The plan-aware target ([com.calistapp.core.model.WorkoutPlan.targetLabelFor]), not the slot's raw one. */
+    targetLabel: String?,
     history: ExerciseHistoryStat?,
     nowMs: Long,
+    onOpenExercise: () -> Unit,
 ) {
     Text(
         planned?.displayName ?: exercise?.name ?: "Exercise",
         style = MaterialTheme.typography.titleLarge,
         fontWeight = FontWeight.Bold,
         color = Chalk,
+        modifier = Modifier.clickable(onClick = onOpenExercise),
     )
-    if (planned != null) {
-        Text("Target · ${planned.targetLabel}", style = MaterialTheme.typography.bodyMedium, color = Flame)
+    if (targetLabel != null) {
+        Text("Target · $targetLabel", style = MaterialTheme.typography.bodyMedium, color = Flame)
     }
 
     if (history != null) {

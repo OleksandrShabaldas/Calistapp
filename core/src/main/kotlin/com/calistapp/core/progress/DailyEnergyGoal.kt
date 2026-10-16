@@ -3,6 +3,7 @@ package com.calistapp.core.progress
 import java.time.DayOfWeek
 import java.time.LocalDate
 import kotlin.math.roundToInt
+import kotlin.math.ceil
 
 /**
  * The daily energy goal derived from a step target, and the streak of days that met it.
@@ -33,6 +34,29 @@ object DailyEnergyGoal {
     fun dailyTargetKcal(stepGoal: Int, perStepRate: Double): Int =
         (stepGoal * perStepRate).roundToInt().coerceAtLeast(1)
 
+    /** Only yesterday earns a reduction; unused credit never accumulates across days. */
+    fun reducedTargets(
+        earnedByDate: Map<LocalDate, Double>,
+        originalTarget: Double,
+        enabled: Boolean,
+    ): Map<LocalDate, Double> {
+        if (!enabled || !originalTarget.isFinite() || originalTarget <= 0.0) return emptyMap()
+        val targets = mutableMapOf<LocalDate, Double>()
+        for ((date, earned) in earnedByDate.toSortedMap()) {
+            val wasReduced = (targets[date] ?: originalTarget) < originalTarget
+            val threshold = originalTarget * if (wasReduced) 1.0 else 1.5
+            val excess = if (earned.isFinite()) (earned - threshold).coerceAtLeast(0.0) else 0.0
+            if (excess > 0.0) {
+                targets[date.plusDays(1)] = (originalTarget - excess * 0.5).coerceAtLeast(originalTarget * 0.2)
+            }
+        }
+        return targets
+    }
+
+    /** Round for display without ever slipping below the 20% minimum. */
+    fun roundedTarget(target: Double, originalTarget: Double): Int =
+        target.roundToInt().coerceAtLeast(ceil(originalTarget * 0.2).toInt()).coerceAtLeast(1)
+
     /** How far through today's goal, 0f..1f, for the ring. */
     fun progress(earnedKcal: Double, targetKcal: Int): Float =
         if (targetKcal <= 0) 0f else (earnedKcal / targetKcal).toFloat().coerceIn(0f, 1f)
@@ -53,11 +77,12 @@ object DailyEnergyGoal {
         earnedByDate: Map<LocalDate, Double>,
         targetKcal: Int,
         today: LocalDate,
+        targetOn: (LocalDate) -> Int = { targetKcal },
     ): Int {
         if (targetKcal <= 0) return 0
-        var cursor = if (hit(earnedByDate[today] ?: 0.0, targetKcal)) today else today.minusDays(1)
+        var cursor = if (hit(earnedByDate[today] ?: 0.0, targetOn(today))) today else today.minusDays(1)
         var streak = 0
-        while (hit(earnedByDate[cursor] ?: 0.0, targetKcal)) {
+        while (hit(earnedByDate[cursor] ?: 0.0, targetOn(cursor))) {
             streak++
             cursor = cursor.minusDays(1)
         }
@@ -68,8 +93,10 @@ object DailyEnergyGoal {
      * The streak stats the heatmap popup shows, computed across `[firstDay, today]` where firstDay is
      * the earliest day with any burn. Pure so it can be unit-tested.
      */
-    fun stats(earnedByDate: Map<LocalDate, Double>, targetKcal: Int, today: LocalDate): StreakStats {
-        val current = currentStreak(earnedByDate, targetKcal, today)
+    fun stats(earnedByDate: Map<LocalDate, Double>, targetKcal: Int, today: LocalDate,
+        targetOn: (LocalDate) -> Int = { targetKcal },
+    ): StreakStats {
+        val current = currentStreak(earnedByDate, targetKcal, today, targetOn)
         val firstDay = earnedByDate.entries.filter { it.value > 0.0 }.minByOrNull { it.key }?.key
             ?: return StreakStats(current, 0, 0, null, 0, null, 0, 0, 0, emptyMap(), null, 0)
 
@@ -93,7 +120,7 @@ object DailyEnergyGoal {
             if (earned > bestKcal) { bestKcal = earned; best = d }
             val wd = d.dayOfWeek
             weekdayCount[wd] = (weekdayCount[wd] ?: 0) + 1
-            if (hit(earned, targetKcal)) {
+            if (hit(earned, targetOn(d))) {
                 hits++; run++; longest = maxOf(longest, run); missRun = 0
                 weekdayHits[wd] = (weekdayHits[wd] ?: 0) + 1
             } else {
@@ -106,7 +133,7 @@ object DailyEnergyGoal {
         var lastBroken: LocalDate? = null
         var back = today
         while (back.isAfter(firstDay)) {
-            if (!hit(earnedByDate[back] ?: 0.0, targetKcal) && hit(earnedByDate[back.minusDays(1)] ?: 0.0, targetKcal)) {
+            if (!hit(earnedByDate[back] ?: 0.0, targetOn(back)) && hit(earnedByDate[back.minusDays(1)] ?: 0.0, targetOn(back.minusDays(1)))) {
                 lastBroken = back; break
             }
             back = back.minusDays(1)
@@ -116,7 +143,7 @@ object DailyEnergyGoal {
         var daysHitThisMonth = 0
         var m = monthStart
         while (!m.isAfter(today)) {
-            if (hit(earnedByDate[m] ?: 0.0, targetKcal)) daysHitThisMonth++
+            if (hit(earnedByDate[m] ?: 0.0, targetOn(m))) daysHitThisMonth++
             m = m.plusDays(1)
         }
 

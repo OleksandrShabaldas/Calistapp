@@ -3,10 +3,15 @@ package com.calistapp.app.ui.exercises
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.os.Build
+import android.view.LayoutInflater
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -22,240 +27,124 @@ import androidx.media3.ui.PlayerView
 import com.calistapp.app.R
 import com.calistapp.app.data.exercise.ExerciseMediaStore
 
-/**
- * Plays one looping, muted exercise-demonstration video (an MP4 streamed from the CDN).
- *
- * Sized for a carousel: only the visible page should play, so pass [active] = whether this is the
- * current page. Off-screen pages are paused, which keeps just one video decoding at a time and
- * avoids burning bandwidth pre-buffering pages the user may never swipe to. The player is released
- * when it leaves composition, and paused when the app is backgrounded.
- */
+/** Muted demonstration; only the visible page plays. */
 @Composable
-fun ExerciseVideoPlayer(
-    url: String,
-    active: Boolean,
-    modifier: Modifier = Modifier,
-) {
+fun ExerciseVideoPlayer(url: String, active: Boolean, modifier: Modifier = Modifier) {
+    ExerciseVideoPlaylist(listOf(url), active, playing = true, modifier = modifier)
+}
+
+/** A shared player keeps URL changes, screen lifecycle, and tap-to-pause in agreement. */
+@Composable
+private fun rememberVideoPlayer(
+    urls: List<String>,
+    shouldPlay: Boolean,
+    onFirstFrame: () -> Unit = {},
+    onUnavailable: () -> Unit = {},
+): ExoPlayer {
     val context = LocalContext.current
-    val exoPlayer = remember(url) {
-        val retries = intArrayOf(0)
+    val frameCallback by rememberUpdatedState(onFirstFrame)
+    val failureCallback by rememberUpdatedState(onUnavailable)
+    val wantsPlayback by rememberUpdatedState(shouldPlay)
+    val player = remember(urls) {
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(DefaultMediaSourceFactory(ExerciseMediaStore.dataSourceFactory(context)))
-            .build()
-            .apply {
-                // A transient network/CDN error shouldn't leave a blank frame — re-prepare a few
-                // times before giving up. Bounded so a genuinely missing clip doesn't spin forever.
+            .build().apply {
+                var retries = 0
                 addListener(object : Player.Listener {
+                    override fun onRenderedFirstFrame() { frameCallback() }
                     override fun onPlayerError(error: PlaybackException) {
-                        if (retries[0] < MAX_RETRIES) { retries[0]++; prepare() }
+                        if (retries++ < MAX_RETRIES) prepare() else failureCallback()
                     }
                 })
-                setMediaItem(MediaItem.fromUri(url))
+                setMediaItems(urls.map { MediaItem.fromUri(it) })
                 repeatMode = Player.REPEAT_MODE_ALL
                 volume = 0f
                 prepare()
             }
     }
-
-    // Only the on-screen page plays.
-    LaunchedEffect(active, exoPlayer) { exoPlayer.playWhenReady = active }
-
-    // Pause with the app; resume only if this is still the active page.
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, exoPlayer) {
+    val owner = LocalLifecycleOwner.current
+    LaunchedEffect(player, shouldPlay, owner) {
+        player.playWhenReady = shouldPlay && owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+    }
+    DisposableEffect(owner, player) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
-                Lifecycle.Event.ON_RESUME -> if (active) exoPlayer.play()
+                Lifecycle.Event.ON_PAUSE -> player.pause()
+                Lifecycle.Event.ON_RESUME -> player.playWhenReady = wantsPlayback
                 else -> Unit
             }
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            exoPlayer.release()
-        }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
     }
-
-    AndroidView(
-        // Inflated (rather than `PlayerView(ctx)`) so it uses a TextureView surface — see the layout.
-        factory = { ctx ->
-            (android.view.LayoutInflater.from(ctx).inflate(R.layout.exercise_player_view, null) as PlayerView)
-                .apply { player = exoPlayer }
-        },
-        modifier = modifier,
-    )
+    DisposableEffect(player) { onDispose { player.release() } }
+    return player
 }
 
-/**
- * Plays a list of clips as one looping playlist — the real-person angles of a single exercise, shown
- * one after another (front, then side, then front again…). The live workout hero uses this so the
- * several angles read as "the same movement from around the room" rather than separate pages.
- *
- * [active] gates whether this is the on-screen page (off-screen pages don't decode); [playing] is the
- * user's tap-to-pause. Video runs only when both are true. ExoPlayer auto-advances the list and
- * `REPEAT_MODE_ALL` loops it, so no per-clip end handling is needed.
- */
+/** Loop all angles. A retained AndroidView must bind each new player on update. */
 @Composable
 fun ExerciseVideoPlaylist(
     urls: List<String>,
     active: Boolean,
     playing: Boolean,
     modifier: Modifier = Modifier,
+    workoutScrim: Boolean = false,
+    dimAmount: Float = 0f,
+    onUnavailable: () -> Unit = {},
 ) {
-    val context = LocalContext.current
-    val exoPlayer = remember(urls) {
-        val retries = intArrayOf(0)
-        ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(ExerciseMediaStore.dataSourceFactory(context)))
-            .build()
-            .apply {
-                addListener(object : Player.Listener {
-                    override fun onPlayerError(error: PlaybackException) {
-                        if (retries[0] < MAX_RETRIES) { retries[0]++; prepare() }
-                    }
-                })
-                setMediaItems(urls.map { MediaItem.fromUri(it) })
-                repeatMode = Player.REPEAT_MODE_ALL
-                volume = 0f
-                prepare()
-            }
-    }
-
-    LaunchedEffect(active, playing, exoPlayer) { exoPlayer.playWhenReady = active && playing }
-
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, exoPlayer) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
-                Lifecycle.Event.ON_RESUME -> if (active && playing) exoPlayer.play()
-                else -> Unit
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            exoPlayer.release()
-        }
-    }
-
+    var hasFrame by remember(urls) { mutableStateOf(false) }
+    val player = rememberVideoPlayer(urls, active && playing,
+        onFirstFrame = { hasFrame = true }, onUnavailable = onUnavailable)
     AndroidView(
-        // Inflated (rather than `PlayerView(ctx)`) so it uses a TextureView surface — see the layout.
         factory = { ctx ->
-            (android.view.LayoutInflater.from(ctx).inflate(R.layout.exercise_player_view, null) as PlayerView)
-                .apply { player = exoPlayer }
+            LayoutInflater.from(ctx).inflate(
+                if (workoutScrim) R.layout.workout_video else R.layout.exercise_player_view, null,
+            )
+        },
+        update = { root ->
+            val view = if (root is PlayerView) root else root.findViewById<PlayerView>(R.id.workout_player)
+            if (view.player !== player) view.player = player
+            // Keep the texture attached and decoding, with the poster visible until the first frame.
+            view.alpha = if (hasFrame) 1f else 0f
+            if (workoutScrim) root.findViewById<android.view.View>(R.id.workout_dim).alpha = dimAmount
+        },
+        onRelease = { root ->
+            val view = if (root is PlayerView) root else root.findViewById<PlayerView>(R.id.workout_player)
+            view.player = null
         },
         modifier = modifier,
     )
 }
 
-/**
- * The Next Up card's player: the workout's exercise clips as a looping, muted playlist, with the
- * bottom fade + corner shadow baked into the view (see `next_up_video.xml`) so they actually render
- * over the video. Always active while composed (the card is only ever on-screen).
- */
+/** Scrims live alongside the video in XML so Android composites them reliably. */
 @Composable
 fun NextUpVideoPlayer(urls: List<String>, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val exoPlayer = remember(urls) {
-        val retries = intArrayOf(0)
-        ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(ExerciseMediaStore.dataSourceFactory(context)))
-            .build()
-            .apply {
-                addListener(object : Player.Listener {
-                    override fun onPlayerError(error: PlaybackException) {
-                        if (retries[0] < MAX_RETRIES) { retries[0]++; prepare() }
-                    }
-                })
-                setMediaItems(urls.map { MediaItem.fromUri(it) })
-                repeatMode = Player.REPEAT_MODE_ALL
-                volume = 0f
-                prepare()
-                playWhenReady = true
-            }
-    }
-
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, exoPlayer) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
-                Lifecycle.Event.ON_RESUME -> exoPlayer.play()
-                else -> Unit
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            exoPlayer.release()
-        }
-    }
-
+    val player = rememberVideoPlayer(urls, true)
     AndroidView(
-        factory = { ctx ->
-            val root = android.view.LayoutInflater.from(ctx).inflate(R.layout.next_up_video, null)
-            root.findViewById<PlayerView>(R.id.nextup_player).player = exoPlayer
-            root
-        },
+        factory = { LayoutInflater.from(it).inflate(R.layout.next_up_video, null) },
+        update = { it.findViewById<PlayerView>(R.id.nextup_player).player = player },
+        onRelease = { it.findViewById<PlayerView>(R.id.nextup_player).player = null },
         modifier = modifier,
     )
 }
 
-/** How many times a player re-prepares after a transient playback error before giving up. */
-private const val MAX_RETRIES = 3
-
-/**
- * A full-bleed, heavily blurred, dimmed and grained loop of a workout's demo footage — the "ambient"
- * backdrop behind the saved-workout detail screen, so the screen feels alive while the typography
- * still leads. The blur is a code RenderEffect on the player (API 31+); the dim/vignette and grain are
- * baked into `ambient_video.xml` as view-hierarchy siblings so they composite over the texture layer
- * (a Compose scrim would not — see CLAUDE.md). Muted, looping, released with the composition.
- */
 @Composable
 fun AmbientVideoBackground(urls: List<String>, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val exoPlayer = remember(urls) {
-        ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(ExerciseMediaStore.dataSourceFactory(context)))
-            .build()
-            .apply {
-                setMediaItems(urls.map { MediaItem.fromUri(it) })
-                repeatMode = Player.REPEAT_MODE_ALL
-                volume = 0f
-                playWhenReady = true
-                prepare()
-            }
-    }
-
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, exoPlayer) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
-                Lifecycle.Event.ON_RESUME -> exoPlayer.play()
-                else -> Unit
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            exoPlayer.release()
-        }
-    }
-
+    val player = rememberVideoPlayer(urls, true)
     AndroidView(
         factory = { ctx ->
-            val root = android.view.LayoutInflater.from(ctx).inflate(R.layout.ambient_video, null)
-            root.findViewById<PlayerView>(R.id.ambient_player).apply {
-                player = exoPlayer
+            LayoutInflater.from(ctx).inflate(R.layout.ambient_video, null).apply {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    setRenderEffect(RenderEffect.createBlurEffect(48f, 48f, Shader.TileMode.CLAMP))
+                    findViewById<PlayerView>(R.id.ambient_player).setRenderEffect(
+                        RenderEffect.createBlurEffect(48f, 48f, Shader.TileMode.CLAMP),
+                    )
                 }
             }
-            root
         },
+        update = { it.findViewById<PlayerView>(R.id.ambient_player).player = player },
+        onRelease = { it.findViewById<PlayerView>(R.id.ambient_player).player = null },
         modifier = modifier,
     )
 }
+
+private const val MAX_RETRIES = 3

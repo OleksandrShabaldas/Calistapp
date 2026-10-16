@@ -3,7 +3,8 @@ package com.calistapp.app.ui.dashboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.calistapp.app.data.fitpal.StepsImportRepository
-import com.calistapp.app.data.profile.ProfileRepository
+import com.calistapp.app.data.profile.DailyGoalRepository
+import com.calistapp.app.data.profile.DailyGoalHistory
 import com.calistapp.app.data.session.ScheduleRepository
 import com.calistapp.app.data.session.SessionRepository
 import com.calistapp.core.progress.DailyEnergyGoal
@@ -58,13 +59,14 @@ data class MonthView(
 @HiltViewModel
 class MonthViewModel @Inject constructor(
     sessionRepository: SessionRepository,
-    profileRepository: ProfileRepository,
     private val stepsImportRepository: StepsImportRepository,
     scheduleRepository: ScheduleRepository,
+    dailyGoalRepository: DailyGoalRepository,
 ) : ViewModel() {
 
     private val zone: ZoneId = ZoneId.systemDefault()
     private val started = SharingStarted.WhileSubscribed(5_000)
+    private val goalHistory = dailyGoalRepository.history.stateIn(viewModelScope, started, DailyGoalHistory())
     private val monthOffset = MutableStateFlow(0)
 
     private val selectedMonth: StateFlow<YearMonth> = monthOffset
@@ -81,7 +83,6 @@ class MonthViewModel @Inject constructor(
     }
 
     private val sessions = sessionRepository.observeSessions().stateIn(viewModelScope, started, emptyList())
-    private val goals = profileRepository.goals.stateIn(viewModelScope, started, com.calistapp.core.model.TrainingGoals())
     private val recurringWeekdays = scheduleRepository.recurring
         .map { it.filterValues { items -> items.isNotEmpty() }.keys }
         .stateIn(viewModelScope, started, emptySet())
@@ -91,14 +92,10 @@ class MonthViewModel @Inject constructor(
     }.stateIn(viewModelScope, started, emptyList())
 
     val monthView: StateFlow<MonthView> =
-        combine(selectedMonth, monthSteps, sessions, goals, recurringWeekdays) { ym, steps, sess, g, plannedDays ->
+        combine(selectedMonth, monthSteps, sessions, goalHistory, recurringWeekdays) { ym, steps, sess, history, plannedDays ->
             val stepByDate = steps.mapNotNull { s ->
                 runCatching { LocalDate.parse(s.date) }.getOrNull()?.let { it to s }
             }.toMap()
-            val rate = steps.filter { it.steps > 0 }.maxByOrNull { it.date }
-                ?.let { DailyEnergyGoal.perStepRate(it.steps, it.calories) }
-                ?: DailyEnergyGoal.fallbackPerStepRate(75.0)
-            val goalKcal = DailyEnergyGoal.dailyTargetKcal(g.dailyStepGoal, rate)
 
             val today = LocalDate.now(zone)
             val workoutByDate = HashMap<LocalDate, Double>()
@@ -111,6 +108,7 @@ class MonthViewModel @Inject constructor(
             val first = ym.atDay(1)
             val days = (0 until ym.lengthOfMonth()).map { i ->
                 val d = first.plusDays(i.toLong())
+                val goalKcal = history.targetOn(d)
                 val earned = (stepByDate[d]?.calories ?: 0.0) + (workoutByDate[d] ?: 0.0)
                 MonthDayCell(
                     date = d,
@@ -134,7 +132,7 @@ class MonthViewModel @Inject constructor(
                 totalBurned = days.sumOf { it.earnedKcal },
                 avgSteps = if (stepDaysWithData.isEmpty()) 0 else stepDaysWithData.sumOf { it.steps } / stepDaysWithData.size,
                 exercisesLogged = trainedDates.size,
-                daysHitGoal = days.count { !it.isFuture && it.earnedKcal >= goalKcal },
+                daysHitGoal = days.count { !it.isFuture && DailyEnergyGoal.hit(history.earned[it.date] ?: 0.0, it.goalKcal) },
             )
         }.stateIn(viewModelScope, started, MonthView())
 

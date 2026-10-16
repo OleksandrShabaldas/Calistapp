@@ -75,6 +75,7 @@ import com.calistapp.app.ui.common.formatClock
 import com.calistapp.app.ui.common.formatDate
 import com.calistapp.app.ui.dashboard.CardSurface
 import com.calistapp.app.ui.theme.Ash
+import com.calistapp.app.ui.theme.Amber
 import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Coral
 import com.calistapp.app.ui.theme.Display
@@ -192,7 +193,7 @@ fun SessionDetailScreen(
                         onTap = { goToExercises() },
                     )
                     Text(
-                        "Rings split by active/rest & by exercise — colours match the list below",
+                        "Warmup ${formatClock(s.warmupDurationMs)} · Work ${formatClock(s.activeDurationMs)} · Rest ${formatClock(s.restDurationMs)}",
                         style = MaterialTheme.typography.labelMedium,
                         color = Ash.copy(alpha = 0.7f),
                         modifier = Modifier.fillMaxWidth(),
@@ -425,7 +426,7 @@ private fun HeroEnergy(summary: SessionSummary, enabled: Boolean, onClick: () ->
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                 Legend(FlameHot, "${summary.activeKcal.toInt()}", "active")
-                Legend(FlameGlow.copy(alpha = 0.4f), "${summary.restKcal.toInt()}", "rest")
+                Legend(FlameGlow.copy(alpha = 0.4f), "${summary.restKcal.toInt()}", "prep / rest")
                 Spacer(Modifier.weight(1f))
                 Text("${(summary.activeRatio * 100).toInt()}% work ratio", style = MaterialTheme.typography.labelMedium, color = Ash)
             }
@@ -456,11 +457,11 @@ private fun StatRings(
     skippedCount: Int,
     onTap: () -> Unit,
 ) {
-    val activeFrac = summary.activeRatio.toFloat()
-    val durationSegs = listOf(
-        RingSegment(activeFrac.coerceAtLeast(0.001f), FlameHot),
-        RingSegment((1f - activeFrac).coerceAtLeast(0.001f), FlameHot.copy(alpha = 0.22f)),
-    )
+    val durationSegs = buildList {
+        if (summary.warmupDurationMs > 0) add(RingSegment(summary.warmupDurationMs.toFloat(), Amber))
+        if (summary.activeDurationMs > 0) add(RingSegment(summary.activeDurationMs.toFloat(), FlameHot))
+        if (summary.restDurationMs > 0) add(RingSegment(summary.restDurationMs.toFloat(), FlameHot.copy(alpha = 0.22f)))
+    }.ifEmpty { listOf(RingSegment(1f, Ash)) }
     val totalReps = timeline.sumOf { it.reps }
     val repsSegs = if (totalReps > 0) {
         timeline.mapIndexed { i, ex -> RingSegment((ex.reps.toFloat() / totalReps).coerceAtLeast(0.02f), exerciseColor(i)) }

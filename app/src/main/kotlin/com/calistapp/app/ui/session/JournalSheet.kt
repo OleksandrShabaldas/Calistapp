@@ -82,6 +82,7 @@ fun JournalSheet(
     onSetWeight: (String, Int, Double) -> Unit,
     onSetEffort: (String, Int, EffortScale, Int) -> Unit,
     onSetNote: (String, Int, String) -> Unit,
+    onOpenExercise: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -116,10 +117,12 @@ fun JournalSheet(
             live.plan.exercises.forEach { slot ->
                 JournalExerciseRow(
                     slot = slot,
+                    targetLabel = live.plan.targetLabelFor(slot),
                     total = live.plan.targetSetsFor(slot.slotId),
                     sets = live.setLogs.filter { it.slotId == slot.slotId }.sortedBy { it.setIndex },
                     imageUrls = imageUrlsFor(slot.exerciseId),
                     onEdit = { editing = it },
+                    onOpen = { onOpenExercise(slot.exerciseId) },
                 )
             }
         }
@@ -157,10 +160,12 @@ fun JournalSheet(
 @Composable
 private fun JournalExerciseRow(
     slot: PlannedExercise,
+    targetLabel: String,
     total: Int,
     sets: List<SetLog>,
     imageUrls: List<String>,
     onEdit: (JournalEdit) -> Unit,
+    onOpen: () -> Unit,
 ) {
     var expanded by rememberSaveable(slot.slotId) { mutableStateOf(sets.isNotEmpty()) }
     val done = sets.size >= total && total > 0
@@ -184,11 +189,12 @@ private fun JournalExerciseRow(
                 contentDescription = slot.name,
                 animate = false,
                 phaseKey = slot.slotId,
-                modifier = Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)),
+                modifier = Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onOpen),
             )
             Column(Modifier.weight(1f)) {
-                Text(slot.name, style = MaterialTheme.typography.bodyLarge, color = Chalk, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(slot.targetLabel, style = MaterialTheme.typography.labelSmall, color = Ash)
+                Text(slot.name, style = MaterialTheme.typography.bodyLarge, color = Chalk, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.clickable(onClick = onOpen))
+                Text(targetLabel, style = MaterialTheme.typography.labelSmall, color = Ash)
             }
             if (done) Icon(Icons.Filled.Check, "Done", tint = Flame, modifier = Modifier.size(18.dp))
             Icon(

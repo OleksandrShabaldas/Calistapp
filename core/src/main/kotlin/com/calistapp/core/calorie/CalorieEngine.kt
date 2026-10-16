@@ -206,6 +206,7 @@ class CalorieEngine(
         val breakdown = linkedMapOf<String, ExerciseBreakdown>()
         val auditBlocks = mutableListOf<CalorieAudit.Block>()
         val setCounter = mutableMapOf<String, Int>()
+        val firstWork = segments.filter { it.type == SegmentType.ACTIVE }.minOfOrNull { it.startMs } ?: Long.MAX_VALUE
 
         /** The HR term for a block, shared by both branches so the audit can't describe it wrongly. */
         fun hrTermFor(i: Int): CalorieAudit.HeartRateTerm {
@@ -246,6 +247,7 @@ class CalorieEngine(
                     restingFloorKcal = 0.0,
                     kcal = segKcal[i],
                     basis = CalorieAudit.Basis.REST,
+                    isOpeningWarmup = seg.startMs < firstWork,
                 )
                 continue
             }

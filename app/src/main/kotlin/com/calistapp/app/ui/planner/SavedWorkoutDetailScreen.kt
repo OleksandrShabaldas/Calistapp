@@ -160,6 +160,7 @@ fun SavedWorkoutDetailScreen(
         itemsIndexed(w.plan.exercises, key = { _, it -> it.slotId }) { index, slot ->
             ExerciseLine(
                 slot = slot,
+                label = w.plan.targetLabelFor(slot),
                 showDivider = index < w.plan.exercises.lastIndex,
                 onClick = { onOpenExercise(slot.exerciseId) },
             )
@@ -269,6 +270,7 @@ private fun Actions(onStart: () -> Unit, onEdit: () -> Unit) {
 @Composable
 private fun ExerciseLine(
     slot: PlannedExercise,
+    label: String,
     showDivider: Boolean,
     onClick: () -> Unit,
 ) {
@@ -282,7 +284,7 @@ private fun ExerciseLine(
                 Text(slot.displayName, style = RowName, color = Chalk, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(slot.bodyPart.displayName, style = MaterialTheme.typography.bodySmall, color = Ash, modifier = Modifier.padding(top = 6.dp))
             }
-            Text(slot.targetLabel, style = MaterialTheme.typography.bodyMedium, color = Chalk.copy(alpha = 0.68f), modifier = Modifier.padding(top = 2.dp))
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = Chalk.copy(alpha = 0.68f), modifier = Modifier.padding(top = 2.dp))
         }
         if (showDivider) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 28.dp).height(1.dp).background(OnyxBorder))

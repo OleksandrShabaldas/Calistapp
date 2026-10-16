@@ -13,6 +13,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,12 +24,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.calistapp.app.data.exercise.ExerciseVideoAuth
+import com.calistapp.app.data.exercise.ExerciseVideoSource
 import com.calistapp.app.ui.exercises.ExerciseImage
 import com.calistapp.app.ui.exercises.ExerciseVideoPlaylist
+import com.calistapp.app.ui.common.GlowIcon
 import com.calistapp.app.ui.theme.Chalk
+import com.calistapp.app.ui.theme.Onyx
 import com.calistapp.core.model.Exercise
 import com.calistapp.core.model.MediaType
 
@@ -45,7 +51,8 @@ private sealed interface HeroPage {
  * The full-bleed demonstration behind the live workout screen.
  *
  * Two pages at most: the real-person footage (its several angles cycled as one looping playlist), and
- * — swipe left — the animation. Tapping the video pauses it. With no video token configured, or an
+ * — swipe left — the animation. Tap the demonstration for exercise info; its separate control pauses
+ * playback. With no video token configured, or an
  * exercise that has no clips, it falls back to the animation, then to the start/finish still frames,
  * then to a labelled placeholder. Only the on-screen page decodes.
  */
@@ -53,10 +60,12 @@ private sealed interface HeroPage {
 fun LiveExerciseHero(
     exercise: Exercise?,
     autoplay: Boolean,
+    onOpenExercise: () -> Unit,
+    dimAmount: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     val hasToken = remember { ExerciseVideoAuth.headers.isNotEmpty() }
-    val pages = remember(exercise?.id, hasToken) { buildHeroPages(exercise, hasToken) }
+    val pages = remember(exercise, hasToken) { buildHeroPages(exercise, hasToken) }
 
     var playing by remember(exercise?.id) { mutableStateOf(autoplay) }
     LaunchedEffect(autoplay) { playing = autoplay }
@@ -66,12 +75,14 @@ fun LiveExerciseHero(
             pages.isEmpty() -> ExerciseImage(
                 urls = exercise?.imageUrls.orEmpty(),
                 contentDescription = exercise?.name,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().workoutScrim(dimAmount).clickable(onClick = onOpenExercise),
             )
 
             pages.size == 1 -> {
-                HeroPageContent(pages[0], active = true, playing = playing, posterUrls = exercise?.imageUrls.orEmpty()) { playing = !playing }
-                PausedGlyph(visible = pages[0] is HeroPage.Video && !playing)
+                HeroPageContent(pages[0], active = true, playing = playing, posterUrls = exercise?.imageUrls.orEmpty(),
+                    fallbackUrls = exercise?.media?.filter { it.type == MediaType.IMAGE }?.map { it.url }.orEmpty(),
+                    dimAmount = dimAmount, onTap = onOpenExercise)
+                PausedGlyph(visible = pages[0] is HeroPage.Video, playing = playing) { playing = !playing }
             }
 
             else -> {
@@ -82,11 +93,13 @@ fun LiveExerciseHero(
                         active = pager.currentPage == i && !pager.isScrollInProgress,
                         playing = playing,
                         posterUrls = exercise?.imageUrls.orEmpty(),
-                        onTap = { playing = !playing },
+                        fallbackUrls = exercise?.media?.filter { it.type == MediaType.IMAGE }?.map { it.url }.orEmpty(),
+                        dimAmount = dimAmount,
+                        onTap = onOpenExercise,
                     )
                 }
                 val current = pages[pager.currentPage]
-                PausedGlyph(visible = current is HeroPage.Video && !playing)
+                PausedGlyph(visible = current is HeroPage.Video, playing = playing) { playing = !playing }
                 PageDots(
                     count = pages.size,
                     current = pager.currentPage,
@@ -103,52 +116,71 @@ private fun HeroPageContent(
     active: Boolean,
     playing: Boolean,
     posterUrls: List<String>,
+    fallbackUrls: List<String>,
+    dimAmount: Float,
     onTap: () -> Unit,
 ) {
+    var unavailable by remember(page) { mutableStateOf(false) }
     when (page) {
         is HeroPage.Video -> Box(Modifier.fillMaxSize().clickable(onClick = onTap)) {
             // A still frame of this same clip behind the player (the TextureView's shutter is
             // transparent), so a clip that's still buffering — or one that never loads — shows the
             // exercise rather than a black rectangle. Offline-first, so a downloaded clip needs no network.
-            if (posterUrls.isNotEmpty()) {
-                ExerciseImage(
-                    urls = posterUrls,
-                    contentDescription = null,
-                    animate = false,
+            ExerciseImage(
+                urls = if (unavailable) fallbackUrls.ifEmpty { posterUrls } else posterUrls,
+                contentDescription = "Exercise demonstration",
+                animate = unavailable && active,
+                modifier = Modifier.fillMaxSize().workoutScrim(dimAmount),
+            )
+            if (!unavailable) {
+                ExerciseVideoPlaylist(
+                    urls = page.urls,
+                    active = active,
+                    playing = playing,
                     modifier = Modifier.fillMaxSize(),
+                    workoutScrim = true,
+                    dimAmount = dimAmount,
+                    onUnavailable = { unavailable = true },
                 )
             }
-            ExerciseVideoPlaylist(
-                urls = page.urls,
-                active = active,
-                playing = playing,
-                modifier = Modifier.fillMaxSize(),
-            )
         }
 
         is HeroPage.Stills -> ExerciseImage(
             urls = page.urls,
             contentDescription = null,
             animate = active,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().workoutScrim(dimAmount).clickable(onClick = onTap),
         )
     }
 }
 
-/** Big play triangle shown centred while a video is paused. */
+/** Separate playback control leaves taps on the demonstration available for exercise info. */
 @Composable
-private fun androidx.compose.foundation.layout.BoxScope.PausedGlyph(visible: Boolean) {
+private fun androidx.compose.foundation.layout.BoxScope.PausedGlyph(visible: Boolean, playing: Boolean, onClick: () -> Unit) {
     if (!visible) return
     Box(
         Modifier
-            .align(Alignment.Center)
-            .size(64.dp)
+            .align(Alignment.CenterEnd)
+            .padding(end = 16.dp)
+            .size(48.dp)
             .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.45f)),
+            .background(Color.Black.copy(alpha = 0.45f))
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(Icons.Filled.PlayArrow, "Paused", tint = Chalk, modifier = Modifier.size(34.dp))
+        androidx.compose.animation.AnimatedContent(targetState = playing, label = "playbackControl") { isPlaying ->
+            GlowIcon(if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                if (isPlaying) "Pause demonstration" else "Play demonstration", tint = Chalk,
+                size = 26.dp, glowRadius = 4.dp, glowAlpha = 0.4f)
+        }
     }
+}
+
+/** Matches workout_video_scrim.xml; applied only to images, never over a video view. */
+private fun Modifier.workoutScrim(dimAmount: Float) = drawWithContent {
+    drawContent()
+    drawRect(Brush.verticalGradient(0.35f to Color.Transparent, 1f to Onyx.copy(alpha = 0.92f)))
+    drawRect(Onyx.copy(alpha = dimAmount))
 }
 
 @Composable
@@ -168,11 +200,9 @@ private fun PageDots(count: Int, current: Int, modifier: Modifier = Modifier) {
 
 private fun buildHeroPages(exercise: Exercise?, hasToken: Boolean): List<HeroPage> {
     if (exercise == null) return emptyList()
-    val videoUrls = if (hasToken) {
-        exercise.media.filter { it.type == MediaType.VIDEO }.map { it.url }
-    } else {
-        emptyList()
-    }
+    val videoUrls = exercise.media.filter {
+        it.type == MediaType.VIDEO && (hasToken || !it.url.startsWith(ExerciseVideoSource.VIDEO_BASE))
+    }.map { it.url }
     val animation = exercise.media.firstOrNull { it.type == MediaType.IMAGE }?.url
     return buildList {
         if (videoUrls.isNotEmpty()) add(HeroPage.Video(videoUrls))

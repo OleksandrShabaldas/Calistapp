@@ -140,7 +140,7 @@ fun WeekStrip(
                 DayColumn(
                     day,
                     week.maxKcal,
-                    targetKcal = week.dailyTargetKcal,
+                    targetKcal = day.targetKcal,
                     isSelected = day.date == selectedDate,
                     onClick = { onSelectDay(day.date) },
                 )

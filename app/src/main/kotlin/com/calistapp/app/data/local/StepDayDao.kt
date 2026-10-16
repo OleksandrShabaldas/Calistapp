@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface StepDayDao {
+    @Query("SELECT * FROM step_days ORDER BY date")
+    fun observeAll(): Flow<List<StepDayEntity>>
 
     /** Insert or replace a day's imported steps (date is the primary key). */
     @Insert(onConflict = OnConflictStrategy.REPLACE)

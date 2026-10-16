@@ -159,6 +159,7 @@ fun DashboardScreen(
                         stepKcal = viewing.stepKcal,
                         workoutKcal = viewing.workoutKcal,
                         targetKcal = viewing.targetKcal,
+                        originalTargetKcal = viewing.originalTargetKcal,
                         eeaSteps = viewing.eeaSteps,
                         progress = viewing.progress,
                         goalMet = viewing.earnedKcal >= viewing.targetKcal,

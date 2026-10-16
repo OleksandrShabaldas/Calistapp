@@ -216,10 +216,30 @@ Grant the `BODY_SENSORS` permission on first run (the watch UI prompts for it).
 ## How a workout flows
 
 1. **Build the workout** on the phone (`New workout → Build a workout`): search the gallery — the same fuzzy relevance search the gallery tab uses — add exercises, set sets and reps, reorder, add weight to any of them. Choose **exercise-by-exercise** (all sets of one movement, then the next) or **circuit** (one set of each, then repeat for N rounds). Each exercise's physical profile is derived once and baked into the plan.
-2. **Start it.** The plan is pushed to the watch, which is brought to the foreground and starts the same session streaming HR. Sessions **open in REST** — the workout begins when you do, not when the app launches.
+2. **Start it.** The plan is pushed to the watch, which is brought to the foreground and starts the same session streaming HR. Sessions open with **warmup time** before the first working set. The summary and AI coach show that preparation separately from between-set rest, including for older saved sessions.
 3. **Work through it.** Tap to start a set and a **3-second lead-in** counts you in (so getting to the bar isn't scored as work); toggle **Work / Rest** on either device and the other follows. Log reps from the phone or the wrist. Leaving *Work* banks the set — and if you left the reps at zero, it asks first, in case you forgot to log them. The current exercise, its demo animation and set progress are the focus of the screen; calories and HR sit below.
 4. On finish, the session is scored and stored in **Room**, with a per-exercise energy breakdown.
 5. Open it in **History → session detail** for the breakdown, planned-vs-performed, and the HR-over-time chart, then tap **Analyze with AI** for Gemini feedback that now sees your exercises and reps.
+
+Tap the exercise demonstration, its title, or its name/thumbnail in the workout journal to open its
+information while tracking continues. Use the demonstration's separate play/pause control for video
+playback. In the exercise picker, tapping a selected checkmark deselects that exercise.
+
+## Daily goal reduction
+
+**Profile → Goals → Reduce goal after an active day**, then **Save goals**, enables an optional daily
+energy-goal reduction. It is off by default. Walking and workout calories both count, using the same
+step-to-calorie conversion as the dashboard.
+
+- On a normal day, half of the activity above **150% of the original goal** reduces the next day's goal.
+- On a reduced day, the threshold is **100% of the original goal**.
+- The next day's goal is always calculated from the original goal, with a **20% minimum**. Unused
+  reductions expire; they do not accumulate.
+
+For a 10,000-step equivalent goal, 20,000 equivalent steps makes tomorrow's goal 7,500. If that reduced
+day earns 15,000 equivalent steps, the following goal is again 7,500. Targets, calendar rings, and
+streaks use the same rules. While enabled, the rules also apply to recorded days; disabling the option
+restores the original target.
 
 ---
 
