@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ScheduledWorkoutEntity::class,
         ScheduleOverrideEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 abstract class CalistDatabase : RoomDatabase() {
@@ -25,6 +25,16 @@ abstract class CalistDatabase : RoomDatabase() {
     abstract fun weightDao(): WeightDao
     abstract fun stepDayDao(): StepDayDao
     abstract fun scheduleDao(): ScheduleDao
+}
+
+/**
+ * Adds the skipped-sets record to sessions. A skip used to leave no trace (the set was simply never
+ * banked), which is also why a skipped exercise stayed owed and the workout looped back to it.
+ */
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE sessions ADD COLUMN skipsJson TEXT NOT NULL DEFAULT ''")
+    }
 }
 
 /**

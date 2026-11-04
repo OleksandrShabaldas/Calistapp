@@ -3,29 +3,46 @@ package com.calistapp.app.session
 import android.content.Context
 import com.calistapp.app.data.fitpal.FitPalExportManager
 import com.calistapp.app.data.profile.ProfileRepository
+import com.calistapp.app.data.session.SavedWorkoutRepository
 import com.calistapp.app.data.session.SessionPrefsRepository
 import com.calistapp.app.data.session.SessionRepository
+import com.calistapp.app.data.sync.HrBatch
 import com.calistapp.app.data.sync.LiveSessionBus
 import com.calistapp.app.data.sync.WatchAppLauncher
 import com.calistapp.app.data.sync.WatchCommandSender
 import com.calistapp.app.di.ApplicationScope
 import com.calistapp.core.calorie.CalorieEngine
+import com.calistapp.core.calorie.ExerciseIntensity
 import com.calistapp.core.calorie.LiveCalorieAccumulator
 import com.calistapp.core.calorie.rebuildAccumulator
 import dagger.hilt.android.qualifiers.ApplicationContext
 import com.calistapp.core.model.EffortScale
+import com.calistapp.core.model.Exercise
 import com.calistapp.core.model.ExerciseMeasure
 import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.HeartRateSample
+import com.calistapp.core.model.NextUp
 import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.Segment
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionStatus
 import com.calistapp.core.model.SessionSummary
 import com.calistapp.core.model.SetLog
+import com.calistapp.core.model.SetSkip
+import com.calistapp.core.model.SkipReason
+import com.calistapp.core.model.SlotPhase
 import com.calistapp.core.model.UserProfile
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.WorkoutSession
+import com.calistapp.core.model.describeChanges
+import com.calistapp.core.model.linkHealthOf
+import com.calistapp.core.model.mergeReadings
+import com.calistapp.core.model.resolvedSets
+import com.calistapp.core.model.savableOver
+import com.calistapp.core.model.withAddedSlot
+import com.calistapp.core.model.withSlotMoved
+import com.calistapp.core.model.withTarget
+import com.calistapp.core.model.withoutSlot
 import com.calistapp.core.sync.ControlCommand
 import com.calistapp.core.sync.ControlPayload
 import com.calistapp.core.sync.DeviceOrigin
@@ -44,6 +61,15 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Edits made to today's session that could be written back to the workout it was started from. */
+data class WorkoutChanges(
+    val workoutId: String,
+    val workoutName: String,
+    val plan: WorkoutPlan,
+    /** One line per change — "Removed Parallel Bar Dips", "Push-Up: 1 × 12 → 1 × 15". */
+    val lines: List<String>,
+)
+
 /**
  * The single source of truth for the in-progress workout on the phone. It owns the heart-rate
  * stream arriving from the watch, the active/rest segmentation, which exercise is being performed,
@@ -55,7 +81,9 @@ import javax.inject.Singleton
  *
  * **Control is symmetric with the watch.** Local actions broadcast a [ControlPayload]; commands
  * arriving from the watch are applied without re-broadcasting, which is what stops the two devices
- * echoing each other.
+ * echoing each other. Skips, deferrals and edits are the exception that proves the rule: after one,
+ * the phone sends its whole progress ([syncProgress]) and the watch adopts it, so neither device can
+ * end up a set out of step.
  *
  * Kept as an app-scoped singleton so a session survives rotation/navigation and so a workout started
  * on the *watch* has somewhere to land even when no screen is open.
@@ -68,6 +96,7 @@ class SessionController @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val sessionPrefs: SessionPrefsRepository,
     private val profileRepository: ProfileRepository,
+    private val savedWorkouts: SavedWorkoutRepository,
     private val bus: LiveSessionBus,
     private val watch: WatchCommandSender,
     private val watchLauncher: WatchAppLauncher,
@@ -81,15 +110,29 @@ class SessionController @Inject constructor(
     private var countdownJob: Job? = null
     private var profile: UserProfile = UserProfile()
     private var accumulator: LiveCalorieAccumulator? = null
+    private var autoAdvanceRoutines = true
 
     // Retained privately for persistence; deliberately kept out of [LiveSession].
     private val samples = mutableListOf<HeartRateSample>()
     private val segments = mutableListOf<Segment>()
     private val setLogs = mutableListOf<SetLog>()
-    // A short tail of recent readings, mirrored into [LiveSession.recentBpm] for the HUD sparkline.
-    private val recentBpm = ArrayDeque<Int>()
+    private val skips = mutableListOf<SetSkip>()
     private var lastSampleAtMs = 0L
     private var lastCheckpointMs = 0L
+    /** When the accumulator was last integrated forward — readings timestamped before it need a rebuild. */
+    private var integratedToMs = 0L
+    /** Readings that arrived out of order and were slotted back in — the link-health read-out's backfill count. */
+    private var backfilled = 0
+    private var lastHrRequestMs = 0L
+
+    /**
+     * The session that just finished. The watch resends its whole reading log for it after the stop,
+     * and anything that never made it during the workout is merged into the saved record here.
+     */
+    private var finishedSessionId: String? = null
+    private var finishedAtMs = 0L
+    private val lateReadings = mutableListOf<HeartRateSample>()
+    private var lateMergeJob: Job? = null
 
     /**
      * Reps the same workout was performed with last time, keyed slotId → (setIndex → reps). When the
@@ -115,11 +158,8 @@ class SessionController @Inject constructor(
             accumulator?.updateProfile(updated)
             _live.update { it?.copy(maxHr = updated.effectiveMaxHr) }
         } }
-        scope.launch {
-            bus.hrSamples.collect { sample ->
-                if (_live.value?.status == SessionStatus.ACTIVE) onSample(sample)
-            }
-        }
+        scope.launch { sessionPrefs.prefs.collect { autoAdvanceRoutines = it.autoAdvanceRoutines } }
+        scope.launch { bus.hrBatches.collect { onHrBatch(it) } }
     }
 
     // ---- Local actions — these broadcast to the watch -----------------------------------------
@@ -169,10 +209,6 @@ class SessionController @Inject constructor(
     }
 
     fun selectSlot(slotId: String) = scope.launch { selectSlotInternal(slotId, broadcast = true) }
-
-    fun advanceToNext() = scope.launch {
-        _live.value?.nextExercise?.let { selectSlotInternal(it.slotId, broadcast = true) }
-    }
 
     fun adjustReps(delta: Int) = scope.launch {
         mutex.withLock {
@@ -273,6 +309,282 @@ class SessionController @Inject constructor(
         refresh()
     }
 
+    // ---- Skip, "do it later", remove — the three answers to "not this one" ----------------------
+
+    /**
+     * Skip the set in focus — the one being worked, or the one coming up while resting. It's recorded
+     * as skipped and counts as resolved, so the session moves on and never comes back to it this
+     * round; a circuit with more rounds still has it in the next one. A work block that was open is
+     * turned back into recovery: nothing is banked for it (the old skip banked the counter's
+     * pre-filled target as if the set had been done).
+     */
+    fun skipFocus() = scope.launch {
+        val focus = _live.value?.focus ?: return@launch
+        applySkip(focus.slotId, focus.setIndex, SkipReason.SKIPPED)
+    }
+
+    /** "Do it later": the set in focus moves to the end of its round (or, in a split, the workout). */
+    fun deferFocus() = scope.launch {
+        val focus = _live.value?.focus ?: return@launch
+        applyDefer(focus.slotId)
+    }
+
+    /**
+     * "Remove from today": drop [slotId] from this session — every set it still owed, in every round.
+     * An exercise that hasn't been touched yet simply leaves the plan; one with sets already done keeps
+     * them, and its remaining sets are recorded as removed. The saved workout is never touched here —
+     * finishing offers to carry the change over (see [pendingWorkoutChanges]).
+     */
+    fun removeExercise(slotId: String) = scope.launch { applyRemove(slotId) }
+
+    /** Undo a "remove from today" for an exercise that had sets done before it was dropped. */
+    fun restoreExercise(slotId: String) = scope.launch {
+        mutex.withLock {
+            val cur = _live.value ?: return@withLock
+            if (skips.none { it.slotId == slotId && it.reason == SkipReason.REMOVED }) return@withLock
+            skips.removeAll { it.slotId == slotId && it.reason == SkipReason.REMOVED }
+            _live.update { it?.copy(skips = skips.toList(), completedSets = resolvedFor(cur.plan)) }
+        }
+        afterProgressChange()
+    }
+
+    /** Skip whatever is left of [phase] — "Skip warm-up", or the cool-down on the way to finishing. */
+    fun skipRestOfPhase(phase: SlotPhase) = scope.launch { skipPhaseInternal(phase) }
+
+    /** [skipRestOfPhase], awaited — for finishing straight after, so the skip is in the saved record. */
+    suspend fun skipRestOfPhaseNow(phase: SlotPhase) = skipPhaseInternal(phase)
+
+    private suspend fun skipPhaseInternal(phase: SlotPhase) {
+        // A move held part-way when you skip the rest of its routine still happened: keep the seconds
+        // held, then skip what's left. ("Finish now" mid-stretch used to throw the stretch away.)
+        val held = _live.value?.takeIf { it.isWorking && it.plan.phaseOf(it.currentSlotId) == phase && phase != SlotPhase.MAIN }
+        if (held != null) {
+            mutex.withLock {
+                val seconds = (held.segmentElapsedMs / 1000).toInt().coerceAtLeast(1)
+                accumulator?.setCurrentReps(seconds)
+                _live.update { it?.copy(currentReps = seconds) }
+            }
+            changeSegment(SegmentType.REST, broadcast = true)
+        }
+        mutex.withLock {
+            val cur = _live.value ?: return@withLock
+            val now = System.currentTimeMillis()
+            if (cur.isWorking && cur.plan.phaseOf(cur.currentSlotId) == phase) abandonOpenSet(now)
+            cur.plan.slotsIn(phase).forEach { slot ->
+                val resolved = cur.completedSets[slot.slotId] ?: 0
+                for (i in resolved + 1..cur.plan.targetSetsFor(slot.slotId)) skips += SetSkip(slot.slotId, i, now)
+            }
+            _live.update { it?.copy(skips = skips.toList(), completedSets = resolvedFor(cur.plan)) }
+        }
+        afterProgressChange()
+    }
+
+    private suspend fun applySkip(slotId: String, setIndex: Int, reason: SkipReason) {
+        mutex.withLock {
+            val cur = _live.value ?: return@withLock
+            if (skips.any { it.slotId == slotId && it.setIndex == setIndex }) return@withLock
+            val now = System.currentTimeMillis()
+            if (cur.isWorking && cur.currentSlotId == slotId) abandonOpenSet(now)
+            skips += SetSkip(slotId, setIndex, now, reason)
+            _live.update {
+                it?.copy(
+                    skips = skips.toList(),
+                    completedSets = resolvedFor(cur.plan),
+                    deferred = it.deferred - slotId,
+                )
+            }
+        }
+        afterProgressChange()
+    }
+
+    private suspend fun applyDefer(slotId: String) {
+        mutex.withLock {
+            val cur = _live.value ?: return@withLock
+            val now = System.currentTimeMillis()
+            if (cur.isWorking && cur.currentSlotId == slotId) abandonOpenSet(now)
+            _live.update { it?.copy(deferred = it.deferred + slotId) }
+        }
+        afterProgressChange()
+    }
+
+    private suspend fun applyRemove(slotId: String) {
+        mutex.withLock {
+            val cur = _live.value ?: return@withLock
+            val slot = cur.plan.slot(slotId) ?: return@withLock
+            val now = System.currentTimeMillis()
+            if (cur.isWorking && cur.currentSlotId == slotId) abandonOpenSet(now)
+            val touched = setLogs.any { it.slotId == slotId } || skips.any { it.slotId == slotId }
+            val plan = if (!touched) {
+                cur.plan.withoutSlot(slotId)
+            } else {
+                val resolved = cur.completedSets[slotId] ?: 0
+                for (i in resolved + 1..cur.plan.targetSetsFor(slot.slotId)) {
+                    skips += SetSkip(slotId, i, now, SkipReason.REMOVED)
+                }
+                cur.plan
+            }
+            _live.update {
+                it?.copy(
+                    plan = plan,
+                    skips = skips.toList(),
+                    completedSets = resolvedFor(plan),
+                    deferred = it.deferred - slotId,
+                    currentSlotId = it.currentSlotId.takeIf { id -> plan.slot(id) != null }
+                        ?: plan.upcoming(null, resolvedFor(plan), it.deferred - slotId)?.slotId,
+                )
+            }
+        }
+        afterProgressChange()
+    }
+
+    /**
+     * Turn the open work block into recovery: the set never happened, so nothing is banked for it,
+     * and the time it ran scores as rest. The accumulator is rebuilt so the live total agrees.
+     */
+    private fun abandonOpenSet(now: Long) {
+        val last = segments.lastOrNull() ?: return
+        if (last.endMs != null || last.type != SegmentType.ACTIVE) return
+        segments[segments.lastIndex] = last.copy(type = SegmentType.REST, reps = 0)
+        accumulator = rebuildAccumulator(profile, segments, samples, currentReps = 0)
+        integratedToMs = now
+        _live.update {
+            it?.copy(
+                currentSegment = SegmentType.REST,
+                currentReps = 0,
+                // The rest stopwatch starts now; the record keeps the abandoned stretch as recovery.
+                segmentStartMs = now,
+                pendingEffortScale = null,
+                pendingEffortValue = null,
+            )
+        }
+    }
+
+    // ---- Editing today's session -------------------------------------------------------------------
+
+    /** Add [exercise] to today's workout, after the last working exercise and ahead of any cool-down. */
+    fun addExercise(exercise: Exercise) = scope.launch {
+        val metabolics = ExerciseIntensity.deriveMetabolics(exercise)
+        val slot = PlannedExercise(
+            slotId = UUID.randomUUID().toString(),
+            exerciseId = exercise.id,
+            name = exercise.name,
+            bodyPart = exercise.bodyPart,
+            measure = if (metabolics.isometric) ExerciseMeasure.SECONDS else ExerciseMeasure.REPS,
+            metabolics = metabolics,
+        )
+        editPlan { it.withAddedSlot(slot) }
+    }
+
+    /** Move [slotId] to [toIndex] within its own phase. */
+    fun moveExercise(slotId: String, toIndex: Int) = scope.launch { editPlan { it.withSlotMoved(slotId, toIndex) } }
+
+    /** Change [slotId]'s remaining sets to [value] reps (or seconds) at [weightKg]. */
+    fun retarget(slotId: String, value: Int, weightKg: Double) = scope.launch {
+        val from = (_live.value?.completedSets?.get(slotId) ?: 0) + 1
+        editPlan { it.withTarget(slotId, from, value, weightKg) }
+    }
+
+    /** A circuit's round count for today — never below the round already in progress. */
+    fun setRounds(rounds: Int) = scope.launch {
+        val floor = _live.value?.currentRound ?: 1
+        editPlan { it.copy(rounds = rounds.coerceIn(floor, 9)) }
+    }
+
+    private suspend fun editPlan(transform: (WorkoutPlan) -> WorkoutPlan) {
+        mutex.withLock {
+            val cur = _live.value ?: return@withLock
+            val plan = transform(cur.plan)
+            if (plan == cur.plan) return@withLock
+            _live.update {
+                it?.copy(
+                    plan = plan,
+                    completedSets = resolvedFor(plan),
+                    currentSlotId = it.currentSlotId.takeIf { id -> plan.slot(id) != null }
+                        ?: plan.upcoming(null, resolvedFor(plan), it.deferred)?.slotId,
+                )
+            }
+        }
+        afterProgressChange()
+    }
+
+    /** After a skip, deferral or edit: refresh, persist, and hand the watch the whole picture. */
+    private suspend fun afterProgressChange() {
+        refresh()
+        checkpoint(force = true)
+        syncProgress()
+    }
+
+    /** Resolved sets for [plan]: banked sets (from the segments) plus skips, for slots still in it. */
+    private fun resolvedFor(plan: WorkoutPlan): Map<String, Int> =
+        resolvedSets(completedSetsFrom(segments), skips).filterKeys { plan.slot(it) != null }
+
+    /**
+     * Send the phone's progress to the watch — plan, resolved sets, deferrals, where it is and which
+     * block it's in. The watch adopts it wholesale, so a skip or an edit can't leave the two devices
+     * disagreeing about what comes next.
+     */
+    private suspend fun syncProgress() {
+        val cur = _live.value ?: return
+        watch.send(
+            ControlPayload(
+                command = ControlCommand.SYNC_PLAN,
+                timestampMs = System.currentTimeMillis(),
+                origin = DeviceOrigin.PHONE,
+                sessionId = cur.id,
+                plan = cur.plan,
+                slotId = cur.currentSlotId,
+                setIndex = cur.setIndex,
+                completed = cur.completedSets,
+                deferred = cur.deferred.toList(),
+                segment = cur.currentSegment,
+            ),
+        )
+    }
+
+    /**
+     * What finishing would offer to write back to the saved workout this session was started from:
+     * its workout block as edited today (order, targets, exercises added or removed, rounds), never the
+     * routines. Null when it wasn't started from a saved workout or nothing changed — then nothing is
+     * asked.
+     */
+    suspend fun pendingWorkoutChanges(): WorkoutChanges? {
+        val cur = _live.value ?: return null
+        val sourceId = cur.plan.sourceWorkoutId ?: return null
+        val saved = savedWorkouts.get(sourceId) ?: return null
+        val edited = cur.plan.savableOver(saved.plan, cur.removedSlots)
+        val lines = describeChanges(saved.plan, edited)
+        if (lines.isEmpty()) return null
+        return WorkoutChanges(sourceId, saved.name, edited.copy(sourceWorkoutId = null), lines)
+    }
+
+    suspend fun saveWorkoutChanges(changes: WorkoutChanges) =
+        savedWorkouts.syncPlan(changes.workoutId, changes.plan)
+
+    // ---- Guided routines ----------------------------------------------------------------------------
+
+    /**
+     * End the warm-up or cool-down move in progress now and go on to the next — the "Next stretch"
+     * button, and what guided mode does by itself when the hold's time is up. The hold is logged as
+     * the seconds actually held.
+     */
+    fun finishRoutineMove() = scope.launch { finishRoutineMoveInternal() }
+
+    private suspend fun finishRoutineMoveInternal() {
+        mutex.withLock {
+            val cur = _live.value ?: return@withLock
+            if (!cur.inRoutine) return@withLock
+            val held = (cur.segmentElapsedMs / 1000).toInt().coerceAtLeast(1)
+            accumulator?.setCurrentReps(held)
+            _live.update { it?.copy(currentReps = held) }
+        }
+        changeSegment(SegmentType.REST, broadcast = true)
+        // Straight on to the next move of the same routine; a phase change waits for the hand-off card.
+        val next = _live.value ?: return
+        if (next.upNextPhase == next.currentPhase && next.currentPhase != SlotPhase.MAIN) {
+            startCountdownToWork()
+        }
+    }
+
     // ---- Journal edits — annotate banked sets. Effort feeds history/AI only, never calories. -----
 
     fun setSetEffort(slotId: String, setIndex: Int, scale: EffortScale?, value: Double?) =
@@ -337,7 +649,9 @@ class SessionController @Inject constructor(
                 broadcast = false,
             )
             ControlCommand.STOP -> _live.value?.let { finishSession(it, persist = true) }
-            ControlCommand.SET_ACTIVE -> changeSegment(SegmentType.ACTIVE, broadcast = false)
+            // The watch names the set it started; follow it rather than re-deriving, so the two can't
+            // pick different exercises even if one is a step behind on a skip.
+            ControlCommand.SET_ACTIVE -> changeSegment(SegmentType.ACTIVE, broadcast = false, target = payload.target())
             ControlCommand.SET_REST -> changeSegment(SegmentType.REST, broadcast = false)
             ControlCommand.SET_EXERCISE -> payload.slotId?.let { selectSlotInternal(it, broadcast = false) }
             ControlCommand.LOG_SET -> {
@@ -350,13 +664,30 @@ class SessionController @Inject constructor(
             ControlCommand.SYNC_PLAN -> payload.plan?.let { plan ->
                 _live.update { it?.copy(plan = plan) }
             }
+            // The watch's skip and "later" buttons: applied here, then the phone's progress goes back
+            // to the watch (inside the apply), which settles any difference.
+            ControlCommand.SKIP_SET -> payload.slotId?.let { slot ->
+                if (payload.skipReason == SkipReason.REMOVED) {
+                    applyRemove(slot)
+                } else {
+                    applySkip(slot, payload.setIndex.takeIf { it > 0 } ?: ((_live.value?.completedSets?.get(slot) ?: 0) + 1), SkipReason.SKIPPED)
+                }
+            }
+            ControlCommand.DEFER -> payload.slotId?.let { applyDefer(it) }
             ControlCommand.PAUSE -> _live.update { it?.copy(status = SessionStatus.PAUSED) }
             ControlCommand.RESUME -> _live.update { it?.copy(status = SessionStatus.ACTIVE) }
             // Liveness handshake — owned by WatchConnectionMonitor, nothing to do to the session.
             ControlCommand.PING, ControlCommand.HELLO -> Unit
             // Phone→watch only; the phone updates itself from the settings screen.
-            ControlCommand.CHECK_UPDATE -> Unit
+            ControlCommand.CHECK_UPDATE, ControlCommand.REQUEST_HR -> Unit
         }
+    }
+
+    private fun ControlPayload.target(): NextUp? {
+        val cur = _live.value ?: return null
+        val slot = slotId?.takeIf { cur.plan.slot(it) != null } ?: return null
+        // An older watch build sends no set number; the next unresolved one is the same thing.
+        return NextUp(slot, setIndex.takeIf { it > 0 } ?: ((cur.completedSets[slot] ?: 0) + 1))
     }
 
     // ---- Crash recovery --------------------------------------------------------------------------
@@ -392,6 +723,7 @@ class SessionController @Inject constructor(
         samples += saved.samples
         segments += saved.segments
         setLogs += saved.setLogs
+        skips += saved.skips
 
         val open = segments.lastOrNull()
         // The in-flight rep count rides on the open segment — see [checkpoint], which stamps it
@@ -405,8 +737,9 @@ class SessionController @Inject constructor(
             currentReps = openReps,
         )
         lastSampleAtMs = 0L
+        integratedToMs = samples.lastOrNull()?.timestampMs ?: 0L
 
-        val completed = completedSetsFrom(segments)
+        val completed = resolvedFor(saved.plan)
         val slotId = open?.slotId
         _live.value = LiveSession(
             id = saved.id,
@@ -417,7 +750,7 @@ class SessionController @Inject constructor(
             plan = saved.plan,
             currentSlotId = slotId,
             currentReps = openReps,
-            setIndex = (completed[slotId] ?: 0) + 1,
+            setIndex = (completed[slotId] ?: 0) + if (open?.type == SegmentType.ACTIVE) 1 else 0,
             completedSets = completed,
             summary = accumulator?.snapshot(now) ?: SessionSummary.EMPTY,
             lastBpm = saved.samples.lastOrNull()?.bpm ?: 0,
@@ -425,6 +758,8 @@ class SessionController @Inject constructor(
             segmentStartMs = open?.startMs ?: saved.startMs,
             receivingHr = false,
             setLogs = setLogs.toList(),
+            skips = skips.toList(),
+            recentBpm = samples.takeLast(RECENT_BPM_MAX).map { it.bpm },
             maxHr = profile.effectiveMaxHr,
         )
 
@@ -434,7 +769,7 @@ class SessionController @Inject constructor(
 
     /** Score what was recorded and file it, using the last real activity as the end. */
     private suspend fun bankAbandonedSession(saved: WorkoutSession, endMs: Long) {
-        val summary = engine.compute(saved.samples, saved.segments, profile, endMs = endMs)
+        val summary = engine.compute(saved.samples, saved.segments, profile, endMs = endMs, plan = saved.plan)
         val completed = saved.copy(endMs = endMs, status = SessionStatus.COMPLETED, summary = summary)
         runCatching { sessionRepository.saveSession(completed) }
         exportToFitPal(completed)
@@ -443,7 +778,8 @@ class SessionController @Inject constructor(
     /**
      * Push a finished workout to FitPal, fire-and-forget on the app scope. Never blocks or fails the
      * save — if FitPal is closed/not installed the session stays flagged unsynced and is retried on
-     * next app open (and by the manual button).
+     * next app open (and by the manual button). The push is an upsert keyed by session id, so a
+     * session corrected afterwards (late heart rate merged in) simply updates its row.
      */
     private fun exportToFitPal(session: WorkoutSession) {
         scope.launch { runCatching { fitPalExportManager.push(session) } }
@@ -499,6 +835,7 @@ class SessionController @Inject constructor(
                 segments = openSegments,
                 plan = cur.plan,
                 setLogs = setLogs.toList(),
+                skips = skips.toList(),
                 exerciseName = sessionTitle(cur.plan),
                 summary = cur.summary,
             )
@@ -534,6 +871,7 @@ class SessionController @Inject constructor(
         // Sessions open in REST. You start the app before you start the set — walking to the bar,
         // finding the timer — and counting that as work inflates both the clock and the calories.
         accumulator = LiveCalorieAccumulator(profile).apply { begin(now, SegmentType.REST) }
+        integratedToMs = now
         segments += Segment(
             type = SegmentType.REST,
             startMs = now,
@@ -590,7 +928,7 @@ class SessionController @Inject constructor(
         closeOpenSegment(now, cur)
 
         // The engine — not the live accumulator — produces the number we store.
-        val summary = engine.compute(samples.toList(), segments.toList(), profile, endMs = now)
+        val summary = engine.compute(samples.toList(), segments.toList(), profile, endMs = now, plan = cur.plan)
         if (persist) {
             val completed = WorkoutSession(
                 id = cur.id,
@@ -602,12 +940,28 @@ class SessionController @Inject constructor(
                 segments = segments.toList(),
                 plan = cur.plan,
                 setLogs = setLogs.toList(),
+                skips = skips.toList(),
                 exerciseName = sessionTitle(cur.plan),
                 summary = summary,
             )
             sessionRepository.saveSession(completed)
             // Auto-send to FitPal the moment a workout finishes.
             exportToFitPal(completed)
+            // Ask the watch for its whole reading log once more: anything lost in transit during the
+            // workout is merged into the saved session as it arrives (see [onHrBatch]).
+            finishedSessionId = cur.id
+            finishedAtMs = now
+            scope.launch {
+                watch.send(
+                    ControlPayload(
+                        command = ControlCommand.REQUEST_HR,
+                        timestampMs = now,
+                        origin = DeviceOrigin.PHONE,
+                        sessionId = cur.id,
+                        sinceMs = cur.startMs - 1,
+                    ),
+                )
+            }
         }
         clearBuffers()
         _live.value = null
@@ -618,17 +972,17 @@ class SessionController @Inject constructor(
      * Close the current block and open the next. Leaving ACTIVE records the set that was just
      * performed — the reps are what feed the mechanical-work term of the calorie estimate.
      */
-    private suspend fun changeSegment(type: SegmentType, broadcast: Boolean) {
+    private suspend fun changeSegment(type: SegmentType, broadcast: Boolean, target: NextUp? = null) {
         // Messages are built under the lock but sent outside it: a Data Layer round trip is slow
         // enough that holding the mutex across it would stall incoming heart-rate samples.
-        val outbound = mutex.withLock { changeSegmentLocked(type, broadcast) }
+        val outbound = mutex.withLock { changeSegmentLocked(type, broadcast, target) }
         outbound.forEach { watch.send(it) }
         refresh()
         // A banked set is exactly the state worth not losing.
         checkpoint(force = true)
     }
 
-    private fun changeSegmentLocked(type: SegmentType, broadcast: Boolean): List<ControlPayload> {
+    private fun changeSegmentLocked(type: SegmentType, broadcast: Boolean, target: NextUp?): List<ControlPayload> {
         val cur = _live.value ?: return emptyList()
         if (cur.currentSegment == type) return emptyList()
         val now = System.currentTimeMillis()
@@ -637,11 +991,14 @@ class SessionController @Inject constructor(
         closeOpenSegment(now, cur)
 
         val finishedSlot = cur.currentSlotId
-        val completed = if (cur.currentSegment == SegmentType.ACTIVE && finishedSlot != null) {
-            cur.completedSets + (finishedSlot to (cur.completedSets[finishedSlot] ?: 0) + 1)
+        val banked = cur.currentSegment == SegmentType.ACTIVE && finishedSlot != null
+        val completed = if (banked) {
+            cur.completedSets + (finishedSlot!! to (cur.completedSets[finishedSlot] ?: 0) + 1)
         } else {
             cur.completedSets
         }
+        // A deferred set that's now been done is no longer deferred.
+        val deferred = if (banked) cur.deferred - finishedSlot!! else cur.deferred
 
         // Returning to work: the plan decides what's next, so a circuit rotates through the list
         // while a split finishes each exercise first. Both devices ask the same function.
@@ -649,8 +1006,9 @@ class SessionController @Inject constructor(
         var setIndex = cur.setIndex
         if (type == SegmentType.ACTIVE) {
             // `upcoming` works the on-screen slot for the opening block and asks nextUp after that —
-            // the same rule the live screen's "up next" and the watch use.
-            cur.plan.upcoming(slotId, completed)?.let { slotId = it.slotId; setIndex = it.setIndex }
+            // the same rule the live screen's "up next" and the watch use. A remote start names its
+            // set; that wins, so the devices can't diverge.
+            (target ?: cur.plan.upcoming(slotId, completed, deferred))?.let { slotId = it.slotId; setIndex = it.setIndex }
         }
 
         val slot = cur.plan.slot(slotId)
@@ -659,6 +1017,7 @@ class SessionController @Inject constructor(
         // equals the slot's nominal one.
         val setMetabolics = slot?.metabolics?.copy(externalLoadKg = weightForSet(slot, setIndex))
         accumulator?.startSegment(type, now, slot?.slotId, slot?.name, setMetabolics)
+        integratedToMs = maxOf(integratedToMs, now)
         // A work block opens pre-filled with the target — the overwhelmingly common outcome is "I did
         // what I planned", so the counter starts there and you adjust only when you didn't. A rest
         // block carries no reps.
@@ -675,6 +1034,7 @@ class SessionController @Inject constructor(
             it?.copy(
                 currentSegment = type,
                 completedSets = completed,
+                deferred = deferred,
                 currentSlotId = slotId,
                 setIndex = setIndex,
                 currentReps = openingReps,
@@ -709,6 +1069,7 @@ class SessionController @Inject constructor(
                     origin = DeviceOrigin.PHONE,
                     sessionId = cur.id,
                     slotId = slotId,
+                    setIndex = setIndex,
                 ),
             )
         }
@@ -777,6 +1138,8 @@ class SessionController @Inject constructor(
                 exerciseName = sealed.exerciseName.orEmpty(),
                 setIndex = cur.setIndex,
                 reps = cur.currentReps,
+                // A hold's count is seconds — say so on the log, not only in the reps field.
+                seconds = if (slot?.measure == ExerciseMeasure.SECONDS) cur.currentReps else 0,
                 startMs = sealed.startMs,
                 endMs = now,
                 weightKg = weightForSet(slot, cur.setIndex),
@@ -789,19 +1152,92 @@ class SessionController @Inject constructor(
 
     // ---- Streams -------------------------------------------------------------------------------
 
-    private suspend fun onSample(sample: HeartRateSample) {
+    /**
+     * A batch of readings from the watch. While the workout runs they're merged into the stream by
+     * measurement time — batches arrive late and out of order now that the watch delivers them every
+     * few seconds with the screen off, resends what failed, and backfills on request. After the
+     * workout, readings for it are merged into the saved record instead.
+     */
+    private suspend fun onHrBatch(batch: HrBatch) {
+        val cur = _live.value
+        when {
+            cur != null && batch.sessionId == cur.id -> if (cur.status == SessionStatus.ACTIVE) mergeLive(batch.samples)
+            batch.sessionId == finishedSessionId &&
+                System.currentTimeMillis() - finishedAtMs < LATE_MERGE_WINDOW_MS -> mergeLate(batch.samples)
+        }
+    }
+
+    private suspend fun mergeLive(incoming: List<HeartRateSample>) {
+        var requestSince: Long? = null
         mutex.withLock {
-            samples += sample
-            accumulator?.addSample(sample)
+            val prevLast = samples.lastOrNull()?.timestampMs
+            val (older, newer) = incoming.partition { prevLast != null && it.timestampMs < prevLast }
+            val backfill = samples.mergeReadings(older)
+            val fresh = samples.mergeReadings(newer)
+            if (backfill + fresh == 0) return@withLock
+            backfilled += backfill
             lastSampleAtMs = System.currentTimeMillis()
-            recentBpm.addLast(sample.bpm)
-            while (recentBpm.size > RECENT_BPM_MAX) recentBpm.removeFirst()
+
+            // A gap before this batch: ask the watch for whatever it measured in between.
+            val firstNew = newer.minOfOrNull { it.timestampMs }
+            if (prevLast != null && firstNew != null && firstNew - prevLast > GAP_REQUEST_MS) requestSince = prevLast
+
+            // In order and newer than anything integrated: stream them in. Otherwise (a batch delivered
+            // late, a backfill) replay the session so the live total matches what the engine will store.
+            val earliestAdded = (older + newer).minOf { it.timestampMs }
+            if (backfill == 0 && earliestAdded > integratedToMs) {
+                newer.sortedBy { it.timestampMs }.forEach { accumulator?.addSample(it) }
+            } else {
+                val reps = _live.value?.currentReps ?: 0
+                accumulator = rebuildAccumulator(profile, segments, samples, currentReps = reps)
+            }
+            integratedToMs = maxOf(integratedToMs, samples.last().timestampMs)
             _live.update {
-                it?.copy(lastBpm = sample.bpm, receivingHr = true, recentBpm = recentBpm.toList())
+                it?.copy(
+                    lastBpm = samples.last().bpm,
+                    receivingHr = true,
+                    recentBpm = samples.takeLast(RECENT_BPM_MAX).map { s -> s.bpm },
+                )
             }
         }
+        requestSince?.let { requestReadings(it) }
         refresh()
         checkpoint()
+    }
+
+    /** Readings for the session that just ended: buffered briefly, then merged into the saved record. */
+    private fun mergeLate(incoming: List<HeartRateSample>) {
+        synchronized(lateReadings) { lateReadings += incoming }
+        lateMergeJob?.cancel()
+        lateMergeJob = scope.launch {
+            delay(LATE_MERGE_DEBOUNCE_MS)
+            val id = finishedSessionId ?: return@launch
+            val batch = synchronized(lateReadings) { lateReadings.toList().also { lateReadings.clear() } }
+            val saved = runCatching { sessionRepository.getSession(id) }.getOrNull() ?: return@launch
+            val merged = saved.samples.toMutableList()
+            if (merged.mergeReadings(batch) == 0) return@launch
+            val summary = engine.compute(merged, saved.segments, profile, endMs = saved.endMs, plan = saved.plan)
+            val updated = saved.copy(samples = merged, summary = summary)
+            runCatching { sessionRepository.saveSession(updated) }
+            exportToFitPal(updated)
+        }
+    }
+
+    /** Ask the watch to resend what it measured after [sinceMs] — throttled, it's a repair, not a poll. */
+    private suspend fun requestReadings(sinceMs: Long) {
+        val now = System.currentTimeMillis()
+        if (now - lastHrRequestMs < HR_REQUEST_THROTTLE_MS) return
+        lastHrRequestMs = now
+        val id = _live.value?.id ?: return
+        watch.send(
+            ControlPayload(
+                command = ControlCommand.REQUEST_HR,
+                timestampMs = now,
+                origin = DeviceOrigin.PHONE,
+                sessionId = id,
+                sinceMs = sinceMs,
+            ),
+        )
     }
 
     private fun startTicking() {
@@ -812,10 +1248,28 @@ class SessionController @Inject constructor(
                 val cur = _live.value ?: break
                 if (cur.status != SessionStatus.ACTIVE) continue
                 val now = System.currentTimeMillis()
-                mutex.withLock { accumulator?.advanceTo(now) }
+                mutex.withLock {
+                    accumulator?.advanceTo(now)
+                    integratedToMs = maxOf(integratedToMs, now)
+                }
                 refresh()
+                // Silence from the watch while a workout runs: ask for anything it has that we don't.
+                val newest = samples.lastOrNull()?.timestampMs
+                if (newest != null && now - newest > STALE_REQUEST_MS) requestReadings(newest)
+                maybeAdvanceRoutine()
             }
         }
+    }
+
+    /** Guided mode: when a warm-up or cool-down hold reaches its time, end it and start the next. */
+    private suspend fun maybeAdvanceRoutine() {
+        if (!autoAdvanceRoutines) return
+        val cur = _live.value ?: return
+        if (!cur.inRoutine || cur.countdownUntilMs != null) return
+        val slot = cur.currentExercise ?: return
+        if (slot.measure != ExerciseMeasure.SECONDS) return
+        val target = cur.currentSet?.reps ?: slot.targetSeconds
+        if (cur.segmentElapsedMs >= target * 1000L) finishRoutineMoveInternal()
     }
 
     /** Publish a fresh snapshot. O(1) — this is what the quadratic recompute was replaced with. */
@@ -828,6 +1282,8 @@ class SessionController @Inject constructor(
                 nowMs = now,
                 receivingHr = lastSampleAtMs > 0 && now - lastSampleAtMs < HR_STALE_MS,
                 setLogs = setLogs.toList(),
+                skips = skips.toList(),
+                hrLink = linkHealthOf(samples, now, backfilled),
                 maxHr = profile.effectiveMaxHr,
             )
         }
@@ -893,10 +1349,13 @@ class SessionController @Inject constructor(
         samples.clear()
         segments.clear()
         setLogs.clear()
-        recentBpm.clear()
+        skips.clear()
         _previousReps.value = emptyMap()
         lastSampleAtMs = 0L
         lastCheckpointMs = 0L
+        integratedToMs = 0L
+        backfilled = 0
+        lastHrRequestMs = 0L
         accumulator = null
     }
 
@@ -906,6 +1365,21 @@ class SessionController @Inject constructor(
 
         /** No reading for this long means the watch link has gone quiet. */
         const val HR_STALE_MS = 10_000L
+
+        /** A gap this long between consecutive readings is worth asking the watch to fill. */
+        const val GAP_REQUEST_MS = 12_000L
+
+        /** The stream silent for this long mid-workout: ask the watch for what it has. */
+        const val STALE_REQUEST_MS = 20_000L
+
+        /** At most one resend request this often — the watch answers with everything it has anyway. */
+        const val HR_REQUEST_THROTTLE_MS = 15_000L
+
+        /** How long after finishing a workout late readings for it are still merged into the record. */
+        const val LATE_MERGE_WINDOW_MS = 10 * 60_000L
+
+        /** Late readings arrive in chunks; merge once they've stopped coming for this long. */
+        const val LATE_MERGE_DEBOUNCE_MS = 3_000L
 
         /** Lead-in before a work block actually starts. */
         const val COUNTDOWN_MS = 3_000L

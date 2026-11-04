@@ -31,6 +31,11 @@ data class SessionPrefs(
      * beating yourself. On by default; a setting turns it off to always show the planned target.
      */
     val startFromLastTime: Boolean = true,
+    /**
+     * Run the warm-up and cool-down as a guided routine: each move counts down its hold and the next
+     * one starts by itself, so the phone needn't be touched mid-stretch. On by default.
+     */
+    val autoAdvanceRoutines: Boolean = true,
 )
 
 @Singleton
@@ -42,6 +47,7 @@ class SessionPrefsRepository @Inject constructor(
     private val autoplayKey = booleanPreferencesKey("autoplay_video")
     private val handsFreeKey = booleanPreferencesKey("hands_free")
     private val startFromLastTimeKey = booleanPreferencesKey("start_from_last_time")
+    private val autoAdvanceKey = booleanPreferencesKey("auto_advance_routines")
 
     val prefs: Flow<SessionPrefs> = context.sessionPrefs.data.map {
         SessionPrefs(
@@ -50,6 +56,7 @@ class SessionPrefsRepository @Inject constructor(
             autoplayVideo = it[autoplayKey] ?: true,
             handsFree = it[handsFreeKey] ?: false,
             startFromLastTime = it[startFromLastTimeKey] ?: true,
+            autoAdvanceRoutines = it[autoAdvanceKey] ?: true,
         )
     }
 
@@ -71,5 +78,9 @@ class SessionPrefsRepository @Inject constructor(
 
     suspend fun setStartFromLastTime(on: Boolean) {
         context.sessionPrefs.edit { it[startFromLastTimeKey] = on }
+    }
+
+    suspend fun setAutoAdvanceRoutines(on: Boolean) {
+        context.sessionPrefs.edit { it[autoAdvanceKey] = on }
     }
 }

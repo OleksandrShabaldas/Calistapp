@@ -1,12 +1,14 @@
 package com.calistapp.app.ui.session
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
@@ -54,6 +56,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -81,6 +84,7 @@ import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionStatus
+import com.calistapp.core.model.SlotPhase
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.formatKg
 
@@ -91,6 +95,8 @@ fun ActiveSessionScreen(
     onBuildWorkout: () -> Unit,
     onCollapse: () -> Unit,
     onOpenExercise: (String) -> Unit,
+    /** Open the exercise picker to add a movement to today's session (from the journal's edit mode). */
+    onAddExercise: () -> Unit = {},
     viewModel: ActiveSessionViewModel = hiltViewModel(),
 ) {
     val live by viewModel.live.collectAsStateWithLifecycle()
@@ -131,6 +137,7 @@ fun ActiveSessionScreen(
             onDiscarded = onDiscarded,
             onCollapse = onCollapse,
             onOpenExercise = onOpenExercise,
+            onAddExercise = onAddExercise,
         )
     }
 }
@@ -167,6 +174,7 @@ private fun LiveControls(
     onDiscarded: () -> Unit,
     onCollapse: () -> Unit,
     onOpenExercise: (String) -> Unit,
+    onAddExercise: () -> Unit,
 ) {
     val isActive = live.currentSegment == SegmentType.ACTIVE
     val exercise = live.currentExercise
@@ -201,18 +209,11 @@ private fun LiveControls(
     val counterKey = "${live.currentSlotId}|${live.setIndex}|${live.currentSegment}"
     var counterTouched by remember(counterKey) { mutableStateOf(false) }
 
-    // Guards against banking an empty or unrated set. `guardReps` covers the shared zero-rep case
-    // (bank, skip); the bank action additionally nudges when effort wasn't rated.
+    // Guards against banking an empty or unrated set: a zero count asks first, and a working set ended
+    // without an effort rating gets a nudge. (Skipping no longer banks anything, so it needs no guard.)
     var confirming by remember { mutableStateOf<PendingConfirm?>(null) }
     val zeroBody = "This set is recorded as 0 ${if (isHold) "seconds" else "reps"}. Log them first " +
         "if you forgot — they feed the calorie estimate."
-    fun guardReps(confirmLabel: String, run: () -> Unit) {
-        if (isActive && exercise != null && live.currentReps == 0) {
-            confirming = PendingConfirm("No reps logged", zeroBody, confirmLabel, run)
-        } else {
-            run()
-        }
-    }
     fun attemptBank(bank: () -> Unit) {
         when {
             isActive && exercise != null && live.currentReps == 0 ->
@@ -261,16 +262,32 @@ private fun LiveControls(
     }
 
     // Primary action — label and behaviour follow the phase.
+    val handOff = live.phaseHandOff
+    val inRoutine = live.inRoutine
     val startLabel = when {
-        live.isOpeningWarmup -> "Start first set"
+        live.isOpeningWarmup && live.upNextPhase == SlotPhase.MAIN -> "Start first set"
         live.nextIsNewExercise -> "Start ${live.upNextExercise?.name ?: "next exercise"}"
         else -> "Start set ${live.upNext?.setIndex ?: live.setIndex}"
     }
     val primaryLabel: String
     val primaryClick: () -> Unit
+    var primaryColor = Flame
     when {
         countdown != null -> {
             primaryLabel = "Start now"; primaryClick = { vm.startWorkNow() }
+        }
+        inRoutine -> {
+            // A warm-up or cool-down move: "next" ends the hold now and moves on (guided mode does the
+            // same by itself when the ring empties).
+            val lastOne = live.upNext?.let { live.plan.phaseOf(it.slotId) != live.currentPhase } ?: true
+            primaryLabel = when {
+                live.currentPhase == SlotPhase.COOL_DOWN && lastOne -> "Finish cool-down"
+                live.currentPhase == SlotPhase.COOL_DOWN -> "Next stretch"
+                lastOne -> "Warm-up done"
+                else -> "Next move"
+            }
+            primaryColor = phaseAccent(live.currentPhase)
+            primaryClick = { if (prefs.vibration) haptics.setBanked(); vm.finishRoutineMove() }
         }
         isActive -> {
             primaryLabel = if (live.bankingEndsWorkout) "Done — log last set" else "Done — log & rest"
@@ -278,15 +295,39 @@ private fun LiveControls(
             primaryClick = { attemptBank(bank) }
         }
         live.allSetsDone -> {
-            primaryLabel = "Finish & save workout"; primaryClick = { vm.finish(onFinished) }
+            primaryLabel = "Finish & save workout"; primaryClick = { vm.requestFinish(onFinished) }
+        }
+        handOff != null -> {
+            primaryLabel = when (handOff.to) {
+                SlotPhase.WARM_UP -> "Start warm-up"
+                SlotPhase.COOL_DOWN -> "Start cool-down"
+                SlotPhase.MAIN -> startLabel
+            }
+            primaryColor = primaryFor(handOff.to)
+            primaryClick = { vm.toggleSegment() }
         }
         else -> {
             primaryLabel = startLabel; primaryClick = { vm.toggleSegment() }
         }
     }
+    val primaryBg by animateColorAsState(primaryColor, tween(400), label = "primary")
 
-    val canSkip = live.nextExercise != null && !live.allSetsDone && !live.isOpeningWarmup &&
-        (isActive || !live.nextIsNewExercise)
+    // Skip acts on the set in focus — the one being worked, or the one coming up — in the workout
+    // proper. It used to exist only mid-set, and banked the counter's pre-filled reps as if done. The
+    // warm-up and cool-down have their own "next" and "skip the rest" controls instead.
+    val focusSlot = live.focusExercise
+    val canSkip = focusSlot != null && countdown == null && !live.allSetsDone && handOff == null &&
+        !inRoutine && live.plan.phaseOf(focusSlot) == SlotPhase.MAIN
+    var showSkip by remember { mutableStateOf(false) }
+    val phaseSkip: Pair<String, () -> Unit>? = when {
+        inRoutine && live.currentPhase == SlotPhase.COOL_DOWN ->
+            "Finish now" to { vm.skipPhaseAndFinish(SlotPhase.COOL_DOWN, onFinished) }
+        inRoutine -> "Skip warm-up" to { vm.skipRestOfPhase(SlotPhase.WARM_UP) }
+        handOff?.to == SlotPhase.WARM_UP -> "Skip warm-up" to { vm.skipRestOfPhase(SlotPhase.WARM_UP) }
+        handOff?.to == SlotPhase.COOL_DOWN ->
+            "Skip cool-down & finish" to { vm.skipPhaseAndFinish(SlotPhase.COOL_DOWN, onFinished) }
+        else -> null
+    }
     val canReveal = (heroExercise != null || heroPlanned != null) && countdown == null
     // Reps this set was performed with last time in this same workout, when the "start from last time"
     // setting is on — the counter opens on these and the caption says so, so you're matching or beating
@@ -320,12 +361,12 @@ private fun LiveControls(
         // Top chrome: minimise / round / pause, then the progress dashes, then clock + HUD chip.
         Column(Modifier.fillMaxWidth().statusBarsPadding()) {
             LiveTopBar(
-                roundLabel = if (live.plan.isCircuit) "Round ${live.currentRound} / ${live.plan.rounds}" else "",
+                roundLabel = live.topLabel,
                 onCollapse = onCollapse,
                 onPause = { vm.pause() },
             )
             SegmentBar(
-                states = segmentStates(live),
+                items = segmentItems(live),
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
             Row(
@@ -365,11 +406,14 @@ private fun LiveControls(
                     ?.takeIf { it.measure == com.calistapp.core.model.ExerciseMeasure.REPS }
                     ?.let { hp -> previousReps[hp.slotId]?.get(heroSetIndex) }
                 heroPlanned?.let { hp ->
-                    // A workout done before shows last time's reps as the number to hit; otherwise the plan target.
+                    // A workout done before shows last time's reps as the number to hit; otherwise the plan
+                    // target. A warm-up or cool-down move reads as the hold it is, in its phase's colour.
+                    val heroPhase = live.plan.phaseOf(hp)
                     Text(
-                        heroHistoryReps?.let { "$it reps" } ?: heroTargetLabel(hp),
+                        if (heroPhase != SlotPhase.MAIN) holdLabel(hp.targetSeconds)
+                        else heroHistoryReps?.let { "$it reps" } ?: heroTargetLabel(hp),
                         style = MaterialTheme.typography.titleMedium,
-                        color = Flame,
+                        color = phaseAccent(heroPhase),
                         fontWeight = FontWeight.Bold,
                     )
                 }
@@ -409,9 +453,28 @@ private fun LiveControls(
                     }
                 },
                 peek = {
+                    // Each state of the card — counter, rest, phase hand-off, guided move — rises into
+                    // place rather than swapping in, so a phase change reads as one.
+                    val mode = when {
+                        countdown != null -> 0
+                        inRoutine -> 1
+                        isActive && exercise != null -> 2
+                        live.allSetsDone -> 3
+                        handOff != null -> 4
+                        else -> 5
+                    }
+                    androidx.compose.animation.AnimatedContent(
+                        targetState = mode,
+                        transitionSpec = {
+                            (fadeIn(tween(260)) + androidx.compose.animation.slideInVertically(tween(320)) { it / 8 }) togetherWith
+                                fadeOut(tween(140))
+                        },
+                        label = "sheet-mode",
+                    ) { m -> Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     when {
-                        countdown != null -> Unit
-                        isActive && exercise != null -> RepCounterContent(
+                        m == 0 -> Unit
+                        m == 1 -> RoutineMoveContent(live, prefs.autoAdvanceRoutines, vm::setAutoAdvanceRoutines)
+                        m == 2 && exercise != null -> RepCounterContent(
                             reps = live.currentReps,
                             target = currentHistoryReps
                                 ?: live.currentSet?.reps
@@ -424,8 +487,9 @@ private fun LiveControls(
                             weightKg = live.currentSetWeightKg,
                             onOpenWeight = { weightNumpad = true },
                         )
-                        live.allSetsDone -> AllDoneContent()
-                        else -> RestContent(
+                        m == 3 -> AllDoneContent()
+                        m == 4 && handOff != null -> PhaseHandOffContent(handOff, live)
+                        m == 5 -> RestContent(
                             elapsedSeconds = live.restElapsedSeconds ?: 0,
                             isWarmup = live.isOpeningWarmup,
                             upNextName = live.upNextExercise?.displayName,
@@ -434,6 +498,7 @@ private fun LiveControls(
                             upNextIsNew = live.nextIsNewExercise || live.isOpeningWarmup,
                         )
                     }
+                    } }
 
                     // Rate how this set felt, here on the exercise screen while it's fresh — the rating
                     // rides onto the set when you bank it, and ending a working set unrated asks first.
@@ -442,12 +507,13 @@ private fun LiveControls(
                         RateSetChip(effortLabel = live.pendingEffortLabel, onClick = { ratingCurrent = true })
                     }
 
-                    if (isActive || countdown != null || canSkip) {
+                    val working = isActive && !inRoutine
+                    if (working || countdown != null || canSkip || phaseSkip != null) {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(20.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            if (isActive) {
+                            if (working) {
                                 TextButton(onClick = { vm.restartCurrentSet(); counterTouched = false }) {
                                     Text("Restart set", color = Ash)
                                 }
@@ -455,12 +521,18 @@ private fun LiveControls(
                             if (countdown != null) {
                                 TextButton(onClick = { vm.toggleSegment() }) { Text("Cancel", color = Ash) }
                             }
-                            if (canSkip) live.nextExercise?.let { next ->
-                                TextButton(
-                                    onClick = { guardReps("Skip anyway") { vm.advanceToNext() } },
-                                ) {
-                                    Text("Skip to ${next.name}", color = Ash)
+                            if (canSkip && focusSlot != null) {
+                                TextButton(onClick = { showSkip = true }) {
+                                    Text(
+                                        if (isActive) "Skip set" else "Skip ${focusSlot.name}",
+                                        color = Ash,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                 }
+                            }
+                            phaseSkip?.let { (label, action) ->
+                                TextButton(onClick = action) { Text(label, color = Ash) }
                             }
                         }
                     }
@@ -469,7 +541,7 @@ private fun LiveControls(
                         onClick = primaryClick,
                         modifier = Modifier.fillMaxWidth().height(58.dp),
                         shape = Capsule,
-                        colors = ButtonDefaults.buttonColors(containerColor = Flame, contentColor = Onyx),
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryBg, contentColor = Onyx),
                     ) {
                         Text(primaryLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     }
@@ -515,6 +587,7 @@ private fun LiveControls(
                 showReconnect = !live.receivingHr,
                 onReconnect = vm::reconnectWatch,
                 onClose = { hudExpanded = false },
+                link = live.hrLink,
             )
         }
 
@@ -526,21 +599,40 @@ private fun LiveControls(
                 onVibration = vm::setVibration,
                 onAutoplay = vm::setAutoplay,
                 onResume = { vm.resume() },
-                onEnd = { vm.finish(onFinished) },
+                onEnd = { vm.requestFinish(onFinished) },
                 onDiscard = { vm.discard(); onDiscarded() },
                 modifier = Modifier.fillMaxSize(),
             )
         }
     }
 
+    if (showSkip && focusSlot != null) {
+        SkipChoicesSheet(
+            exerciseName = focusSlot.name,
+            isCircuit = live.plan.isCircuit,
+            multiRound = live.plan.isCircuit && live.plan.rounds > 1,
+            onSkip = { showSkip = false; vm.skipFocus() },
+            onLater = { showSkip = false; vm.deferFocus() },
+            onRemove = { showSkip = false; vm.removeExercise(focusSlot.slotId) },
+            onDismiss = { showSkip = false },
+        )
+    }
+    val saveChanges by vm.saveChanges.collectAsStateWithLifecycle()
+    saveChanges?.let { changes ->
+        SaveChangesDialog(
+            changes = changes,
+            onSave = { vm.answerSaveChanges(save = true) },
+            onJustToday = { vm.answerSaveChanges(save = false) },
+            onDismiss = vm::dismissSaveChanges,
+        )
+    }
+
     if (showJournal) {
         JournalSheet(
             live = live,
+            vm = vm,
             imageUrlsFor = imageUrlsFor,
-            onSetReps = vm::setSetReps,
-            onSetWeight = vm::setSetWeight,
-            onSetEffort = { slot, idx, scale, value -> vm.setSetEffort(slot, idx, scale, value.toDouble()) },
-            onSetNote = vm::setSetNote,
+            onAddExercise = { showJournal = false; onAddExercise() },
             onOpenExercise = { id -> showJournal = false; onOpenExercise(id) },
             onDismiss = { showJournal = false },
         )
@@ -627,14 +719,23 @@ private fun HeroWeightChip(weightKg: Double) {
     }
 }
 
-/** One segment per plan exercise: done, the current one, or still to come. */
-private fun segmentStates(live: LiveSession): List<SegState> = live.plan.exercises.map { slot ->
-    val done = live.completedSets[slot.slotId] ?: 0
-    val total = live.plan.targetSetsFor(slot.slotId)
-    when {
-        slot.slotId == live.currentSlotId && !live.allSetsDone -> SegState.CURRENT
-        done >= total && total > 0 -> SegState.DONE
-        else -> SegState.UPCOMING
+/**
+ * One dash per plan exercise, grouped by phase: done, skipped (resolved with nothing performed), the
+ * one in focus — being worked, or coming up while resting — or still to come.
+ */
+private fun segmentItems(live: LiveSession): List<SegItem> {
+    val focusId = if (live.isWorking) live.currentSlotId else live.upNext?.slotId
+    return live.plan.exercises.map { slot ->
+        val resolved = live.completedSets[slot.slotId] ?: 0
+        val total = live.plan.targetSetsFor(slot.slotId)
+        val performed = live.setLogs.any { it.slotId == slot.slotId }
+        val state = when {
+            slot.slotId == focusId && !live.allSetsDone -> SegState.CURRENT
+            resolved >= total && total > 0 && !performed -> SegState.SKIPPED
+            resolved >= total && total > 0 -> SegState.DONE
+            else -> SegState.UPCOMING
+        }
+        SegItem(state, live.plan.phaseOf(slot))
     }
 }
 

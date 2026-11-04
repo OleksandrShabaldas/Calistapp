@@ -5,6 +5,7 @@ import com.calistapp.core.model.SetLog
 import com.calistapp.core.model.UserProfile
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.formatKg
+import com.calistapp.core.model.repsIn
 import com.calistapp.core.time.startOfWeekMs
 import kotlinx.serialization.Serializable
 import java.time.ZoneId
@@ -132,7 +133,7 @@ fun summarizeProgress(
         buckets[week]?.let { bucket ->
             bucket.sessions++
             bucket.kcal += session.kcal
-            bucket.reps += session.setLogs.sumOf { it.reps }
+            bucket.reps += session.plan.repsIn(session.setLogs)
             bucket.activeMs += session.activeDurationMs
         }
     }
@@ -150,7 +151,7 @@ fun summarizeProgress(
         exercises = exerciseProgress(sessions),
         totalSessions = sessions.size,
         totalKcal = sessions.sumOf { it.kcal },
-        totalReps = sessions.sumOf { session -> session.setLogs.sumOf { it.reps } },
+        totalReps = sessions.sumOf { session -> session.plan.repsIn(session.setLogs) },
         totalActiveMs = sessions.sumOf { it.activeDurationMs },
         streakWeeks = streakWeeks(sessions, currentWeek, zone),
         ramp = profile?.let { TrainingLoad.ramp(dailyLoads(sessions, nowMs, it, zone)) },

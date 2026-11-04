@@ -12,6 +12,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** A batch of heart-rate readings as the watch sent it — tied to its session, since a resend or a
+ *  backfill can arrive after that session has already ended on the phone. */
+data class HrBatch(val sessionId: String, val samples: List<HeartRateSample>)
+
 /**
  * In-memory hub connecting the [PhoneWearListenerService] (which receives Data Layer events on a
  * background thread) to the rest of the app. The controller/VMs observe these flows.
@@ -22,10 +26,8 @@ class LiveSessionBus @Inject constructor() {
     private val _watchState = MutableStateFlow<SessionStatePayload?>(null)
     val watchState: StateFlow<SessionStatePayload?> = _watchState.asStateFlow()
 
-    private val _hrSamples = MutableSharedFlow<HeartRateSample>(
-        replay = 1, extraBufferCapacity = 256,
-    )
-    val hrSamples: SharedFlow<HeartRateSample> = _hrSamples.asSharedFlow()
+    private val _hrBatches = MutableSharedFlow<HrBatch>(extraBufferCapacity = 256)
+    val hrBatches: SharedFlow<HrBatch> = _hrBatches.asSharedFlow()
 
     /** Commands the watch issued — start, stop, work/rest, exercise selection, logged sets. */
     private val _commands = MutableSharedFlow<ControlPayload>(extraBufferCapacity = 64)
@@ -35,8 +37,8 @@ class LiveSessionBus @Inject constructor() {
         _watchState.value = payload
     }
 
-    fun onHrBatch(samples: List<HeartRateSample>) {
-        samples.forEach { _hrSamples.tryEmit(it) }
+    fun onHrBatch(sessionId: String, samples: List<HeartRateSample>) {
+        if (samples.isNotEmpty()) _hrBatches.tryEmit(HrBatch(sessionId, samples))
     }
 
     fun onControl(payload: ControlPayload) {

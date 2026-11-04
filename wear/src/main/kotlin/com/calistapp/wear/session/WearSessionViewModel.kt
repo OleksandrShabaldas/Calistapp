@@ -12,6 +12,8 @@ import com.calistapp.wear.update.WearUpdateHolder
 import com.calistapp.updater.UpdateState
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
@@ -34,6 +36,16 @@ class WearSessionViewModel(app: Application) : AndroidViewModel(app) {
         WearUpdateHolder.attach(app)
         state = WearSessionManager.state
         updateState = WearUpdateHolder.state
+
+        // A workout the phone started lands here while this screen is up — a foreground context, which
+        // is what Android requires to start the keep-alive service. Starting it from the message listener
+        // alone can be refused in the background, leaving nothing to keep heart rate going with the
+        // screen off.
+        viewModelScope.launch {
+            state.map { it.running }.distinctUntilChanged().collect { running ->
+                if (running) WearSessionService.start(getApplication())
+            }
+        }
 
         // The profile may have synced down before this app was ever opened; DataClient keeps the
         // last value, so read it once rather than waiting for the next change event.
@@ -64,7 +76,7 @@ class WearSessionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleSegment() = WearSessionManager.toggleSegmentLocal()
     fun adjustReps(delta: Int) = WearSessionManager.adjustReps(delta)
-    fun nextExercise() = WearSessionManager.advanceToNextLocal()
+    fun skip() = WearSessionManager.skipLocal()
     fun reconnect() = WearSessionManager.reconnectPhone()
 
     fun checkForUpdate() = WearUpdateHolder.checkAndDownload()

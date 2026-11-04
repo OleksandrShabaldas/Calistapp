@@ -15,6 +15,7 @@ import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.Routine
 import com.calistapp.core.model.RoutineKind
+import com.calistapp.core.model.SlotPhase
 import com.calistapp.core.model.WorkoutPlan
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -78,10 +79,11 @@ class SessionSetupViewModel @Inject constructor(
         val base = drafts.draft.value
         if (base.isEmpty) return
 
-        val warm = _warmUpId.value?.let(routines::byId)?.toBlocks().orEmpty()
-        val stretch = _stretchId.value?.let(routines::byId)?.toBlocks().orEmpty()
+        val warm = _warmUpId.value?.let(routines::byId)?.toBlocks(SlotPhase.WARM_UP).orEmpty()
+        val stretch = _stretchId.value?.let(routines::byId)?.toBlocks(SlotPhase.COOL_DOWN).orEmpty()
 
-        val finalPlan = base.copy(exercises = warm + base.exercises + stretch)
+        // The saved workout it came from rides along, so finishing can offer to keep today's edits.
+        val finalPlan = base.copy(exercises = warm + base.exercises + stretch, sourceWorkoutId = drafts.originId.value)
         controller.start(typeFor(base), finalPlan)
         drafts.clear()
     }
@@ -89,8 +91,12 @@ class SessionSetupViewModel @Inject constructor(
     private fun typeFor(plan: WorkoutPlan): ExerciseType =
         if (plan.exercises.any { it.isWeighted }) ExerciseType.STRENGTH else ExerciseType.CALISTHENICS
 
-    /** A routine's timed items become single-set warm-up blocks that flow one into the next. */
-    private fun Routine.toBlocks(): List<PlannedExercise> = items.map { item ->
+    /**
+     * A routine's timed items become single-set blocks that flow one into the next, tagged with their
+     * phase and routine so the journal, the summary and the coach treat them as a warm-up or cool-down
+     * rather than as more exercises.
+     */
+    private fun Routine.toBlocks(phase: SlotPhase): List<PlannedExercise> = items.map { item ->
         PlannedExercise(
             slotId = UUID.randomUUID().toString(),
             exerciseId = item.exerciseId,
@@ -102,6 +108,8 @@ class SessionSetupViewModel @Inject constructor(
             restSeconds = 0,
             metabolics = ROUTINE_METABOLICS,
             runsOnce = true,
+            phase = phase,
+            routineName = name,
         )
     }
 

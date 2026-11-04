@@ -129,6 +129,14 @@ data class PlannedExercise(
      * ones after the last round). Additive with a default, so stored plans read unchanged.
      */
     val runsOnce: Boolean = false,
+    /**
+     * Which part of the session this slot belongs to. The warm-up and cool-down routines are tagged so
+     * every surface — journal, summary, totals, the coach — can treat them as their own phase instead
+     * of as more exercises. Stored plans predate the tag; [WorkoutPlan.phaseOf] infers theirs.
+     */
+    val phase: SlotPhase = SlotPhase.MAIN,
+    /** The routine a warm-up or cool-down slot came from ("Upper-body cooldown"), for phase headers. */
+    val routineName: String? = null,
 ) {
     /**
      * Extra load carried beyond bodyweight — vest, belt, dumbbells. Any movement can be weighted,
@@ -214,6 +222,14 @@ enum class WorkoutStyle {
         }
 }
 
+/** The part of a session a slot belongs to: the warm-up routine, the workout itself, or the cool-down. */
+@Serializable
+enum class SlotPhase(val label: String) {
+    WARM_UP("Warm-up"),
+    MAIN("Workout"),
+    COOL_DOWN("Cool-down"),
+}
+
 /** The exercise to work next, and which set of it that is. */
 data class NextUp(val slotId: String, val setIndex: Int)
 
@@ -230,8 +246,38 @@ data class WorkoutPlan(
     val style: WorkoutStyle = WorkoutStyle.BY_EXERCISE,
     /** Times the whole list is repeated in [WorkoutStyle.CIRCUIT]. Ignored otherwise. */
     val rounds: Int = 1,
+    /**
+     * The saved workout a session's plan was started from, or null for a scratch plan. A session edits
+     * its own copy of the plan; this is what lets it offer to write those edits back at the end.
+     */
+    val sourceWorkoutId: String? = null,
 ) {
     val isEmpty: Boolean get() = exercises.isEmpty()
+
+    /**
+     * The phase [slot] belongs to. Plans written before slots carried a phase still had run-once routine
+     * blocks: one ahead of the first working slot was the warm-up, one after it the stretch.
+     */
+    fun phaseOf(slot: PlannedExercise): SlotPhase {
+        if (slot.phase != SlotPhase.MAIN || !slot.runsOnce) return slot.phase
+        val firstMain = exercises.indexOfFirst { !it.runsOnce }
+        val at = exercises.indexOfFirst { it.slotId == slot.slotId }
+        return if (firstMain < 0 || at < firstMain) SlotPhase.WARM_UP else SlotPhase.COOL_DOWN
+    }
+
+    fun phaseOf(slotId: String?): SlotPhase = slot(slotId)?.let(::phaseOf) ?: SlotPhase.MAIN
+
+    /** The slots of one phase, in plan order. */
+    fun slotsIn(phase: SlotPhase): List<PlannedExercise> = exercises.filter { phaseOf(it) == phase }
+
+    /**
+     * Whether a slot's logged count is a rep count. A timed hold logs seconds in the same field, and the
+     * warm-up and cool-down are routines, not training — neither belongs in a reps total or a volume.
+     */
+    fun countsReps(slotId: String?): Boolean {
+        val slot = slot(slotId) ?: return true
+        return slot.measure == ExerciseMeasure.REPS && phaseOf(slot) == SlotPhase.MAIN
+    }
 
     val isCircuit: Boolean get() = style == WorkoutStyle.CIRCUIT
 
@@ -313,14 +359,6 @@ data class WorkoutPlan(
     }
 
     /**
-     * What to work next once the current set is banked, given how many sets of each slot are
-     * already done. Returns null when the plan is finished.
-     *
-     * This lives on the model rather than in either session manager on purpose: the phone and the
-     * watch both advance the current exercise independently, and if their rules disagreed by even
-     * one set the two screens would show different exercises for the rest of the workout.
-     */
-    /**
      * What the next work block will run, seen from a rest (or the opening warm-up) at [currentSlotId].
      *
      * [nextUp] answers "what follows the set just banked", so it always steps *past* the current slot
@@ -329,33 +367,70 @@ data class WorkoutPlan(
      * announced exercise 2 as "up next" while the controller (correctly) started exercise 1. This is
      * the one rule both devices' controllers and the live screen ask, so they can't drift again.
      */
-    fun upcoming(currentSlotId: String?, completedSets: Map<String, Int>): NextUp? {
+    fun upcoming(
+        currentSlotId: String?,
+        completedSets: Map<String, Int>,
+        deferred: Set<String> = emptySet(),
+    ): NextUp? {
         val current = slot(currentSlotId)
-        if (current != null && completedSets.values.sum() == 0) return NextUp(current.slotId, 1)
-        return nextUp(currentSlotId, completedSets)
+        if (current != null && completedSets.values.sum() == 0 && current.slotId !in deferred) return NextUp(current.slotId, 1)
+        return nextUp(currentSlotId, completedSets, deferred)
     }
 
-    fun nextUp(currentSlotId: String?, completedSets: Map<String, Int>): NextUp? {
+    /**
+     * What to work next once the current set is banked, given how many sets of each slot are already
+     * resolved. Returns null when the plan is finished. It lives on the model rather than in either
+     * session manager on purpose: the phone and the watch both ask it, and if their rules disagreed by
+     * even one set the two screens would show different exercises for the rest of the workout.
+     *
+     * [completedSets] counts every *resolved* set — performed or skipped — so a skipped set is never
+     * owed again (a skip used to leave the slot owing, and the circuit looped back to it after the last
+     * exercise instead of finishing). [deferred] holds the slots put off with "do it later": they're
+     * still owed, but everything else in the same round (or, in a split, the rest of the workout) comes
+     * first.
+     */
+    fun nextUp(
+        currentSlotId: String?,
+        completedSets: Map<String, Int>,
+        deferred: Set<String> = emptySet(),
+    ): NextUp? {
         if (exercises.isEmpty()) return null
         fun done(id: String) = completedSets[id] ?: 0
         fun remaining(e: PlannedExercise) = targetSetsFor(e.slotId) - done(e.slotId)
+        fun next(e: PlannedExercise) = NextUp(e.slotId, done(e.slotId) + 1)
+
+        /** First slot owing a set walking forward from [currentSlotId] (wrapping), deferred ones last. */
+        fun walk(list: List<PlannedExercise>, accept: (PlannedExercise) -> Boolean = { true }): NextUp? {
+            if (list.isEmpty()) return null
+            val start = list.indexOfFirst { it.slotId == currentSlotId }
+            val order = (1..list.size).map { list[(start + it).mod(list.size)] }.filter { remaining(it) > 0 && accept(it) }
+            return (order.firstOrNull { it.slotId !in deferred } ?: order.firstOrNull())?.let(::next)
+        }
 
         if (isCircuit) {
             // Run-once blocks bracket the rounds: any leading warm-up first, in order, and any
             // trailing stretch only once every round is done — never folded into the rotation.
             val lead = exercises.takeWhile { it.runsOnce }
             val trail = exercises.drop(lead.size).filter { it.runsOnce }
-            lead.firstOrNull { remaining(it) > 0 }?.let { return NextUp(it.slotId, done(it.slotId) + 1) }
-            // Walk forward from the current position and take the first slot still owing a set, so
-            // an exercise skipped mid-round is picked up on the next pass rather than lost. From a
-            // warm-up block (not in the rotation) the walk starts at the rotation's first slot.
-            val ring = rotation
-            val start = ring.indexOfFirst { it.slotId == currentSlotId }
-            for (step in 1..ring.size) {
-                val e = ring[(start + step).mod(ring.size)]
-                if (remaining(e) > 0) return NextUp(e.slotId, done(e.slotId) + 1)
+            walkInOrder(lead, ::remaining, deferred)?.let { return next(it) }
+            // The round in progress is the lowest one any rotation slot still owes. Finish it — a set
+            // put off with "do it later" included — before any slot starts the next round.
+            val owing = rotation.filter { remaining(it) > 0 }
+            if (owing.isNotEmpty()) {
+                val lagging = owing.minOf { done(it.slotId) }
+                val inRound = rotation.filter { remaining(it) > 0 && done(it.slotId) == lagging }
+                val at = rotation.indexOfFirst { it.slotId == currentSlotId }
+                // Mid-round (the current slot is already a round ahead of the laggards) carry on from it;
+                // otherwise a new round is starting — from a warm-up, or right after a deferred set —
+                // and it starts at the top, not wherever the last set happened to be.
+                val ordered = if (at >= 0 && done(rotation[at].slotId) > lagging) {
+                    inRound.filter { rotation.indexOf(it) > at } + inRound.filter { rotation.indexOf(it) <= at }
+                } else {
+                    inRound
+                }
+                (ordered.firstOrNull { it.slotId !in deferred } ?: ordered.first()).let { return next(it) }
             }
-            trail.firstOrNull { remaining(it) > 0 }?.let { return NextUp(it.slotId, done(it.slotId) + 1) }
+            walkInOrder(trail, ::remaining, deferred)?.let { return next(it) }
             return null
         }
 
@@ -366,24 +441,29 @@ data class WorkoutPlan(
         // finish all sets of the first movement and never rotate at all.
         val group = current?.groupId
         if (group != null) {
-            val members = exercises.filter { it.groupId == group }
-            val position = members.indexOfFirst { it.slotId == currentSlotId }
-            for (step in 1..members.size) {
-                val e = members[(position + step).mod(members.size)]
-                if (remaining(e) > 0) return NextUp(e.slotId, done(e.slotId) + 1)
-            }
+            walk(exercises.filter { it.groupId == group })?.let { return it }
             // Group exhausted — fall through and leave it behind.
-        } else if (current != null && remaining(current) > 0) {
+        } else if (current != null && remaining(current) > 0 && current.slotId !in deferred) {
             // Split: finish the current exercise before moving on.
-            return NextUp(current.slotId, done(current.slotId) + 1)
+            return next(current)
         }
 
-        val start = exercises.indexOfFirst { it.slotId == currentSlotId }
-        for (step in 1..exercises.size) {
-            val e = exercises[(start + step).mod(exercises.size)]
-            if (remaining(e) > 0) return NextUp(e.slotId, done(e.slotId) + 1)
-        }
-        return null
+        // Phase by phase: the warm-up in order, then the workout walking on from where you are, then
+        // the cool-down only once nothing else is owed — so a deferred exercise still precedes the
+        // stretch, and a deferred warm-up move still precedes the first working set.
+        walkInOrder(slotsIn(SlotPhase.WARM_UP), ::remaining, deferred)?.let { return next(it) }
+        walk(slotsIn(SlotPhase.MAIN))?.let { return it }
+        return walkInOrder(slotsIn(SlotPhase.COOL_DOWN), ::remaining, deferred)?.let(::next)
+    }
+
+    /** First slot of [list] in order still owing a set, putting [deferred] ones after the others. */
+    private fun walkInOrder(
+        list: List<PlannedExercise>,
+        remaining: (PlannedExercise) -> Int,
+        deferred: Set<String>,
+    ): PlannedExercise? {
+        val owing = list.filter { remaining(it) > 0 }
+        return owing.firstOrNull { it.slotId !in deferred } ?: owing.firstOrNull()
     }
 
     /** Round currently being worked, 1-based. Always 1 for a split. */
@@ -442,6 +522,9 @@ data class SetLog(
 ) {
     val durationMs: Long get() = (endMs - startMs).coerceAtLeast(0)
 
+    /** "40s" for a timed hold, "12" for reps — the logged figure in its own unit. */
+    fun resultLabel(measure: ExerciseMeasure): String = if (measure == ExerciseMeasure.SECONDS) "${reps}s" else "$reps"
+
     /** "2 RIR", "8 RPE", "80 %RM", or null when unrated — for compact display in the journal. */
     val effortLabel: String?
         get() {
@@ -451,3 +534,37 @@ data class SetLog(
             return if (scale == EffortScale.PERCENT_RM) "$n %RM" else "$n ${scale.label}"
         }
 }
+
+/** Why a planned set was resolved without being performed. */
+@Serializable
+enum class SkipReason {
+    /** "Skip this set" — this one set, this round. */
+    SKIPPED,
+
+    /** "Remove from today" — every set the exercise still owed in this session. */
+    REMOVED,
+}
+
+/**
+ * A planned set the athlete chose not to do. Recorded rather than inferred: the session's next-up
+ * rule counts it as resolved (so the workout moves on and ends), while the journal, the summary and the
+ * coach can still tell a skipped set from a performed one. It carries no reps and no time — whatever
+ * heart rate did meanwhile is scored as recovery, not as a set.
+ */
+@Serializable
+data class SetSkip(
+    val slotId: String,
+    val setIndex: Int,
+    val atMs: Long,
+    val reason: SkipReason = SkipReason.SKIPPED,
+)
+
+/** Sets resolved per slot — performed (from the banked count) plus skipped — the next-up rule's input. */
+fun resolvedSets(performed: Map<String, Int>, skips: List<SetSkip>): Map<String, Int> {
+    val out = performed.toMutableMap()
+    skips.forEach { out[it.slotId] = (out[it.slotId] ?: 0) + 1 }
+    return out
+}
+
+/** Reps across [logs], counting only rep-based workout sets — never hold seconds or routine moves. */
+fun WorkoutPlan.repsIn(logs: List<SetLog>): Int = logs.filter { countsReps(it.slotId) }.sumOf { it.reps }

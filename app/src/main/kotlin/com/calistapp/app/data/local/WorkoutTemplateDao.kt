@@ -34,6 +34,9 @@ interface WorkoutTemplateDao {
     suspend fun upsert(template: WorkoutTemplateEntity)
 
     /** Update just the content of an existing workout, keeping its created/last-used timestamps. */
+    @Query("SELECT * FROM workout_templates WHERE id = :id")
+    suspend fun getById(id: String): WorkoutTemplateEntity?
+
     @Query("UPDATE workout_templates SET name = :name, planJson = :planJson WHERE id = :id")
     suspend fun updateContent(id: String, name: String, planJson: String)
 

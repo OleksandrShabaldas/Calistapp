@@ -1,5 +1,7 @@
 package com.calistapp.app.data.ai
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -18,7 +20,18 @@ data class GeminiRequest(
     data class GenerationConfig(
         val temperature: Double = 0.7,
         @SerialName("maxOutputTokens") val maxOutputTokens: Int = 900,
+        /**
+         * How hard a thinking model reasons. Sent only to models that take it (see [GeminiClient]);
+         * left out of the request entirely when null, rather than sent as an explicit null.
+         */
+        @OptIn(ExperimentalSerializationApi::class)
+        @EncodeDefault(EncodeDefault.Mode.NEVER)
+        val thinkingConfig: ThinkingConfig? = null,
     )
+
+    /** Gemini 3's reasoning depth: "high" is the deepest. */
+    @Serializable
+    data class ThinkingConfig(val thinkingLevel: String)
 }
 
 @Serializable
@@ -52,6 +65,14 @@ data class GeminiResponse(
             ?.filterNot { it.thought }
             ?.joinToString("") { it.text }
             ?.takeIf { it.isNotBlank() }
+
+    /**
+     * The model ran out of output tokens before it finished. A thinking model spends tokens reasoning
+     * from the same budget as the answer, so this is how an analysis ended mid-sentence ("106 bpm (")
+     * and was saved as if complete. A truncated reply is never treated as an answer.
+     */
+    val truncated: Boolean
+        get() = candidates.firstOrNull()?.finishReason == "MAX_TOKENS"
 }
 
 @Serializable

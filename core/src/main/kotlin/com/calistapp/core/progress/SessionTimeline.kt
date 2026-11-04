@@ -14,6 +14,8 @@ data class TimelineExercise(
     val name: String,
     val sets: Int,
     val reps: Int,
+    /** Seconds held, for a timed hold — logged in the reps field but never counted as reps. */
+    val holdSeconds: Int = 0,
     val kcal: Double,
     /** Time under tension — the ACTIVE segments summed. */
     val activeMs: Long,
@@ -51,6 +53,7 @@ fun sessionTimeline(
     class Acc(val name: String) {
         var sets = 0
         var reps = 0
+        var holdSeconds = 0
         var activeMs = 0L
         var firstStart = Long.MAX_VALUE
         var lastEnd = 0L
@@ -62,7 +65,7 @@ fun sessionTimeline(
         val key = seg.slotId ?: name
         val acc = byKey.getOrPut(key) { Acc(name) }
         acc.sets++
-        acc.reps += seg.reps
+        if (seg.countsReps) acc.reps += seg.reps else acc.holdSeconds += seg.reps
         val end = seg.endMs ?: seg.startMs
         acc.activeMs += (end - seg.startMs).coerceAtLeast(0L)
         acc.firstStart = minOf(acc.firstStart, seg.startMs)
@@ -80,6 +83,7 @@ fun sessionTimeline(
                 name = acc.name,
                 sets = acc.sets,
                 reps = acc.reps,
+                holdSeconds = acc.holdSeconds,
                 kcal = kcalByKey[key] ?: 0.0,
                 activeMs = acc.activeMs,
                 spanMs = (acc.lastEnd - acc.firstStart).coerceAtLeast(0L),

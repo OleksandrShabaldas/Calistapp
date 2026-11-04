@@ -823,16 +823,25 @@ private fun CircuitDefEditor(secs: Boolean, target: Int, addedKg: Double, onTarg
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ExercisePicker(
+internal fun ExercisePicker(
     viewModel: WorkoutPlannerViewModel,
     onOpenExercise: (String) -> Unit,
     onDone: () -> Unit,
+    /**
+     * Where picks land. Defaults to the plan being built; the live session passes its own so the same
+     * picker adds to today's workout instead. [timesAdded] drives the ✓ tile, [addedCount] the Done label.
+     */
+    timesAdded: ((Exercise) -> Int)? = null,
+    onToggle: ((Exercise) -> Unit)? = null,
+    addedCount: Int? = null,
 ) {
     val filters by viewModel.filters.collectAsStateWithLifecycle()
     val facets by viewModel.facets.collectAsStateWithLifecycle()
     val results by viewModel.searchResults.collectAsStateWithLifecycle()
     val plan by viewModel.plan.collectAsStateWithLifecycle()
     val favourites by viewModel.favourites.collectAsStateWithLifecycle()
+    val countOf: (Exercise) -> Int = timesAdded ?: { e -> plan.exercises.count { it.exerciseId == e.id } }
+    val toggle: (Exercise) -> Unit = onToggle ?: { viewModel.toggleSelection(it) }
     var showFilters by remember { mutableStateOf(false) }
     var favOpen by rememberSaveable { mutableStateOf(true) }
     val resultsState = rememberLazyListState()
@@ -867,7 +876,7 @@ private fun ExercisePicker(
                 color = Chalk,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = onDone) { Text("Done · ${plan.exercises.size}", color = Flame, style = MaterialTheme.typography.labelLarge) }
+            TextButton(onClick = onDone) { Text("Done · ${addedCount ?: plan.exercises.size}", color = Flame, style = MaterialTheme.typography.labelLarge) }
         }
 
         ProtoField(
@@ -910,10 +919,10 @@ private fun ExercisePicker(
                     items(favResults, key = { "fav-${it.id}" }) { exercise ->
                         PickerRow(
                             exercise = exercise,
-                            timesAdded = plan.exercises.count { it.exerciseId == exercise.id },
+                            timesAdded = countOf(exercise),
                             isFavourite = true,
                             onToggleFavourite = { viewModel.toggleFavourite(exercise.id) },
-                            onAdd = { viewModel.toggleSelection(exercise) },
+                            onAdd = { toggle(exercise) },
                             onOpen = { onOpenExercise(exercise.id) },
                         )
                     }
@@ -927,10 +936,10 @@ private fun ExercisePicker(
                     // every add used to communicate — a workout is usually six or eight movements,
                     // and confirming each one by throwing you out of the list cost six or eight
                     // round trips to save a moment's doubt.
-                    timesAdded = plan.exercises.count { it.exerciseId == exercise.id },
+                    timesAdded = countOf(exercise),
                     isFavourite = exercise.id in favourites,
                     onToggleFavourite = { viewModel.toggleFavourite(exercise.id) },
-                    onAdd = { viewModel.toggleSelection(exercise) },
+                    onAdd = { toggle(exercise) },
                     onOpen = { onOpenExercise(exercise.id) },
                 )
             }

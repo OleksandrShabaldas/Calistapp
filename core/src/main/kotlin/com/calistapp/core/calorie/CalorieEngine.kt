@@ -8,7 +8,9 @@ import com.calistapp.core.model.Segment
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionSummary
 import com.calistapp.core.model.UserProfile
+import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.WorkoutSession
+import com.calistapp.core.model.timeBuckets
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -71,20 +73,24 @@ class CalorieEngine(
     )
 
     fun summarize(session: WorkoutSession, profile: UserProfile): SessionSummary =
-        compute(session.samples, session.segments, profile, endMs = session.endMs)
+        compute(session.samples, session.segments, profile, endMs = session.endMs, plan = session.plan)
 
     /**
      * Compute a full summary from raw HR samples + active/rest segments.
      *
      * @param endMs optional session end; when provided, a trailing interval from the last
      *              sample to [endMs] is credited at the last-known HR.
+     * @param plan the session's plan, for its phases: only rest after a working set is a heart-rate
+     *             recovery, never the rest after a warm-up or cool-down hold. Without one every
+     *             block is treated as work.
      */
     fun compute(
         samples: List<HeartRateSample>,
         segments: List<Segment>,
         profile: UserProfile,
         endMs: Long? = null,
-    ): SessionSummary = run(samples, segments, profile, endMs).summary
+        plan: WorkoutPlan = WorkoutPlan.EMPTY,
+    ): SessionSummary = run(samples, segments, profile, endMs, plan).summary
 
     /**
      * The same computation as [compute], with the full derivation attached.
@@ -98,10 +104,11 @@ class CalorieEngine(
         segments: List<Segment>,
         profile: UserProfile,
         endMs: Long? = null,
-    ): CalorieAudit? = run(samples, segments, profile, endMs).audit
+        plan: WorkoutPlan = WorkoutPlan.EMPTY,
+    ): CalorieAudit? = run(samples, segments, profile, endMs, plan).audit
 
     fun explain(session: WorkoutSession, profile: UserProfile): CalorieAudit? =
-        explain(session.samples, session.segments, profile, endMs = session.endMs)
+        explain(session.samples, session.segments, profile, endMs = session.endMs, plan = session.plan)
 
     private class Outcome(val summary: SessionSummary, val audit: CalorieAudit?)
 
@@ -110,6 +117,7 @@ class CalorieEngine(
         segments: List<Segment>,
         profile: UserProfile,
         endMs: Long? = null,
+        plan: WorkoutPlan = WorkoutPlan.EMPTY,
     ): Outcome {
         if (samples.isEmpty()) return Outcome(SessionSummary.EMPTY, null)
 
@@ -206,7 +214,8 @@ class CalorieEngine(
         val breakdown = linkedMapOf<String, ExerciseBreakdown>()
         val auditBlocks = mutableListOf<CalorieAudit.Block>()
         val setCounter = mutableMapOf<String, Int>()
-        val firstWork = segments.filter { it.type == SegmentType.ACTIVE }.minOfOrNull { it.startMs } ?: Long.MAX_VALUE
+        // Which part of the session each block was — the same split the summary's time line uses.
+        val buckets = segments.timeBuckets(plan)
 
         /** The HR term for a block, shared by both branches so the audit can't describe it wrongly. */
         fun hrTermFor(i: Int): CalorieAudit.HeartRateTerm {
@@ -247,7 +256,7 @@ class CalorieEngine(
                     restingFloorKcal = 0.0,
                     kcal = segKcal[i],
                     basis = CalorieAudit.Basis.REST,
-                    isOpeningWarmup = seg.startMs < firstWork,
+                    bucket = buckets[i],
                 )
                 continue
             }
@@ -264,7 +273,7 @@ class CalorieEngine(
 
             activeKcal += blockKcal
             activeMs += coveredMs
-            totalReps += seg.reps
+            if (seg.countsReps) totalReps += seg.reps
 
             val setKey = seg.slotId ?: seg.exerciseName
             val setIndex = setKey?.let { key ->
@@ -292,6 +301,7 @@ class CalorieEngine(
                     mechanical -> CalorieAudit.Basis.REP_WORK
                     else -> CalorieAudit.Basis.RESTING_FLOOR
                 },
+                bucket = buckets[i],
             )
 
             if (seg.exerciseName != null) {
@@ -301,7 +311,7 @@ class CalorieEngine(
                     slotId = seg.slotId,
                     exerciseName = seg.exerciseName,
                     kcal = (prev?.kcal ?: 0.0) + blockKcal,
-                    reps = (prev?.reps ?: 0) + seg.reps,
+                    reps = (prev?.reps ?: 0) + if (seg.countsReps) seg.reps else 0,
                     sets = (prev?.sets ?: 0) + 1,
                     activeDurationMs = (prev?.activeDurationMs ?: 0L) + coveredMs,
                 )
@@ -341,7 +351,7 @@ class CalorieEngine(
             totalReps = totalReps,
             // Not a calorie term — but this is the one pass that has the samples and the work/rest
             // boundaries lined up, and recovering them separately would mean walking both again.
-            hrRecovery = HeartRateRecovery.analyze(sorted, segments),
+            hrRecovery = HeartRateRecovery.analyze(sorted, segments, plan),
         )
 
         val audit = CalorieAudit(

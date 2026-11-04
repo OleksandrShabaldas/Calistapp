@@ -15,7 +15,9 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlin.math.roundToInt
 
 /**
- * Real heart rate from the watch's optical sensor via Health Services `MeasureClient`.
+ * Real heart rate from the watch's optical sensor via Health Services `MeasureClient` — now only the
+ * fallback for when an exercise can't run (see [ResilientHeartRateSource]): Health Services documents
+ * MeasureClient as not intended for background capture or workout tracking.
  *
  * NOTE: Health Services is still in alpha, so the `MeasureCallback` surface can shift slightly
  * between library versions. If this file fails to compile against your `health-services-client`
@@ -39,10 +41,13 @@ class HealthServicesHeartRateSource(
             }
 
             override fun onDataReceived(data: DataPointContainer) {
+                // Stamped with when each reading was measured, not when it arrived — a batch delivered
+                // late used to collapse onto its delivery instant and draw a straight line in the chart.
+                val boot = bootInstant()
                 data.getData(DataType.HEART_RATE_BPM).forEach { point ->
                     val bpm = point.value.roundToInt()
                     if (bpm > 0) {
-                        trySend(HeartRateSample(System.currentTimeMillis(), bpm, HrConfidence.HIGH))
+                        trySend(HeartRateSample(point.getTimeInstant(boot).toEpochMilli(), bpm, HrConfidence.HIGH))
                     }
                 }
             }

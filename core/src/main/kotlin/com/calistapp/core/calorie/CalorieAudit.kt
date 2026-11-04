@@ -2,6 +2,7 @@ package com.calistapp.core.calorie
 
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionSummary
+import com.calistapp.core.model.TimeBucket
 import com.calistapp.core.model.UserProfile
 
 /**
@@ -103,7 +104,8 @@ data class CalorieAudit(
         val restingFloorKcal: Double,
         val kcal: Double,
         val basis: Basis,
-        val isOpeningWarmup: Boolean = false,
+        /** Warm-up, work, rest or cool-down — the session time split this block falls in. */
+        val bucket: TimeBucket,
     )
 
     /**

@@ -1,6 +1,10 @@
 package com.calistapp.core.analysis
 
+import com.calistapp.core.model.ExerciseMeasure
 import com.calistapp.core.model.HeartRateSample
+import com.calistapp.core.model.PlannedExercise
+import com.calistapp.core.model.SlotPhase
+import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.Segment
 import com.calistapp.core.model.SegmentType
 import org.junit.Assert.assertEquals
@@ -115,6 +119,24 @@ class HeartRateRecoveryTest {
         )
 
         assertNull(HeartRateRecovery.analyze(samples, segments))
+    }
+
+    @Test
+    fun `the pause after a warm-up or cool-down hold is not a recovery`() {
+        val stretch = PlannedExercise(
+            slotId = "c1", exerciseId = "c1", name = "c1", measure = ExerciseMeasure.SECONDS,
+            targetSeconds = 30, runsOnce = true, phase = SlotPhase.COOL_DOWN,
+        )
+        val plan = WorkoutPlan(id = "p", exercises = listOf(PlannedExercise(slotId = "m1", exerciseId = "m1", name = "m1"), stretch))
+        val samples = ramp(0, 60_000, 120, 170) + ramp(65_000, 180_000, 168, 110)
+        val afterStretch = listOf(
+            Segment(SegmentType.ACTIVE, 0, 60_000, slotId = "c1"),
+            Segment(SegmentType.REST, 60_000, 180_000),
+        )
+        assertNull(HeartRateRecovery.analyze(samples, afterStretch, plan))
+        // The same rest after a working set is measured.
+        val afterSet = listOf(Segment(SegmentType.ACTIVE, 0, 60_000, slotId = "m1"), Segment(SegmentType.REST, 60_000, 180_000))
+        assertEquals(1, HeartRateRecovery.analyze(samples, afterSet, plan)!!.measuredRests)
     }
 
     @Test

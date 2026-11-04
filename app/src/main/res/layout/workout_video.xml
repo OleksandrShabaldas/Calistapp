@@ -10,6 +10,10 @@
     <!-- Keep this fade in sync with workoutScrim() for still-image fallbacks. -->
     <View android:layout_width="match_parent" android:layout_height="match_parent"
         android:background="@drawable/workout_video_scrim" />
+    <!-- Top fade behind the controls; in sync with workoutScrim() too. -->
+    <View android:layout_width="match_parent" android:layout_height="290dp"
+        android:layout_gravity="top"
+        android:background="@drawable/workout_video_top_scrim" />
     <View android:id="@+id/workout_dim"
         android:layout_width="match_parent" android:layout_height="match_parent"
         android:background="#0B0B0C" android:alpha="0" />

@@ -77,14 +77,14 @@ class WorkoutPlanTest {
     }
 
     @Test
-    fun `circuit keeps going in order after a skipped exercise, and comes back for it`() {
-        // "b" was skipped in round one. A circuit runs in order, so the next exercise is still "a"
-        // — jumping backwards would break the rhythm the style exists for.
-        val skipped = mapOf("a" to 1, "c" to 1)
-        assertEquals(NextUp("a", 2), circuit.nextUp("c", skipped))
+    fun `circuit finishes the round it is in before starting the next`() {
+        // "b" was passed over in round one (put off, not skipped — a skip would count as resolved).
+        // It's owed in round one, so it comes at the end of that round, not after round two has begun.
+        val owedB = mapOf("a" to 1, "c" to 1)
+        assertEquals(NextUp("b", 1), circuit.nextUp("c", owedB))
 
-        // But "b" is not lost: it's picked up in its normal position on the way round.
-        assertEquals(NextUp("b", 1), circuit.nextUp("a", skipped + ("a" to 2)))
+        // And once it's done, round two starts at the top rather than wherever "b" left off.
+        assertEquals(NextUp("a", 2), circuit.nextUp("b", owedB + ("b" to 1)))
     }
 
     @Test

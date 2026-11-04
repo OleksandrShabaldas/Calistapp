@@ -41,6 +41,9 @@ class SavedWorkoutRepository @Inject constructor(
         )
     }
 
+    /** One saved workout by id, or null if it was deleted (or no longer parses). */
+    suspend fun get(id: String): SavedWorkout? = dao.getById(id)?.toDomain()
+
     suspend fun markUsed(id: String) = dao.markUsed(id, System.currentTimeMillis())
 
     /**

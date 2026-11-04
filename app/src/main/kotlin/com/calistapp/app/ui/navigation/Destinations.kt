@@ -17,6 +17,9 @@ object Routes {
     /** Pre-flight: warm-up, stretch, session settings and timers, then start. */
     const val SETUP = "setup"
 
+    /** Mid-workout: the exercise picker, adding to the running session rather than the plan draft. */
+    const val LIVE_ADD = "liveAdd"
+
     /** Plan the week — assign saved workouts to weekdays and reschedule this week. */
     const val SCHEDULE = "schedule"
 

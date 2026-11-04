@@ -5,6 +5,8 @@ import com.calistapp.core.model.HrRecovery
 import com.calistapp.core.model.RestDrop
 import com.calistapp.core.model.Segment
 import com.calistapp.core.model.SegmentType
+import com.calistapp.core.model.SlotPhase
+import com.calistapp.core.model.WorkoutPlan
 
 /**
  * How fast your heart rate falls when a set ends.
@@ -37,17 +39,27 @@ object HeartRateRecovery {
     /** A reading this far from the target instant is too stale to anchor on. */
     private const val TOLERANCE_MS = 12_000L
 
-    fun analyze(samples: List<HeartRateSample>, segments: List<Segment>): HrRecovery? {
+    /**
+     * @param plan the session's plan, for its phases. A warm-up or cool-down hold barely lifts heart
+     *             rate, so the rest after one is no recovery from effort — read as one, its near-flat
+     *             "drop" would drag the average down and report a blunted recovery that isn't there.
+     */
+    fun analyze(
+        samples: List<HeartRateSample>,
+        segments: List<Segment>,
+        plan: WorkoutPlan = WorkoutPlan.EMPTY,
+    ): HrRecovery? {
         if (samples.isEmpty() || segments.isEmpty()) return null
         val ordered = samples.sortedBy { it.timestampMs }
         val drops = mutableListOf<RestDrop>()
 
         segments.forEachIndexed { index, segment ->
             if (segment.type != SegmentType.REST) return@forEachIndexed
-            // Only rests that follow actual work: the opening rest before a session starts is not a
-            // recovery from anything.
+            // Only rests that follow a working set: the opening rest before a session starts is not a
+            // recovery from anything, and neither is the pause after a stretch.
             val previous = segments.getOrNull(index - 1) ?: return@forEachIndexed
             if (previous.type != SegmentType.ACTIVE) return@forEachIndexed
+            if (plan.phaseOf(previous.slotId) != SlotPhase.MAIN) return@forEachIndexed
 
             val restStart = segment.startMs
             val restEnd = segment.endMs ?: return@forEachIndexed

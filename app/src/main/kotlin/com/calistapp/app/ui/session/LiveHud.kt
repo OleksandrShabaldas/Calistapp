@@ -42,6 +42,7 @@ import com.calistapp.app.ui.theme.OnyxBorder
 import com.calistapp.app.ui.theme.OnyxFillStrong
 import com.calistapp.app.ui.theme.OnyxRaised
 import com.calistapp.core.model.HrZone
+import com.calistapp.core.model.HrLinkHealth
 
 /** The always-on heart-rate + calorie chip in the corner of the hero. Tapping it opens [LiveHudPanel]. */
 @Composable
@@ -84,6 +85,8 @@ fun LiveHudPanel(
     onReconnect: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    /** How continuous the watch's stream is — readings a minute, longest gap, readings backfilled. */
+    link: HrLinkHealth = HrLinkHealth(),
 ) {
     val zone = if (bpm > 0 && maxHr > 0) HrZone.forHr(bpm, maxHr) else null
     Column(
@@ -162,6 +165,19 @@ fun LiveHudPanel(
                     modifier = Modifier.clip(Capsule).clickable(onClick = onReconnect).padding(horizontal = 8.dp, vertical = 4.dp),
                 )
             }
+        }
+
+        // The stream's health, so a workout can show whether heart rate arrived continuously instead of
+        // that only surfacing afterwards as straight lines in the chart. ~60 a minute is a healthy link.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Signal", style = MaterialTheme.typography.labelLarge, color = Ash, modifier = Modifier.weight(1f))
+            val healthy = link.readingsLastMinute >= 45 && link.longestGapMs < 15_000
+            Text(
+                "${link.readingsLastMinute}/min · gap ${link.longestGapMs / 1000}s" +
+                    if (link.backfilled > 0) " · +${link.backfilled}" else "",
+                style = MaterialTheme.typography.labelLarge,
+                color = if (healthy) Chalk else Flame,
+            )
         }
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

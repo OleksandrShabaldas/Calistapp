@@ -76,6 +76,7 @@ import com.calistapp.app.ui.common.formatDate
 import com.calistapp.app.ui.dashboard.CardSurface
 import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.Amber
+import com.calistapp.app.ui.theme.Sky
 import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Coral
 import com.calistapp.app.ui.theme.Display
@@ -84,6 +85,8 @@ import com.calistapp.app.ui.theme.FlameGlow
 import com.calistapp.app.ui.theme.FlameHot
 import com.calistapp.app.ui.theme.Onyx
 import com.calistapp.core.model.SessionSummary
+import com.calistapp.core.model.SlotPhase
+import com.calistapp.core.model.workingKcal
 import com.calistapp.core.progress.PersonalRecord
 import com.calistapp.core.progress.TimelineExercise
 import kotlinx.coroutines.delay
@@ -103,6 +106,7 @@ fun SessionDetailScreen(
     val deltas by viewModel.deltas.collectAsStateWithLifecycle()
     val recentRecovery by viewModel.recentRecoveryMeanDrop.collectAsStateWithLifecycle()
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
+    val phases by viewModel.phases.collectAsStateWithLifecycle()
     val maxHr by viewModel.maxHr.collectAsStateWithLifecycle()
 
     val current = session
@@ -139,7 +143,8 @@ fun SessionDetailScreen(
         ?: current.exerciseType.displayName
     val performedKeys = timeline.map { it.key }.toSet()
     val skipped = remember(current.plan, performedKeys) {
-        current.plan.exercises.filter { it.slotId !in performedKeys }
+        // The workout's own exercises only — an unworked warm-up or stretch isn't a skipped exercise.
+        current.plan.slotsIn(SlotPhase.MAIN).filter { it.slotId !in performedKeys }
     }
     var showAiSheet by remember { mutableStateOf(false) }
 
@@ -182,7 +187,7 @@ fun SessionDetailScreen(
                 )
             }
 
-            Entrance(2) { HeroEnergy(summary = s, enabled = audit != null, onClick = { showCalorie = true }) }
+            Entrance(2) { HeroEnergy(summary = s, workKcal = s.workingKcal(current.plan), enabled = audit != null, onClick = { showCalorie = true }) }
 
             Entrance(3) {
                 Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -193,7 +198,8 @@ fun SessionDetailScreen(
                         onTap = { goToExercises() },
                     )
                     Text(
-                        "Warmup ${formatClock(s.warmupDurationMs)} · Work ${formatClock(s.activeDurationMs)} · Rest ${formatClock(s.restDurationMs)}",
+                        "Warm-up ${formatClock(s.warmupDurationMs)} · Work ${formatClock(s.activeDurationMs)} · Rest ${formatClock(s.restDurationMs)}" +
+                            if (s.coolDownDurationMs > 0) " · Cool-down ${formatClock(s.coolDownDurationMs)}" else "",
                         style = MaterialTheme.typography.labelMedium,
                         color = Ash.copy(alpha = 0.7f),
                         modifier = Modifier.fillMaxWidth(),
@@ -252,6 +258,7 @@ fun SessionDetailScreen(
                             )
                         }
                     }
+                    phases.forEach { PhaseBlock(it, Modifier.padding(top = 10.dp)) }
                 }
             }
 
@@ -372,10 +379,11 @@ private fun Header(eyebrow: String, title: String, meta: String) {
 
 // ---------- Hero energy ----------
 
+/** [workKcal] is the working sets alone: a warm-up or cool-down hold is energy, but not "active" training. */
 @Composable
-private fun HeroEnergy(summary: SessionSummary, enabled: Boolean, onClick: () -> Unit) {
+private fun HeroEnergy(summary: SessionSummary, workKcal: Double, enabled: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(26.dp)
-    val activeFrac = if (summary.totalKcal > 0) (summary.activeKcal / summary.totalKcal).toFloat() else 0f
+    val activeFrac = if (summary.totalKcal > 0) (workKcal / summary.totalKcal).toFloat().coerceIn(0f, 1f) else 0f
     // The bloom breathes, the way the reference's does — a slow pulse that says "live", not a static disc.
     val bloomAlpha by rememberInfiniteTransition(label = "bloom").animateFloat(
         initialValue = 0.16f,
@@ -425,8 +433,8 @@ private fun HeroEnergy(summary: SessionSummary, enabled: Boolean, onClick: () ->
                 Box(Modifier.fillMaxHeight().weight((1f - activeFrac).coerceAtLeast(0.0001f)).background(FlameGlow.copy(alpha = 0.28f)))
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                Legend(FlameHot, "${summary.activeKcal.toInt()}", "active")
-                Legend(FlameGlow.copy(alpha = 0.4f), "${summary.restKcal.toInt()}", "prep / rest")
+                Legend(FlameHot, "${workKcal.toInt()}", "active")
+                Legend(FlameGlow.copy(alpha = 0.4f), "${(summary.totalKcal - workKcal).toInt()}", "prep / rest")
                 Spacer(Modifier.weight(1f))
                 Text("${(summary.activeRatio * 100).toInt()}% work ratio", style = MaterialTheme.typography.labelMedium, color = Ash)
             }
@@ -461,6 +469,7 @@ private fun StatRings(
         if (summary.warmupDurationMs > 0) add(RingSegment(summary.warmupDurationMs.toFloat(), Amber))
         if (summary.activeDurationMs > 0) add(RingSegment(summary.activeDurationMs.toFloat(), FlameHot))
         if (summary.restDurationMs > 0) add(RingSegment(summary.restDurationMs.toFloat(), FlameHot.copy(alpha = 0.22f)))
+        if (summary.coolDownDurationMs > 0) add(RingSegment(summary.coolDownDurationMs.toFloat(), Sky))
     }.ifEmpty { listOf(RingSegment(1f, Ash)) }
     val totalReps = timeline.sumOf { it.reps }
     val repsSegs = if (totalReps > 0) {

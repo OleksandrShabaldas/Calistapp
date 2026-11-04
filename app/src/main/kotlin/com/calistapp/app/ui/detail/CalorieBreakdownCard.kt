@@ -55,6 +55,7 @@ import com.calistapp.app.ui.theme.Sky
 import com.calistapp.core.calorie.CalorieAudit
 import com.calistapp.core.calorie.ExerciseIntensity
 import com.calistapp.core.model.SegmentType
+import com.calistapp.core.model.TimeBucket
 import com.calistapp.core.model.Sex
 import java.util.Locale
 import kotlin.math.abs
@@ -398,9 +399,12 @@ private fun TimeBody(audit: CalorieAudit) {
     } else {
         AuditRow("Sensor gaps", "none")
     }
-    AuditRow("Working", formatCompact(audit.summary.activeDurationMs))
-    AuditRow("Warmup", formatCompact(audit.blocks.filter { it.isOpeningWarmup }.sumOf { it.coveredDurationMs }))
-    AuditRow("Resting", formatCompact(audit.blocks.filter { it.type == SegmentType.REST && !it.isOpeningWarmup }.sumOf { it.coveredDurationMs }))
+    // The same four-way split as the summary's time line, so the two never disagree.
+    fun covered(b: TimeBucket) = audit.blocks.filter { it.bucket == b }.sumOf { it.coveredDurationMs }
+    AuditRow("Warm-up", formatCompact(covered(TimeBucket.WARM_UP)))
+    AuditRow("Working", formatCompact(covered(TimeBucket.WORK)))
+    AuditRow("Resting", formatCompact(covered(TimeBucket.REST)))
+    if (covered(TimeBucket.COOL_DOWN) > 0) AuditRow("Cool-down", formatCompact(covered(TimeBucket.COOL_DOWN)))
 }
 
 @Composable
@@ -423,9 +427,13 @@ private fun BlocksBody(audit: CalorieAudit) {
 
 @Composable
 private fun TotalBody(audit: CalorieAudit) {
-    AuditRow("Working blocks", "${audit.workBlocks.sumOf { it.kcal }.kcal()} kcal")
-    AuditRow("Warmup blocks", "${audit.restBlocks.filter { it.isOpeningWarmup }.sumOf { it.kcal }.kcal()} kcal")
-    AuditRow("Rest blocks", "${audit.restBlocks.filterNot { it.isOpeningWarmup }.sumOf { it.kcal }.kcal()} kcal")
+    fun kcalIn(b: TimeBucket) = audit.blocks.filter { it.bucket == b }.sumOf { it.kcal }
+    AuditRow("Warm-up", "${kcalIn(TimeBucket.WARM_UP).kcal()} kcal")
+    AuditRow("Working blocks", "${kcalIn(TimeBucket.WORK).kcal()} kcal")
+    AuditRow("Rest blocks", "${kcalIn(TimeBucket.REST).kcal()} kcal")
+    if (audit.blocks.any { it.bucket == TimeBucket.COOL_DOWN }) {
+        AuditRow("Cool-down", "${kcalIn(TimeBucket.COOL_DOWN).kcal()} kcal")
+    }
     if (audit.unsegmentedKcal > 0) {
         AuditRow("Untagged time", "${audit.unsegmentedKcal.kcal()} kcal")
     }
@@ -661,7 +669,8 @@ private fun CalorieAudit.Block.title(): String {
     return when {
         name != null && setIndex != null -> "Set $setIndex · $name"
         name != null -> name
-        isOpeningWarmup -> "Warmup"
+        bucket == TimeBucket.WARM_UP -> "Warm-up"
+        bucket == TimeBucket.COOL_DOWN -> "Cool-down"
         type == SegmentType.REST -> "Rest"
         else -> "Work block $ordinal"
     }

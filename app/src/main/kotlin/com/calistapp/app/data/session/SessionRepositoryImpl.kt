@@ -11,6 +11,7 @@ import com.calistapp.core.model.SessionOverview
 import com.calistapp.core.model.SessionStatus
 import com.calistapp.core.model.SessionSummary
 import com.calistapp.core.model.SetLog
+import com.calistapp.core.model.SetSkip
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.WorkoutSession
 import com.calistapp.core.model.withSessionTiming
@@ -48,7 +49,7 @@ class SessionRepositoryImpl @Inject constructor(
         // whole row: the AI insight, and the FitPal sync stamp (so an unrelated save doesn't reset
         // it and force a needless re-push).
         val existing = dao.getById(session.id)
-        val timed = session.copy(summary = session.summary?.withSessionTiming(session.segments, session.endMs))
+        val timed = session.copy(summary = session.summary?.withSessionTiming(session.segments, session.endMs, session.plan))
         dao.upsert(timed.toEntity(existing?.aiInsight, existing?.aiInsightAtMs, existing?.fitpalSyncedAt))
     }
 
@@ -74,6 +75,7 @@ class SessionRepositoryImpl @Inject constructor(
     private val sampleListSerializer = ListSerializer(HeartRateSample.serializer())
     private val segmentListSerializer = ListSerializer(Segment.serializer())
     private val setLogListSerializer = ListSerializer(SetLog.serializer())
+    private val skipListSerializer = ListSerializer(SetSkip.serializer())
 
     private fun WorkoutSession.toEntity(
         preservedInsight: String? = null,
@@ -96,6 +98,7 @@ class SessionRepositoryImpl @Inject constructor(
         setLogsJson = if (setLogs.isEmpty()) "" else json.encodeToString(setLogListSerializer, setLogs),
         rpe = rpe,
         fitpalSyncedAt = preservedFitpalSyncedAt,
+        skipsJson = if (skips.isEmpty()) "" else json.encodeToString(skipListSerializer, skips),
     )
 
     private fun SessionOverviewRow.toOverview() = SessionOverview(
@@ -148,6 +151,9 @@ class SessionRepositoryImpl @Inject constructor(
         setLogs = setLogsJson.takeIf { it.isNotBlank() }
             ?.let { json.decodeFromString(setLogListSerializer, it) }
             ?: emptyList(),
+        skips = skipsJson.takeIf { it.isNotBlank() }
+            ?.let { runCatching { json.decodeFromString(skipListSerializer, it) }.getOrNull() }
+            ?: emptyList(),
         rpe = rpe,
-    ).let { it.copy(summary = it.summary?.withSessionTiming(it.segments, it.endMs)) }
+    ).let { it.copy(summary = it.summary?.withSessionTiming(it.segments, it.endMs, it.plan)) }
 }

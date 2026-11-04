@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,13 +30,20 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -44,6 +52,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
@@ -56,6 +65,8 @@ import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Coral
 import com.calistapp.app.ui.theme.FlameHot
 import java.time.LocalDate
+import kotlin.math.abs
+import kotlin.math.min
 
 /**
  * The weekly calorie strip — no card, short, wide bars. Swipe left/right to step through weeks; tap a
@@ -131,18 +142,38 @@ fun WeekStrip(
 
         Spacer(Modifier.height(14.dp))
 
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            week.days.forEach { day ->
-                DayColumn(
-                    day,
-                    week.maxKcal,
-                    targetKcal = day.targetKcal,
-                    isSelected = day.date == selectedDate,
-                    onClick = { onSelectDay(day.date) },
+        Box(Modifier.fillMaxWidth()) {
+            // Each day's goal as a fraction of the strip's scale, animated so a swipe to another week
+            // (or a goal that changes) morphs the line rather than snapping it.
+            val goals = week.days.mapIndexed { i, day ->
+                val target = if (week.maxKcal > 0) (day.targetKcal.toFloat() / week.maxKcal).coerceIn(0f, 1f) else 0f
+                // Keyed per day: the list grows from empty to seven as the week loads, and unkeyed animation
+                // state in a loop of changing length gets mis-paired by Compose (it crashed on first load).
+                key(i) { animateFloatAsState(target, tween(600), label = "goal$i").value }
+            }
+            val reveal = remember { Animatable(0f) }
+            LaunchedEffect(Unit) { reveal.animateTo(1f, tween(800, delayMillis = 200)) }
+            Row(
+                Modifier.fillMaxWidth().drawBehind { drawGoalLine(goals, week.days.map { it.targetKcal > 0 }, reveal.value) },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                week.days.forEach { day ->
+                    DayColumn(
+                        day,
+                        week.maxKcal,
+                        isSelected = day.date == selectedDate,
+                        onClick = { onSelectDay(day.date) },
+                    )
+                }
+            }
+            goals.lastOrNull()?.takeIf { (week.days.lastOrNull()?.targetKcal ?: 0) > 0 }?.let { last ->
+                Text(
+                    "GOAL",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.5.sp, letterSpacing = 1.4.sp),
+                    fontWeight = FontWeight.SemiBold,
+                    color = Chalk.copy(alpha = 0.55f * reveal.value),
+                    modifier = Modifier.align(Alignment.TopEnd).offset(y = goalLineY(last) - 14.dp).padding(end = 2.dp),
                 )
             }
         }
@@ -169,7 +200,7 @@ fun WeekStrip(
 }
 
 @Composable
-private fun DayColumn(day: DayCell, maxKcal: Int, targetKcal: Int, isSelected: Boolean, onClick: () -> Unit) {
+private fun DayColumn(day: DayCell, maxKcal: Int, isSelected: Boolean, onClick: () -> Unit) {
     val selShape = RoundedCornerShape(12.dp)
     Column(
         Modifier
@@ -198,21 +229,6 @@ private fun DayColumn(day: DayCell, maxKcal: Int, targetKcal: Int, isSelected: B
                 }
             } else {
                 Box(Modifier.width(24.dp).height(barHeight).clip(barShape).background(barBrush))
-            }
-            // The daily energy target, as a thin reference line at the height a just-on-target day
-            // would reach (same 8dp base + 46dp scale as the bars). One dash per day, all at the same
-            // height, so they read across the strip as the level to clear. Drawn over the bar.
-            if (targetKcal > 0) {
-                val targetFrac = (targetKcal.toFloat() / maxKcal).coerceIn(0f, 1f)
-                Box(
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 8.dp + 46.dp * targetFrac)
-                        .width(30.dp)
-                        .height(2.dp)
-                        .clip(barShape)
-                        .background(Chalk.copy(alpha = 0.38f)),
-                )
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -278,3 +294,53 @@ private fun BreakdownRow(label: String, kcal: Int, fraction: Float, color: Color
 }
 
 private const val SWIPE_THRESHOLD = 60f
+
+// Bar geometry shared with [DayColumn]: a bar's box ends 61dp down its column (5dp padding + 56dp box),
+// and a bar grows from an 8dp base by up to 46dp. Columns are 32dp wide (24dp bar + 4dp each side).
+private val BarBottom = 61.dp
+private val BarBase = 8.dp
+private val BarScale = 46.dp
+private val ColumnWidth = 32.dp
+
+/** Where the goal line sits for a goal at [fraction] of the strip's scale: where a just-on-goal bar ends. */
+private fun goalLineY(fraction: Float): Dp = BarBottom - (BarBase + BarScale * fraction)
+
+/**
+ * The daily goal as one hairline across the whole strip — replacing a 2dp dash per day — drawn
+ * *behind* the bars, so a day that clears its goal visibly breaks through it. On a day with a reduced
+ * goal it steps to that day's level with soft corners; the ends fade out rather than stopping hard.
+ * [reveal] draws it in from the left as the strip appears.
+ */
+private fun DrawScope.drawGoalLine(goals: List<Float>, hasGoal: List<Boolean>, reveal: Float) {
+    if (goals.isEmpty() || hasGoal.none { it } || reveal <= 0f) return
+    val col = ColumnWidth.toPx()
+    val step = (size.width - col) / (goals.size - 1).coerceAtLeast(1)
+    val xs = goals.indices.map { col / 2 + it * step }
+    val ys = goals.map { goalLineY(it).toPx() }
+    val corner = 4.dp.toPx()
+    val path = Path().apply {
+        moveTo(0f, ys[0])
+        for (i in 0 until goals.lastIndex) {
+            val y0 = ys[i]
+            val y1 = ys[i + 1]
+            if (abs(y1 - y0) < 0.5f) continue
+            val mid = (xs[i] + xs[i + 1]) / 2
+            val dir = if (y1 > y0) 1f else -1f
+            val r = min(corner, abs(y1 - y0) / 2)
+            lineTo(mid - r, y0)
+            quadraticBezierTo(mid, y0, mid, y0 + dir * r)
+            lineTo(mid, y1 - dir * r)
+            quadraticBezierTo(mid, y1, mid + r, y1)
+        }
+        lineTo(size.width, ys.last())
+    }
+    val brush = Brush.horizontalGradient(
+        0f to Chalk.copy(alpha = 0f),
+        0.07f to Chalk.copy(alpha = 0.30f),
+        0.93f to Chalk.copy(alpha = 0.30f),
+        1f to Chalk.copy(alpha = 0f),
+        startX = 0f,
+        endX = size.width,
+    )
+    clipRect(right = size.width * reveal) { drawPath(path, brush, style = Stroke(1.dp.toPx())) }
+}

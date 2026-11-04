@@ -216,6 +216,13 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
                     // Minimise: leave the screen while the session keeps running in the background.
                     onCollapse = { navController.popBackStack() },
                     onOpenExercise = { id -> navController.navigate(Routes.exerciseDetail(id)) },
+                    onAddExercise = { navController.navigate(Routes.LIVE_ADD) },
+                )
+            }
+            composable(Routes.LIVE_ADD) {
+                com.calistapp.app.ui.session.LiveAddExerciseScreen(
+                    onDone = { navController.popBackStack() },
+                    onOpenExercise = { id -> navController.navigate(Routes.exerciseDetail(id)) },
                 )
             }
             composable(Routes.PLANNER) {

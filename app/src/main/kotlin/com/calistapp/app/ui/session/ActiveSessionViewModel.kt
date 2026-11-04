@@ -12,16 +12,20 @@ import com.calistapp.app.data.sync.WatchConnectionMonitor
 import com.calistapp.app.data.sync.WatchLinkState
 import com.calistapp.app.session.LiveSession
 import com.calistapp.app.session.SessionController
+import com.calistapp.app.session.WorkoutChanges
 import com.calistapp.app.ui.navigation.Routes
 import com.calistapp.core.model.EffortScale
 import com.calistapp.core.model.Exercise
 import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.SetLog
+import com.calistapp.core.model.SlotPhase
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.progress.PerformedSession
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -123,11 +127,78 @@ class ActiveSessionViewModel @Inject constructor(
     fun setReps(reps: Int) = controller.adjustReps(reps - (live.value?.currentReps ?: 0))
     fun setAddedWeight(kg: Double) = controller.setAddedWeight(kg)
     fun selectSlot(slotId: String) = controller.selectSlot(slotId)
-    fun advanceToNext() = controller.advanceToNext()
     fun restartCurrentSet() = controller.restartCurrentSet()
     fun pause() = controller.pause()
     fun resume() = controller.resume()
     fun discard() = controller.discard()
+
+    // The skip sheet's three answers.
+    fun skipFocus() = controller.skipFocus()
+    fun deferFocus() = controller.deferFocus()
+    fun removeExercise(slotId: String) = controller.removeExercise(slotId)
+    fun restoreExercise(slotId: String) = controller.restoreExercise(slotId)
+
+    // Phases and the guided warm-up / cool-down.
+    fun skipRestOfPhase(phase: SlotPhase) = controller.skipRestOfPhase(phase)
+    fun finishRoutineMove() = controller.finishRoutineMove()
+    fun setAutoAdvanceRoutines(on: Boolean) = viewModelScope.launch { sessionPrefs.setAutoAdvanceRoutines(on) }
+
+    // Editing today's session from the journal.
+    fun moveExercise(slotId: String, toIndex: Int) = controller.moveExercise(slotId, toIndex)
+    fun retarget(slotId: String, value: Int, weightKg: Double) = controller.retarget(slotId, value, weightKg)
+    fun setRounds(rounds: Int) = controller.setRounds(rounds)
+
+    /**
+     * Today's edits that finishing would offer to write back to the saved workout. Set while the
+     * "save these changes?" question is up; null otherwise.
+     */
+    private val _saveChanges = MutableStateFlow<WorkoutChanges?>(null)
+    val saveChanges: StateFlow<WorkoutChanges?> = _saveChanges.asStateFlow()
+    private var pendingFinish: ((String) -> Unit)? = null
+
+    /**
+     * Finish the workout — but if today's session changed the saved workout it came from, ask once
+     * whether to keep those changes for next time first. Nothing changed: finishes straight away.
+     */
+    fun requestFinish(onDone: (String) -> Unit) {
+        viewModelScope.launch { finishOrAsk(onDone) }
+    }
+
+    private suspend fun finishOrAsk(onDone: (String) -> Unit) {
+        val changes = controller.pendingWorkoutChanges()
+        if (changes == null) {
+            controller.stop()?.let(onDone)
+        } else {
+            pendingFinish = onDone
+            _saveChanges.value = changes
+        }
+    }
+
+    /** Answer the "save these changes?" question and finish. */
+    fun answerSaveChanges(save: Boolean) {
+        val changes = _saveChanges.value ?: return
+        val onDone = pendingFinish
+        _saveChanges.value = null
+        pendingFinish = null
+        viewModelScope.launch {
+            if (save) controller.saveWorkoutChanges(changes)
+            controller.stop()?.let { id -> onDone?.invoke(id) }
+        }
+    }
+
+    /** Back out of the question without finishing — the workout carries on. */
+    fun dismissSaveChanges() {
+        _saveChanges.value = null
+        pendingFinish = null
+    }
+
+    /** "Skip cool-down & finish" / "Finish now": the rest of the routine is recorded as skipped, then finish. */
+    fun skipPhaseAndFinish(phase: SlotPhase, onDone: (String) -> Unit) {
+        viewModelScope.launch {
+            controller.skipRestOfPhaseNow(phase)
+            finishOrAsk(onDone)
+        }
+    }
 
     /** Rate the effort of the set in progress, on the exercise screen — banked onto the set. */
     fun setCurrentEffort(scale: EffortScale?, value: Double?) = controller.setCurrentEffort(scale, value)
@@ -145,9 +216,6 @@ class ActiveSessionViewModel @Inject constructor(
     fun setVibration(on: Boolean) = viewModelScope.launch { sessionPrefs.setVibration(on) }
     fun setAutoplay(on: Boolean) = viewModelScope.launch { sessionPrefs.setAutoplay(on) }
 
-    fun finish(onDone: (String) -> Unit) {
-        viewModelScope.launch { controller.stop()?.let(onDone) }
-    }
 }
 
 /**

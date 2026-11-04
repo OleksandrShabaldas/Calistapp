@@ -80,7 +80,7 @@ class WatchConnectionMonitor @Inject constructor(
         started = true
 
         // Anything arriving from the watch proves the link is alive.
-        scope.launch { bus.hrSamples.collect { markHeard() } }
+        scope.launch { bus.hrBatches.collect { markHeard() } }
         scope.launch { bus.watchState.collect { if (it != null) markHeard() } }
         scope.launch {
             bus.commands.collect { payload ->

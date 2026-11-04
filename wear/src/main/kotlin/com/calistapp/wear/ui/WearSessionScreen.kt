@@ -43,6 +43,7 @@ import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
 import com.calistapp.core.model.ExerciseMeasure
 import com.calistapp.core.model.ExerciseType
+import com.calistapp.core.model.SlotPhase
 import com.calistapp.updater.UpdateState
 import com.calistapp.wear.session.WearSessionState
 import com.calistapp.wear.session.WearSessionViewModel
@@ -107,7 +108,7 @@ fun WearApp(viewModel: WearSessionViewModel) {
                     state = state,
                     onToggle = { viewModel.toggleSegment() },
                     onReps = { viewModel.adjustReps(it) },
-                    onNext = { viewModel.nextExercise() },
+                    onNext = { viewModel.skip() },
                     onStop = { viewModel.stop() },
                     onReconnect = { viewModel.reconnect() },
                 )
@@ -401,7 +402,10 @@ private fun RunningScreen(
             item {
                 Text(
                     buildString {
-                        if (state.plan.isCircuit) {
+                        val phase = state.plan.phaseOf(exercise)
+                        if (phase != SlotPhase.MAIN) {
+                            append("${phase.label} · ")
+                        } else if (state.plan.isCircuit) {
                             append("Round ${state.currentRound}/${state.plan.rounds} · ")
                         }
                         append("Set ${state.setIndex} of ${state.plan.targetSetsFor(exercise.slotId)}")
@@ -495,12 +499,14 @@ private fun RunningScreen(
             )
         }
 
-        state.nextExercise?.let { next ->
+        // Skip the set in focus — the one being worked, or the one coming up. The phone resolves it the
+        // same way, so the workout moves on rather than coming back to it.
+        state.focusExercise?.let { focus ->
             item {
                 Chip(
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text(next.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    secondaryLabel = { Text("Next · ${state.plan.targetLabelFor(next)}") },
+                    label = { Text("Skip ${focus.name}", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    secondaryLabel = { Text(if (state.isWorking) "This set" else "Up next") },
                     onClick = onNext,
                     colors = ChipDefaults.secondaryChipColors(),
                 )

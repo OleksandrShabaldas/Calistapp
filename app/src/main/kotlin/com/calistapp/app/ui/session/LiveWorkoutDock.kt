@@ -1,6 +1,7 @@
 package com.calistapp.app.ui.session
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.Spring
@@ -20,6 +21,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -43,6 +46,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
@@ -58,29 +63,54 @@ import com.calistapp.app.ui.theme.Flame
 import com.calistapp.app.ui.theme.FlameSoft
 import com.calistapp.app.ui.theme.NumericLarge
 import com.calistapp.app.ui.theme.OnyxRaised
+import com.calistapp.app.ui.theme.Sky
+import com.calistapp.core.model.SlotPhase
 import com.calistapp.core.model.formatKg
 import kotlinx.coroutines.launch
 
 /** State of one segment in the top progress bar. */
-enum class SegState { DONE, CURRENT, UPCOMING }
+enum class SegState { DONE, CURRENT, UPCOMING, SKIPPED }
+
+/** One dash of the progress bar: its state and the phase it belongs to. */
+data class SegItem(val state: SegState, val phase: SlotPhase = SlotPhase.MAIN)
 
 /** The story-style progress dashes: one per exercise in the current block/round. */
 @Composable
-fun SegmentBar(states: List<SegState>, modifier: Modifier = Modifier) {
-    if (states.isEmpty()) return
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-        states.forEach { s ->
-            val color = when (s) {
-                SegState.CURRENT -> Flame
-                SegState.DONE -> Flame.copy(alpha = 0.5f)
-                SegState.UPCOMING -> Chalk.copy(alpha = 0.16f)
-            }
+fun SegmentBar(items: List<SegItem>, modifier: Modifier = Modifier) {
+    if (items.isEmpty()) return
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        items.forEachIndexed { i, item ->
+            // Phases sit apart, so the warm-up, the workout and the cool-down read as three blocks.
+            if (i > 0) Spacer(Modifier.width(if (items[i - 1].phase != item.phase) 14.dp else 5.dp))
+            val accent = if (item.phase == SlotPhase.COOL_DOWN) Sky else Flame
+            val color by animateColorAsState(
+                when (item.state) {
+                    SegState.CURRENT -> accent
+                    SegState.DONE -> accent.copy(alpha = 0.5f)
+                    SegState.UPCOMING, SegState.SKIPPED -> Chalk.copy(alpha = 0.16f)
+                },
+                tween(450),
+                label = "segment",
+            )
             Box(
                 Modifier
                     .weight(1f)
                     .height(4.dp)
-                    .clip(Capsule)
-                    .background(color),
+                    .then(
+                        if (item.state == SegState.SKIPPED) {
+                            // A skipped set is a dotted dash — there, but not done.
+                            Modifier.drawBehind {
+                                val r = size.height / 2
+                                var x = r
+                                while (x < size.width) {
+                                    drawCircle(color.copy(alpha = 0.55f), r * 0.8f, Offset(x, r))
+                                    x += r * 3.2f
+                                }
+                            }
+                        } else {
+                            Modifier.clip(Capsule).background(color)
+                        },
+                    ),
             )
         }
     }

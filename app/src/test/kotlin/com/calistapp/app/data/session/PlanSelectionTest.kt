@@ -15,6 +15,7 @@ class PlanSelectionTest {
         val saved = SavedWorkoutRepository(object : WorkoutTemplateDao {
             override fun observeAll() = flowOf(emptyList<WorkoutTemplateEntity>())
             override suspend fun upsert(template: WorkoutTemplateEntity) = Unit
+            override suspend fun getById(id: String): WorkoutTemplateEntity? = null
             override suspend fun updateContent(id: String, name: String, planJson: String) = Unit
             override suspend fun markUsed(id: String, usedMs: Long) = Unit
             override suspend fun delete(id: String) = Unit

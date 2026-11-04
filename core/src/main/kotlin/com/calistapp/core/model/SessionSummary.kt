@@ -95,10 +95,19 @@ data class SessionSummary(
     val totalReps: Int = 0,
     /** Null when no rest block was long enough to measure one. Absent from older stored summaries. */
     val hrRecovery: HrRecovery? = null,
-    /** Opening preparation, separate from between-set recovery; absent in older stored summaries. */
+    /**
+     * Everything before the first working set: the opening preparation, a guided warm-up and the hand-off
+     * into the workout. Separate from between-set recovery; absent in older stored summaries.
+     */
     val warmupDurationMs: Long = 0,
+    /** A guided cool-down: from the last working set to the end. Absent in older stored summaries. */
+    val coolDownDurationMs: Long = 0,
 ) {
-    val totalDurationMs: Long get() = activeDurationMs + restDurationMs + warmupDurationMs
+    /**
+     * The whole session on the clock. [activeDurationMs] and [restDurationMs] are the workout proper —
+     * the working sets and the rest between them — so the warm-up and cool-down are never "work".
+     */
+    val totalDurationMs: Long get() = activeDurationMs + restDurationMs + warmupDurationMs + coolDownDurationMs
 
     /** Fraction of the session actually spent working (0..1). */
     val activeRatio: Double

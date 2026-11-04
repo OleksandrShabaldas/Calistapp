@@ -4,6 +4,7 @@ import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.HeartRateSample
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionStatus
+import com.calistapp.core.model.SkipReason
 import com.calistapp.core.model.WorkoutPlan
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -100,6 +101,23 @@ enum class ControlCommand {
     HELLO,
 
     /**
+     * Either direction: the set at [ControlPayload.slotId] / [ControlPayload.setIndex] was skipped (or,
+     * with [ControlPayload.skipReason] REMOVED, the exercise dropped from today). The phone resolves it
+     * and answers with a [SYNC_PLAN] carrying its progress, which the watch adopts.
+     */
+    SKIP_SET,
+
+    /** Watch → phone: the watch's "do it later" for the slot in [ControlPayload.slotId]. */
+    DEFER,
+
+    /**
+     * Phone → watch: "send me every reading after [ControlPayload.sinceMs] for this session again." Sent
+     * when the phone notices a gap in the heart-rate stream, and once more at the end of a workout, so a
+     * reading lost in transit is backfilled instead of leaving a straight line in the chart.
+     */
+    REQUEST_HR,
+
+    /**
      * Phone → watch: "go and check for a new version of yourself."
      *
      * A phone app cannot install a package onto a watch — Play Services carries messages, not APKs
@@ -126,4 +144,20 @@ data class ControlPayload(
     val reps: Int = 0,
     val seconds: Int = 0,
     val setIndex: Int = 0,
+    /** SKIP_SET: a single skipped set, or the whole exercise removed from today. */
+    val skipReason: SkipReason? = null,
+    /**
+     * SYNC_PLAN: the sender's progress — sets resolved per slot (performed + skipped) and the slots put
+     * off with "do it later". When present the receiver adopts it along with [slotId] / [setIndex], so
+     * a skip or an edit made on one device can't leave the other a set out of step.
+     */
+    val completed: Map<String, Int>? = null,
+    val deferred: List<String>? = null,
+    /**
+     * SYNC_PLAN with progress: the block the sender is now in. A skipped set ends its work block without
+     * banking it, so the receiver switches block type here rather than through SET_REST (which banks).
+     */
+    val segment: SegmentType? = null,
+    /** REQUEST_HR: resend every reading timestamped after this. */
+    val sinceMs: Long? = null,
 )

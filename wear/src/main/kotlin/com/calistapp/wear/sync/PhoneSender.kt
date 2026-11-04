@@ -45,16 +45,23 @@ class PhoneSender(context: Context) {
     /** Drop the cached node list so the next send re-resolves — used by manual reconnect. */
     suspend fun invalidateNow() = invalidate()
 
-    /** Fire a message at every connected node. Failures drop the cache so the next send re-resolves. */
-    suspend fun send(path: String, bytes: ByteArray) {
+    /**
+     * Fire a message at every connected node. Failures drop the cache so the next send re-resolves.
+     * Returns whether it reached a phone — heart rate keeps what didn't and sends it again, rather
+     * than losing it the way a failed send used to.
+     */
+    suspend fun send(path: String, bytes: ByteArray): Boolean {
         val ids = nodeIds()
-        if (ids.isEmpty()) return
+        if (ids.isEmpty()) return false
         var anyFailed = false
+        var anyDelivered = false
         ids.forEach { id ->
             runCatching { messageClient.sendMessage(id, path, bytes).await() }
+                .onSuccess { anyDelivered = true }
                 .onFailure { anyFailed = true }
         }
         if (anyFailed) invalidate()
+        return anyDelivered
     }
 
     private companion object {

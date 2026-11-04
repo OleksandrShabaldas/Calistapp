@@ -263,7 +263,7 @@ class LiveCalorieAccumulator(
         val blockKcal = reconcileActive(nowMs)
         finalizedActiveKcal += blockKcal
         finalizedActiveMs += currentMs
-        finalizedReps += currentReps
+        finalizedReps += countedReps
 
         val name = currentExerciseName ?: return
         val key = currentSlotId ?: name
@@ -272,11 +272,14 @@ class LiveCalorieAccumulator(
             slotId = currentSlotId,
             exerciseName = name,
             kcal = (prev?.kcal ?: 0.0) + blockKcal,
-            reps = (prev?.reps ?: 0) + currentReps,
+            reps = (prev?.reps ?: 0) + countedReps,
             sets = (prev?.sets ?: 0) + 1,
             activeDurationMs = (prev?.activeDurationMs ?: 0L) + currentMs,
         )
     }
+
+    /** The open block's count as reps for the totals — a timed hold logs seconds, not reps. */
+    private val countedReps: Int get() = if (currentMetabolics?.isometric == true) 0 else currentReps
 
     /** Apply the exercise correction and the reps-derived mechanical floor to the open block. */
     private fun reconcileActive(nowMs: Long): Double {
@@ -310,7 +313,7 @@ class LiveCalorieAccumulator(
                 slotId = currentSlotId,
                 exerciseName = name,
                 kcal = (prev?.kcal ?: 0.0) + openKcal,
-                reps = (prev?.reps ?: 0) + currentReps,
+                reps = (prev?.reps ?: 0) + countedReps,
                 sets = (prev?.sets ?: 0) + 1,
                 activeDurationMs = (prev?.activeDurationMs ?: 0L) + currentMs,
             )
@@ -328,7 +331,7 @@ class LiveCalorieAccumulator(
             minHr = if (minHr == Int.MAX_VALUE) 0 else minHr,
             timeInZonesMs = LinkedHashMap(zoneMs),
             perExercise = live.values.sortedByDescending { it.kcal },
-            totalReps = finalizedReps + if (openIsRest) 0 else currentReps,
+            totalReps = finalizedReps + if (openIsRest) 0 else countedReps,
         )
     }
 }

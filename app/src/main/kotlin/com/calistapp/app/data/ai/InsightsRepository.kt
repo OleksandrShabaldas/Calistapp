@@ -4,14 +4,19 @@ import com.calistapp.core.model.ExerciseMeasure
 import com.calistapp.core.model.HrZone
 import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.SessionSummary
+import com.calistapp.core.model.SkipReason
+import com.calistapp.core.model.SlotPhase
 import com.calistapp.core.model.UserProfile
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.WorkoutSession
 import com.calistapp.core.model.formatKg
 import com.calistapp.core.model.isUnilateral
+import com.calistapp.core.model.repsIn
 import com.calistapp.core.model.withSessionTiming
+import com.calistapp.core.model.workingKcal
 import com.calistapp.core.progress.ExerciseProgress
 import com.calistapp.core.progress.PerformedSession
+import com.calistapp.core.progress.phaseSummary
 import com.calistapp.core.progress.summarizeProgress
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -55,7 +60,7 @@ internal fun buildCoachPrompt(
     history: List<PerformedSession>,
     now: Long,
 ): String = buildString {
-        val s = summary.withSessionTiming(session.segments, session.endMs)
+        val s = summary.withSessionTiming(session.segments, session.endMs, session.plan)
         val progress = summarizeProgress(history, now, profile = p)
         val recent = history.asSequence()
             .filter { it.id != session.id }
@@ -85,9 +90,10 @@ internal fun buildCoachPrompt(
         appendLine()
 
         appendLine("LATEST SESSION — ${session.exerciseType.displayName}, ${dateTimeOf(session.startMs)}")
-        appendLine("- Total time ${fmt(s.totalDurationMs)} (warmup ${fmt(s.warmupDurationMs)}, active ${fmt(s.activeDurationMs)}, rest ${fmt(s.restDurationMs)}); ${(s.activeRatio * 100).toInt()}% working")
-        appendLine("- Opening warmup is preparation before the first set, not between-set rest. Do not include it when assessing rest length or training density.")
-        appendLine("- Calories ${s.totalKcal.toInt()} kcal (${s.activeKcal.toInt()} active, ${s.restKcal.toInt()} warmup + recovery; both use the conservative non-working estimate)")
+        appendLine("- Total time ${fmt(s.totalDurationMs)} (warm-up ${fmt(s.warmupDurationMs)}, working sets ${fmt(s.activeDurationMs)}, between-set rest ${fmt(s.restDurationMs)}" + (if (s.coolDownDurationMs > 0) ", cool-down ${fmt(s.coolDownDurationMs)}" else "") + "); ${(s.activeRatio * 100).toInt()}% working")
+        appendLine("- Warm-up (preparation and any guided warm-up before the first set) and cool-down are neither work nor between-set rest. Do not include them when assessing rest length or training density.")
+        val workKcal = s.workingKcal(session.plan)
+        appendLine("- Calories ${s.totalKcal.toInt()} kcal (${workKcal.toInt()} in the working sets, ${(s.totalKcal - workKcal).toInt()} across warm-up, cool-down and between-set recovery; non-working time uses the conservative estimate)")
         appendLine("- Heart rate: avg ${s.avgHr}, active-avg ${s.avgActiveHr}, peak ${s.peakHr}, min ${s.minHr} bpm")
         val zones = HrZone.entries.filter { (s.timeInZonesMs[it] ?: 0L) > 0 }
         if (zones.isNotEmpty()) {
@@ -95,12 +101,15 @@ internal fun buildCoachPrompt(
         }
         s.hrRecovery?.let { appendLine("- Heart-rate recovery: ${it.meanDropBpm} bpm/min (best ${it.bestDropBpm}, across ${it.measuredRests} rests)") }
         session.rpe?.let { appendLine("- Rated perceived exertion: $it/10 (Borg CR10)") }
-        if (s.perExercise.isNotEmpty()) {
-            appendLine("- Total reps ${s.totalReps}. Per exercise:")
-            s.perExercise.forEach { e ->
+        // The workout proper only — the warm-up and cool-down are described as their own blocks below,
+        // never as exercises (their holds used to be listed here with seconds counted as reps).
+        val perExercise = s.perExercise.filter { session.plan.phaseOf(it.slotId) == SlotPhase.MAIN }
+        if (perExercise.isNotEmpty()) {
+            appendLine("- Total reps ${session.plan.repsIn(session.setLogs)}. Per exercise:")
+            perExercise.forEach { e ->
                 appendLine("    ${e.exerciseName}: ${e.sets} sets, ${e.reps} reps${perSide(e.exerciseName, e.reps)}, ${e.kcal.toInt()} kcal, ${fmt(e.activeDurationMs)} under load")
             }
-            if (s.perExercise.any { isUnilateral(it.exerciseName) }) {
+            if (perExercise.any { isUnilateral(it.exerciseName) }) {
                 appendLine(
                     "- Movements marked PER-SIDE are worked one side at a time, and their reps (planned " +
                         "and performed) are the TOTAL across both sides — \"40 reps\" means 20 per leg/arm. " +
@@ -111,10 +120,11 @@ internal fun buildCoachPrompt(
         }
         if (!session.plan.isEmpty) {
             val plan = session.plan
+            val main = plan.slotsIn(SlotPhase.MAIN)
             appendLine(
                 if (plan.isCircuit) {
                     "- Format: CIRCUIT — ${plan.rounds} ${if (plan.rounds == 1) "round" else "rounds"} " +
-                        "through ${plan.exercises.size} exercises, one set of each per round. So the " +
+                        "through ${main.size} exercises, one set of each per round. So the " +
                         "planned sets per exercise IS the round count (${plan.rounds}); there is no " +
                         "separate per-exercise sets target to fall short of."
                 } else {
@@ -122,11 +132,26 @@ internal fun buildCoachPrompt(
                 },
             )
             appendLine("- Planned vs performed:")
-            plan.exercises.forEach { slot ->
+            main.forEach { slot ->
                 val done = session.setLogs.filter { it.slotId == slot.slotId }
                 val reps = done.sumOf { it.reps }
-                appendLine("    ${slot.name}: planned ${plannedLabel(plan, slot)}${if (isUnilateral(slot.name)) " (PER-SIDE, total of both sides)" else ""}, performed ${done.size} sets ($reps reps${perSide(slot.name, reps)})")
+                val skipped = session.skips.filter { it.slotId == slot.slotId }
+                val skipNote = when {
+                    skipped.any { it.reason == SkipReason.REMOVED } -> " — the athlete REMOVED it from this session"
+                    skipped.isNotEmpty() -> " — ${skipped.size} ${if (skipped.size == 1) "set" else "sets"} deliberately SKIPPED by the athlete"
+                    else -> ""
+                }
+                val unit = if (slot.measure == ExerciseMeasure.SECONDS) "s held" else " reps"
+                appendLine("    ${slot.name}: planned ${plannedLabel(plan, slot)}${if (isUnilateral(slot.name)) " (PER-SIDE, total of both sides)" else ""}, performed ${done.size} sets ($reps$unit${perSide(slot.name, reps)})$skipNote")
             }
+            if (session.skips.any { s -> main.any { it.slotId == s.slotId } }) {
+                appendLine(
+                    "- Skipped or removed sets were the athlete's choice mid-session, not failed sets: don't " +
+                        "read them as missed reps, but you may comment on the pattern if it recurs.",
+                )
+            }
+            phaseLine(session, SlotPhase.WARM_UP)?.let(::appendLine)
+            phaseLine(session, SlotPhase.COOL_DOWN)?.let(::appendLine)
         }
         if (session.notes.isNotBlank()) appendLine("- Athlete's note: ${session.notes}")
         appendLine()
@@ -136,7 +161,7 @@ internal fun buildCoachPrompt(
             recent.forEach { r ->
                 val vol = volumeOf(r)
                 appendLine(
-                    "- ${dateOf(r.startMs)}: ${fmt(r.totalDurationMs)}, ${r.setLogs.sumOf { it.reps }} reps" +
+                    "- ${dateOf(r.startMs)}: ${fmt(r.totalDurationMs)}, ${r.plan.repsIn(r.setLogs)} reps" +
                         (if (vol > 0) ", ${formatKg(vol)} kg volume" else "") +
                         ", avg HR ${r.avgHr}" +
                         (r.rpe?.let { ", RPE $it" } ?: "") +
@@ -223,7 +248,28 @@ internal fun buildCoachPrompt(
         if (reps > 0 && isUnilateral(name)) " — PER-SIDE: total of both sides, ≈${(reps + 1) / 2} per side" else ""
 
     private fun volumeOf(session: PerformedSession): Double =
-        session.setLogs.sumOf { log -> (session.plan.slot(log.slotId)?.addedWeightKg ?: 0.0) * log.reps }
+        session.setLogs
+            .filter { session.plan.countsReps(it.slotId) }
+            .sumOf { log -> (session.plan.slot(log.slotId)?.addedWeightKg ?: 0.0) * log.reps }
+
+    /**
+     * The warm-up or cool-down as one line for the coach: what it was, how much of it was done, and —
+     * for a cool-down — how far heart rate settled across it. Null when the session had none.
+     */
+    private fun phaseLine(session: WorkoutSession, phase: SlotPhase): String? {
+        val p = session.phaseSummary(phase) ?: return null
+        val word = if (phase == SlotPhase.COOL_DOWN) "stretches" else "moves"
+        val name = p.routineName?.let { " \"$it\"" }.orEmpty()
+        if (p.done == 0) return "- ${phase.label.uppercase()}$name (${p.moves} $word): skipped entirely."
+        val hr = when {
+            phase == SlotPhase.COOL_DOWN && p.startHr != null && p.endHr != null ->
+                "; heart rate went from ${p.startHr} to ${p.endHr} bpm across it"
+            p.avgHr != null -> "; average heart rate ${p.avgHr} bpm"
+            else -> ""
+        }
+        return "- ${phase.label.uppercase()}$name: ${p.done} of ${p.moves} $word held for ${fmt(p.heldMs)} total$hr. " +
+            "A separate phase — light mobility, not training: never count it as exercises, sets, reps or volume."
+    }
 
     private fun fmt(ms: Long): String {
         val totalSec = TimeUnit.MILLISECONDS.toSeconds(ms)

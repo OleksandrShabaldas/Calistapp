@@ -452,15 +452,20 @@ fun RecommendationsRow(
     onTap: (GaugeKind) -> Unit,
     onEnableLocation: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Today's workout is done — the only thing the readiness gauge's check means. */
+    trainedToday: Boolean = false,
 ) {
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
         val r = state.readiness
-        if (state.readinessLoading || r == null) {
+        if (trainedToday) {
+            // Done for today: the glass lens with a raised check, whatever readiness said this morning.
+            GlassReadinessGauge(score = r?.score, done = true, onClick = { onTap(GaugeKind.READINESS) })
+        } else if (state.readinessLoading || r == null) {
             GaugePlaceholder()
         } else if (shortReadiness(r.score) == "Train") {
-            // A clear "yes, train today": a filled ring with just a glowing check, per the ask — the
-            // score still lives in the detail popup a tap away.
-            ReadyCheckGauge(onClick = { onTap(GaugeKind.READINESS) })
+            // Ready, not trained yet: the score in the glass lens. No check — a check here used to read
+            // as "workout done" on days you hadn't trained.
+            GlassReadinessGauge(score = r.score, done = false, onClick = { onTap(GaugeKind.READINESS) })
         } else {
             RecGauge(
                 progress = r.score / 100f,
@@ -509,95 +514,6 @@ fun RecGauge(
 private fun GaugePlaceholder() {
     ProgressRing(progress = 0f, accent = AshFaint, diameter = 118.dp, strokeWidth = 9.dp) {
         Text("Loading…", style = MaterialTheme.typography.labelMedium, color = Ash, textAlign = TextAlign.Center)
-    }
-}
-
-/**
- * The readiness gauge when the answer is simply "train": the full ring holding a frosted-glass disc
- * with the check *cut out of it* — a hole you see the backdrop (and the disc's warm glow) through,
- * not a glyph painted on top. The small "Ready" under it is there on purpose: a bare check on the
- * home screen read as "today's workout is done" on a rest day, which is the opposite of what it says.
- */
-@Composable
-private fun ReadyCheckGauge(onClick: () -> Unit) {
-    // The check draws itself on as the gauge settles, so the verdict lands rather than snapping in.
-    val drawn = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        delay(260)
-        drawn.animateTo(1f, tween(560, easing = FastOutSlowInEasing))
-    }
-    ProgressRing(
-        progress = 1f,
-        accent = FlameHot,
-        modifier = Modifier.clip(CircleShape).clickable(onClick = onClick),
-        diameter = 118.dp,
-        strokeWidth = 9.dp,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            FrostedCheckDisc(progress = drawn.value, modifier = Modifier.size(58.dp))
-            Spacer(Modifier.height(5.dp))
-            Text("Ready", style = MaterialTheme.typography.labelMedium, color = FlameHot, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-/**
- * A translucent, softly-lit glass disc with a rounded check knocked out of it. Drawn in its own
- * offscreen layer so [BlendMode.Clear] punches a true hole through the disc (and only the disc).
- * [progress] trims the check from its short stroke to its tip, for the draw-on entrance.
- */
-@Composable
-private fun FrostedCheckDisc(progress: Float, modifier: Modifier = Modifier) {
-    // The halo starts at the disc's edge rather than its centre. A centred glow (Modifier.glow) sat
-    // *under* the disc, so the cut-out showed orange haze instead of backdrop and the check went muddy
-    // (checked on a headless-rendered replica before shipping). Drawn outside the offscreen layer, so
-    // the knockout never clears it.
-    val halo = Modifier.drawBehind {
-        val r = size.minDimension / 2f
-        val outer = r + 16.dp.toPx()
-        val edge = r / outer
-        drawCircle(
-            Brush.radialGradient(
-                0f to Color.Transparent,
-                edge to Color.Transparent,
-                (edge + 0.005f) to FlameHot.copy(alpha = 0.34f),
-                1f to Color.Transparent,
-                center = center,
-                radius = outer,
-            ),
-            radius = outer,
-        )
-    }
-    Canvas(modifier.then(halo).graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)) {
-        val r = size.minDimension / 2f
-        // Frosted body: brighter where light catches the upper-left, falling off toward the bottom.
-        drawCircle(
-            Brush.linearGradient(
-                listOf(Color.White.copy(alpha = 0.58f), Color.White.copy(alpha = 0.30f)),
-                start = Offset.Zero,
-                end = Offset(size.width, size.height),
-            ),
-            radius = r,
-        )
-        // A hairline rim, like the edge of a glass lens.
-        drawCircle(Color.White.copy(alpha = 0.26f), radius = r - 0.5.dp.toPx(), style = Stroke(1.dp.toPx()))
-        if (progress <= 0f) return@Canvas
-        val w = size.width
-        val h = size.height
-        val check = Path().apply {
-            moveTo(w * 0.30f, h * 0.53f)
-            lineTo(w * 0.45f, h * 0.67f)
-            lineTo(w * 0.71f, h * 0.36f)
-        }
-        val measure = PathMeasure().apply { setPath(check, false) }
-        val partial = Path()
-        measure.getSegment(0f, measure.length * progress.coerceIn(0f, 1f), partial, true)
-        drawPath(
-            partial,
-            color = Color.Black,
-            style = Stroke(width = w * 0.13f, cap = StrokeCap.Round, join = StrokeJoin.Round),
-            blendMode = BlendMode.Clear,
-        )
     }
 }
 

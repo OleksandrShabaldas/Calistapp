@@ -12,12 +12,14 @@ import com.calistapp.core.calorie.CalorieEngine
 import com.calistapp.core.model.Segment
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SetLog
+import com.calistapp.core.model.SlotPhase
 import com.calistapp.core.model.UserProfile
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.WorkoutSession
 import com.calistapp.core.progress.ExerciseProgress
 import com.calistapp.core.progress.ExerciseSessionEntry
 import com.calistapp.core.progress.PerformedSession
+import com.calistapp.core.progress.PhaseSummary
 import com.calistapp.core.progress.PersonalRecord
 import com.calistapp.core.progress.ProgressPoint
 import com.calistapp.core.progress.RecordKind
@@ -27,6 +29,7 @@ import com.calistapp.core.progress.exerciseHistory
 import com.calistapp.core.progress.exerciseProgressFor
 import com.calistapp.core.progress.lastSessionDeltas
 import com.calistapp.core.progress.personalRecords
+import com.calistapp.core.progress.phaseSummary
 import com.calistapp.core.progress.sessionTimeline
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -145,9 +148,21 @@ class SessionDetailViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** The session's exercises in the order performed, with rest-between and per-exercise timing. */
+    /**
+     * The session's exercises in the order performed, with rest-between and per-exercise timing. The
+     * workout proper only: the warm-up and cool-down are their own blocks ([phases]), not exercises.
+     */
     val timeline: StateFlow<List<TimelineExercise>> = session
-        .map { s -> s?.summary?.let { sessionTimeline(s.segments, it.perExercise) } ?: emptyList() }
+        .map { s ->
+            s?.summary?.let { summary ->
+                sessionTimeline(s.segments.filter { s.plan.phaseOf(it.slotId) == SlotPhase.MAIN }, summary.perExercise)
+            } ?: emptyList()
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The warm-up and cool-down this session had, each as one block. */
+    val phases: StateFlow<List<PhaseSummary>> = session
+        .map { s -> s?.let { listOfNotNull(it.phaseSummary(SlotPhase.WARM_UP), it.phaseSummary(SlotPhase.COOL_DOWN)) }.orEmpty() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Max HR the zone colouring on the HR graph is scaled against. */
@@ -219,6 +234,7 @@ class SessionDetailViewModel @Inject constructor(
                 segments = segments,
                 profile = profile.value,
                 endMs = session.endMs,
+                plan = session.plan,
             )
             sessionRepository.saveSession(
                 session.copy(

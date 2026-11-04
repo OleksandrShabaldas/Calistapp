@@ -38,6 +38,7 @@ import com.calistapp.app.ui.common.HeartRateChart
 import com.calistapp.app.ui.common.formatCompact
 import com.calistapp.app.ui.common.hrZoneColor
 import com.calistapp.app.ui.dashboard.CardBorder
+import com.calistapp.app.ui.common.formatClock
 import com.calistapp.app.ui.theme.Amber
 import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.Chalk
@@ -51,7 +52,9 @@ import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.Segment
 import com.calistapp.core.model.SessionSummary
 import com.calistapp.core.model.WorkoutPlan
+import com.calistapp.core.progress.PhaseSummary
 import com.calistapp.core.progress.TimelineExercise
+import com.calistapp.core.model.SlotPhase
 
 // ---------- Heart rate ----------
 
@@ -345,5 +348,60 @@ internal fun NotesSection(saved: String, onChange: (String) -> Unit) {
             )
         }
         Text("Saved as you type · read by your AI coach.", style = MaterialTheme.typography.labelSmall, color = Ash)
+    }
+}
+
+// ---------- Warm-up / cool-down ----------
+
+/**
+ * A warm-up or cool-down on the summary: one block in its phase's colour, never mixed in with the
+ * exercises. A cool-down shows how far heart rate settled across it — the one number a stretch adds.
+ */
+@Composable
+internal fun PhaseBlock(p: PhaseSummary, modifier: Modifier = Modifier) {
+    val cool = p.phase == SlotPhase.COOL_DOWN
+    val accent = if (cool) Sky else Flame
+    val shape = RoundedCornerShape(18.dp)
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(accent.copy(alpha = 0.06f))
+            .border(1.dp, accent.copy(alpha = 0.22f), shape)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Eyebrow(p.phase.label, color = accent)
+            Text(
+                p.routineName ?: p.phase.label,
+                style = MaterialTheme.typography.titleSmall,
+                color = Chalk,
+                fontWeight = FontWeight.Bold,
+            )
+            val word = if (cool) "stretches" else "moves"
+            Text(
+                when {
+                    p.done == 0 -> "skipped"
+                    p.skipped > 0 -> "${p.done} of ${p.moves} $word · ${formatClock(p.heldMs)} held"
+                    else -> "${p.moves} $word · ${formatClock(p.heldMs)} held"
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = Ash,
+            )
+        }
+        val start = p.startHr
+        val end = p.endHr
+        if (cool && start != null && end != null && p.done > 0) {
+            Column(horizontalAlignment = Alignment.End) {
+                Text("$start → $end", style = MaterialTheme.typography.titleSmall, color = Chalk, fontWeight = FontWeight.Bold)
+                Text("bpm settled", style = MaterialTheme.typography.labelSmall, color = Ash)
+            }
+        } else if (p.avgHr != null && p.done > 0) {
+            Column(horizontalAlignment = Alignment.End) {
+                Text("${p.avgHr}", style = MaterialTheme.typography.titleSmall, color = Chalk, fontWeight = FontWeight.Bold)
+                Text("avg bpm", style = MaterialTheme.typography.labelSmall, color = Ash)
+            }
+        }
     }
 }

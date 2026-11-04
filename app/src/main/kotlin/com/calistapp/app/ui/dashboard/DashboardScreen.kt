@@ -202,6 +202,7 @@ fun DashboardScreen(
             Entrance(slot++) {
                 RecommendationsRow(
                     state = recommendations,
+                    trainedToday = todaysSessions.isNotEmpty(),
                     onTap = { expandedGauge = it },
                     onEnableLocation = {
                         locationLauncher.launch(

@@ -27,7 +27,7 @@ class CoachPromptTest {
         )
         val oldSummary = SessionSummary.EMPTY.copy(activeDurationMs = 60_000, restDurationMs = 240_000)
         val prompt = buildCoachPrompt(session, oldSummary, UserProfile(), emptyList(), 300_000)
-        assertTrue(prompt.contains("warmup 3m 0s, active 1m 0s, rest 1m 0s"))
+        assertTrue(prompt.contains("warm-up 3m 0s, working sets 1m 0s, between-set rest 1m 0s)"))
         assertFalse(prompt.contains("rest 4m 0s"))
     }
 

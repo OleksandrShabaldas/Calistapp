@@ -1,16 +1,18 @@
 package com.calistapp.wear.session
 
 import android.content.Context
-import com.calistapp.core.calorie.ExerciseIntensity
 import com.calistapp.core.calorie.LiveCalorieAccumulator
 import com.calistapp.core.model.ExerciseMeasure
 import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.HeartRateSample
+import com.calistapp.core.model.NextUp
 import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionStatus
 import com.calistapp.core.model.SessionSummary
+import com.calistapp.core.model.SkipReason
 import com.calistapp.core.model.WorkoutPlan
+import com.calistapp.core.model.mergeReadings
 import com.calistapp.core.sync.ControlCommand
 import com.calistapp.core.sync.ControlPayload
 import com.calistapp.core.sync.DeviceOrigin
@@ -18,8 +20,8 @@ import com.calistapp.core.sync.HrBatchPayload
 import com.calistapp.core.sync.SessionStatePayload
 import com.calistapp.core.sync.WearJson
 import com.calistapp.core.sync.WearSync
-import com.calistapp.wear.hr.HealthServicesHeartRateSource
 import com.calistapp.wear.hr.HeartRateSource
+import com.calistapp.wear.hr.ResilientHeartRateSource
 import com.calistapp.wear.sync.PhoneSender
 import com.calistapp.wear.sync.WearProfileHolder
 import kotlinx.coroutines.CoroutineScope
@@ -48,8 +50,10 @@ data class WearSessionState(
     val currentReps: Int = 0,
     /** Which set of the current exercise this is, 1-based. */
     val setIndex: Int = 1,
-    /** Sets already completed, per slot. */
+    /** Sets resolved per slot — performed or skipped, the same count the phone keeps. */
     val completedSets: Map<String, Int> = emptyMap(),
+    /** Slots put off with "do it later" on the phone. */
+    val deferred: Set<String> = emptySet(),
     val lastBpm: Int = 0,
     val startMs: Long = 0,
     val elapsedMs: Long = 0,
@@ -62,9 +66,17 @@ data class WearSessionState(
     val countdownSeconds: Int? = null,
 ) {
     val currentExercise: PlannedExercise? get() = plan.slot(currentSlotId)
-    val nextExercise: PlannedExercise? get() = plan.next(currentSlotId)
     val isWorking: Boolean get() = currentSegment == SegmentType.ACTIVE
     val currentRound: Int get() = plan.roundOf(completedSets)
+
+    /** What the next work block runs — the same rule the phone's live screen asks. */
+    val upNext: NextUp?
+        get() = if (isWorking) plan.nextUp(currentSlotId, completedSets, deferred) else plan.upcoming(currentSlotId, completedSets, deferred)
+
+    /** The set a skip acts on: the one being worked, or the one coming up while resting. */
+    val focus: NextUp? get() = if (isWorking) currentSlotId?.let { NextUp(it, setIndex) } else upNext
+
+    val focusExercise: PlannedExercise? get() = plan.slot(focus?.slotId)
 }
 
 /**
@@ -77,6 +89,11 @@ data class WearSessionState(
  *
  * All state mutation is confined to [scope], a single-threaded dispatcher, so the HR stream, the
  * tick loop, the UI and the inbound-message service can all poke at it without locks.
+ *
+ * **Heart rate is never dropped.** Every reading of the session is kept ([sessionLog]); the ones not
+ * yet delivered wait in [pendingSamples] and go again on the next tick when a send fails (a failed
+ * send used to lose them). The phone asks for a resend when it sees a gap, and once more after the
+ * workout, so whatever the link lost is backfilled from here.
  */
 object WearSessionManager {
 
@@ -96,13 +113,22 @@ object WearSessionManager {
     private var tickJob: Job? = null
     private var countdownJob: Job? = null
 
-    /** Samples captured but not yet shipped to the phone — batched to cut Data Layer chatter. */
+    /** Every reading of the session in progress, in measurement order — the source for any resend. */
+    private val sessionLog = mutableListOf<HeartRateSample>()
+
+    /** Readings captured but not yet delivered to the phone. */
     private val pendingSamples = mutableListOf<HeartRateSample>()
     private var lastHrFlushMs = 0L
+    private var lastFailedSendMs = 0L
     private var lastStateSendMs = 0L
 
+    /** The last finished session's readings, kept a while so the phone's end-of-workout resend can be answered. */
+    private var lastEndedId: String? = null
+    private var lastEndedLog: List<HeartRateSample> = emptyList()
+    private var lastEndedAtMs = 0L
+
     /** Swappable so tests (and a future replay mode) can drive the manager without hardware. */
-    var heartRateSourceFactory: (Context) -> HeartRateSource = { HealthServicesHeartRateSource(it) }
+    var heartRateSourceFactory: (Context) -> HeartRateSource = { ResilientHeartRateSource(it) }
 
     fun attach(context: Context) {
         if (appContext != null) return
@@ -182,8 +208,36 @@ object WearSessionManager {
 
     fun selectSlotLocal(slotId: String) = scope.launch { selectSlot(slotId, broadcast = true) }
 
-    fun advanceToNextLocal() = scope.launch {
-        _state.value.nextExercise?.let { selectSlot(it.slotId, broadcast = true) }
+    /**
+     * Skip the set in focus — what the watch's skip chip does. Resolved here at once so the watch moves
+     * on; the phone applies the same skip and sends back its progress, which this then adopts. Nothing
+     * is banked for a set that was open.
+     */
+    fun skipLocal() = scope.launch {
+        val cur = _state.value
+        if (!cur.running) return@launch
+        val focus = cur.focus ?: return@launch
+        val now = System.currentTimeMillis()
+        cancelCountdown()
+        if (cur.isWorking) accumulator?.startSegment(SegmentType.REST, now)
+        _state.update {
+            it.copy(
+                currentSegment = SegmentType.REST,
+                completedSets = it.completedSets + (focus.slotId to (it.completedSets[focus.slotId] ?: 0) + 1),
+                deferred = it.deferred - focus.slotId,
+                currentReps = 0,
+            )
+        }
+        applyCurrentExerciseToAccumulator()
+        send(
+            ControlPayload(
+                ControlCommand.SKIP_SET, now, DeviceOrigin.WATCH,
+                sessionId = cur.sessionId, slotId = focus.slotId, setIndex = focus.setIndex,
+                skipReason = SkipReason.SKIPPED,
+            ),
+        )
+        publish()
+        sendState(force = true)
     }
 
     /** Bump the rep counter for the block in progress. Synced to the phone when the set closes. */
@@ -212,10 +266,14 @@ object WearSessionManager {
                 broadcast = false,
             )
             ControlCommand.STOP -> endSession(broadcast = false)
-            // The phone already ran its own lead-in before sending these, so they apply at once.
+            // The phone already ran its own lead-in before sending these, so they apply at once. It
+            // names the set it started; following it keeps the two from picking different exercises.
             ControlCommand.SET_ACTIVE -> {
                 cancelCountdown()
-                changeSegment(SegmentType.ACTIVE, broadcast = false)
+                val target = payload.slotId?.takeIf { _state.value.plan.slot(it) != null }?.let { slot ->
+                    NextUp(slot, payload.setIndex.takeIf { it > 0 } ?: ((_state.value.completedSets[slot] ?: 0) + 1))
+                }
+                changeSegment(SegmentType.ACTIVE, broadcast = false, target = target)
             }
             ControlCommand.SET_REST -> {
                 cancelCountdown()
@@ -227,16 +285,46 @@ object WearSessionManager {
                 _state.update { it.copy(currentReps = payload.reps) }
                 publish()
             }
-            ControlCommand.SYNC_PLAN -> payload.plan?.let { plan ->
-                _state.update { it.copy(plan = plan, currentSlotId = it.currentSlotId ?: plan.exercises.firstOrNull()?.slotId) }
-                applyCurrentExerciseToAccumulator()
-                publish()
-            }
+            ControlCommand.SYNC_PLAN -> payload.plan?.let { plan -> adoptPlan(plan, payload) }
+            // The phone answers its own skips with SYNC_PLAN progress; it doesn't forward these.
+            ControlCommand.SKIP_SET, ControlCommand.DEFER -> Unit
+            ControlCommand.REQUEST_HR -> resend(payload.sessionId, payload.sinceMs ?: 0L)
             ControlCommand.PAUSE -> _state.update { it.copy(status = SessionStatus.PAUSED) }
             ControlCommand.RESUME -> _state.update { it.copy(status = SessionStatus.ACTIVE) }
             // Handled by WearListenerService before it reaches the session — see there.
             ControlCommand.CHECK_UPDATE -> Unit
         }
+    }
+
+    /**
+     * A plan revision from the phone. With progress attached (after a skip, a deferral or an edit to
+     * today's session) the watch takes the phone's whole picture — resolved sets, deferrals, where it
+     * is and which block it's in — so the two can't drift a set apart.
+     */
+    private fun adoptPlan(plan: WorkoutPlan, payload: ControlPayload) {
+        val completed = payload.completed
+        if (completed == null) {
+            _state.update { it.copy(plan = plan, currentSlotId = it.currentSlotId ?: plan.exercises.firstOrNull()?.slotId) }
+        } else {
+            val segment = payload.segment ?: _state.value.currentSegment
+            if (segment != _state.value.currentSegment) {
+                // A skipped set ends its block without banking it — switch, don't bank.
+                accumulator?.startSegment(segment, System.currentTimeMillis())
+            }
+            _state.update {
+                it.copy(
+                    plan = plan,
+                    completedSets = completed,
+                    deferred = payload.deferred.orEmpty().toSet(),
+                    currentSlotId = payload.slotId?.takeIf { id -> plan.slot(id) != null } ?: it.currentSlotId,
+                    setIndex = payload.setIndex.takeIf { i -> i > 0 } ?: it.setIndex,
+                    currentSegment = segment,
+                    currentReps = if (segment == SegmentType.ACTIVE) it.currentReps else 0,
+                )
+            }
+        }
+        applyCurrentExerciseToAccumulator()
+        publish()
     }
 
     // ---- Session lifecycle ---------------------------------------------------------------------
@@ -254,8 +342,10 @@ object WearSessionManager {
 
         // Opens in REST, matching the phone — the workout begins when you do, not when the app does.
         accumulator = LiveCalorieAccumulator(profile).apply { begin(now, SegmentType.REST) }
+        sessionLog.clear()
         pendingSamples.clear()
         lastHrFlushMs = now
+        lastFailedSendMs = 0L
         lastStateSendMs = 0L
 
         _state.value = WearSessionState(
@@ -287,6 +377,10 @@ object WearSessionManager {
         countdownJob?.cancel()
         accumulator?.advanceTo(now)
         flushHr(force = true)
+        // Keep this session's readings a while: the phone asks for them once more after the stop.
+        lastEndedId = _state.value.sessionId
+        lastEndedLog = sessionLog.toList()
+        lastEndedAtMs = now
 
         _state.update {
             it.copy(
@@ -306,7 +400,7 @@ object WearSessionManager {
      * Close the current block and open the next. Switching *out* of work carries the reps just
      * performed with it, which is what feeds the mechanical-work term of the calorie estimate.
      */
-    private suspend fun changeSegment(type: SegmentType, broadcast: Boolean) {
+    private suspend fun changeSegment(type: SegmentType, broadcast: Boolean, target: NextUp? = null) {
         val cur = _state.value
         if (!cur.running || cur.currentSegment == type) return
         val now = System.currentTimeMillis()
@@ -327,20 +421,21 @@ object WearSessionManager {
         }
 
         val finishedSlot = cur.currentSlotId
-        val completed = if (cur.currentSegment == SegmentType.ACTIVE && finishedSlot != null) {
-            cur.completedSets + (finishedSlot to (cur.completedSets[finishedSlot] ?: 0) + 1)
+        val banked = cur.currentSegment == SegmentType.ACTIVE && finishedSlot != null
+        val completed = if (banked) {
+            cur.completedSets + (finishedSlot!! to (cur.completedSets[finishedSlot] ?: 0) + 1)
         } else {
             cur.completedSets
         }
+        val deferred = if (banked) cur.deferred - finishedSlot!! else cur.deferred
 
         // Going back to work: the plan decides what's next — same function the phone calls, so a
-        // circuit rotates and a split completes each exercise identically on both devices.
+        // circuit rotates and a split completes each exercise identically on both devices. A start
+        // the phone named wins outright.
         var slotId = cur.currentSlotId
         var setIndex = cur.setIndex
         if (type == SegmentType.ACTIVE) {
-            // The opening block works the selected slot itself; after that the plan rotates. Same
-            // `upcoming` rule the phone's controller and live screen ask.
-            cur.plan.upcoming(slotId, completed)?.let { slotId = it.slotId; setIndex = it.setIndex }
+            (target ?: cur.plan.upcoming(slotId, completed, deferred))?.let { slotId = it.slotId; setIndex = it.setIndex }
         }
 
         accumulator?.startSegment(type, now)
@@ -351,6 +446,7 @@ object WearSessionManager {
             it.copy(
                 currentSegment = type,
                 completedSets = completed,
+                deferred = deferred,
                 currentSlotId = slotId,
                 setIndex = setIndex,
                 currentReps = openingReps,
@@ -360,7 +456,7 @@ object WearSessionManager {
 
         if (broadcast) {
             val cmd = if (type == SegmentType.ACTIVE) ControlCommand.SET_ACTIVE else ControlCommand.SET_REST
-            send(ControlPayload(cmd, now, DeviceOrigin.WATCH, sessionId = cur.sessionId, slotId = slotId))
+            send(ControlPayload(cmd, now, DeviceOrigin.WATCH, sessionId = cur.sessionId, slotId = slotId, setIndex = setIndex))
         }
         publish()
         sendState(force = true)
@@ -424,6 +520,7 @@ object WearSessionManager {
                 heartRateSourceFactory(ctx).samples().collect { sample ->
                     if (_state.value.status != SessionStatus.ACTIVE) return@collect
                     accumulator?.addSample(sample)
+                    sessionLog.mergeReadings(listOf(sample))
                     pendingSamples += sample
                     _state.update { it.copy(lastBpm = sample.bpm) }
                     flushHr(force = false)
@@ -455,16 +552,49 @@ object WearSessionManager {
         _state.update { it.copy(elapsedMs = now - it.startMs, summary = snap) }
     }
 
+    /**
+     * Deliver what's pending. Readings go as soon as they arrive (Health Services hands them over every
+     * few seconds during an exercise); after a failed send they wait a moment and go again with the
+     * rest, instead of being dropped.
+     */
     private suspend fun flushHr(force: Boolean) {
         if (pendingSamples.isEmpty()) return
         val now = System.currentTimeMillis()
-        if (!force && pendingSamples.size < HR_BATCH_SIZE && now - lastHrFlushMs < HR_FLUSH_MS) return
+        if (!force && now - lastFailedSendMs < RETRY_AFTER_FAILURE_MS) return
+        while (pendingSamples.isNotEmpty()) {
+            val batch = pendingSamples.take(MAX_BATCH)
+            val payload = HrBatchPayload(_state.value.sessionId, batch)
+            val delivered = sender?.send(
+                WearSync.PATH_HR_BATCH,
+                WearJson.encodeToString(HrBatchPayload.serializer(), payload).toByteArray(),
+            ) == true
+            if (!delivered) {
+                lastFailedSendMs = now
+                return
+            }
+            repeat(batch.size) { pendingSamples.removeAt(0) }
+            lastHrFlushMs = now
+        }
+    }
 
-        val batch = pendingSamples.toList()
-        pendingSamples.clear()
-        lastHrFlushMs = now
-        val payload = HrBatchPayload(_state.value.sessionId, batch)
-        sender?.send(WearSync.PATH_HR_BATCH, WearJson.encodeToString(HrBatchPayload.serializer(), payload).toByteArray())
+    /**
+     * The phone asked for everything after [sinceMs] — it saw a gap, or the workout just ended. Answered
+     * from the running session's log, or the last finished one's for a while after it stops.
+     */
+    private suspend fun resend(sessionId: String?, sinceMs: Long) {
+        val current = _state.value
+        val log = when {
+            current.running && sessionId == current.sessionId -> sessionLog.toList()
+            sessionId != null && sessionId == lastEndedId &&
+                System.currentTimeMillis() - lastEndedAtMs < KEEP_ENDED_LOG_MS -> lastEndedLog
+            else -> return
+        }
+        log.filter { it.timestampMs > sinceMs }.chunked(MAX_BATCH).forEach { chunk ->
+            sender?.send(
+                WearSync.PATH_HR_BATCH,
+                WearJson.encodeToString(HrBatchPayload.serializer(), HrBatchPayload(sessionId!!, chunk)).toByteArray(),
+            )
+        }
     }
 
     private suspend fun sendState(force: Boolean) {
@@ -504,17 +634,14 @@ object WearSessionManager {
 
     private const val TICK_MS = 1_000L
 
-    /**
-     * Heart rate is forwarded as soon as it arrives.
-     *
-     * Batching five readings over three seconds cut Data Layer chatter, but it also meant the phone's
-     * BPM lagged the wrist by up to three seconds — during a 40-second set that's most of the useful
-     * signal arriving after the set is over. Health Services emits roughly one reading a second, so
-     * per-sample sending is about one small message per second: cheap enough, and the number on the
-     * phone now tracks the watch.
-     */
-    private const val HR_FLUSH_MS = 0L
-    private const val HR_BATCH_SIZE = 1
+    /** Readings per message — well under the Data Layer's message size limit. */
+    private const val MAX_BATCH = 500
+
+    /** After a failed send, wait this long before trying the pending readings again. */
+    private const val RETRY_AFTER_FAILURE_MS = 2_000L
+
+    /** How long a finished session's readings are kept for the phone's end-of-workout resend. */
+    private const val KEEP_ENDED_LOG_MS = 15 * 60_000L
 
     /** Session state follows heart rate closely enough that the phone's other figures stay live. */
     private const val STATE_SEND_MS = 1_000L

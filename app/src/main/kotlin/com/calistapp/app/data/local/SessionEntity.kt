@@ -66,4 +66,6 @@ data class SessionEntity(
      * null is (re)sent on the next opportunity. Not part of the domain model; storage-only.
      */
     val fitpalSyncedAt: Long? = null,
+    /** Planned sets skipped or removed from the session, as JSON. Empty for sessions without any. */
+    val skipsJson: String = "",
 )

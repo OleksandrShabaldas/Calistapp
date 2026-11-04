@@ -176,10 +176,19 @@ private fun androidx.compose.foundation.layout.BoxScope.PausedGlyph(visible: Boo
     }
 }
 
-/** Matches workout_video_scrim.xml; applied only to images, never over a video view. */
+/** Matches workout_video_scrim.xml + workout_video_top_scrim.xml; applied only to images, never over a video view. */
 private fun Modifier.workoutScrim(dimAmount: Float) = drawWithContent {
     drawContent()
     drawRect(Brush.verticalGradient(0.35f to Color.Transparent, 1f to Onyx.copy(alpha = 0.92f)))
+    // The top fade behind the controls: 88% → 55% halfway → clear at 290dp, same as the XML.
+    val topFade = 290.dp.toPx()
+    drawRect(
+        Brush.verticalGradient(
+            0f to Onyx.copy(alpha = 0.88f), 0.5f to Onyx.copy(alpha = 0.55f), 1f to Color.Transparent,
+            startY = 0f, endY = topFade,
+        ),
+        size = androidx.compose.ui.geometry.Size(size.width, minOf(topFade, size.height)),
+    )
     drawRect(Onyx.copy(alpha = dimAmount))
 }
 

@@ -39,9 +39,10 @@ class GeminiClient @Inject constructor(
         prompt: String,
         tier: AiModelTier = AiModelTier.FAST,
         // Thinking models spend output tokens *reasoning*, and that reasoning shares this budget with
-        // the answer — so a low cap truncates the reply (the session coach was getting cut off after
-        // its first line). Give the thinking tier ample room by default; keep the fast helpers tight.
-        maxOutputTokens: Int = if (tier == AiModelTier.THINKING) 4000 else 900,
+        // the answer. At 4,000 the coach's deepest reasoning used most of it and the analysis stopped
+        // mid-sentence; the thinking tier now gets room for both. The fast helpers stay tight — and any
+        // reply that still runs out is retried with more room rather than kept (see [CallOutcome.Truncated]).
+        maxOutputTokens: Int = if (tier == AiModelTier.THINKING) THINKING_BUDGET else FAST_BUDGET,
     ): AiResult = withContext(io) {
         val settings = aiSettings.settings.first()
         val key = settings.apiKey.ifBlank { BuildConfig.GEMINI_API_KEY }
@@ -52,16 +53,40 @@ class GeminiClient @Inject constructor(
         val models = settings.modelsFor(tier).ifEmpty { listOf(BuildConfig.GEMINI_MODEL) }
         var lastMessage = "No AI model produced a response."
         for (model in models) {
-            when (val outcome = callOnce(model, key, prompt, maxOutputTokens)) {
-                is CallOutcome.Ok -> return@withContext AiResult.Success(outcome.text)
-                // Rate-limited / overloaded / unknown model / transient — try the next fallback.
-                is CallOutcome.Retry -> lastMessage = outcome.message
-                // Safety block, bad key, malformed request — a fallback won't help; stop now.
-                is CallOutcome.Fatal -> return@withContext AiResult.Failure(outcome.message)
+            var budget = maxOutputTokens
+            var thinking = thinkingLevelFor(model, tier)
+            attempts@ while (true) {
+                when (val outcome = callOnce(model, key, prompt, budget, thinking)) {
+                    is CallOutcome.Ok -> return@withContext AiResult.Success(outcome.text)
+                    // Cut off before it finished: ask the same model again with more room, then give up
+                    // on it. A half answer is never returned — it used to be saved as the analysis.
+                    is CallOutcome.Truncated -> if (budget < MAX_BUDGET) {
+                        budget = minOf(budget * 4, MAX_BUDGET)
+                    } else {
+                        lastMessage = "The answer was cut off before it finished. Try again."
+                        break@attempts
+                    }
+                    // A model that doesn't take the reasoning-depth setting: ask it again without.
+                    is CallOutcome.RejectedThinking -> if (thinking != null) thinking = null else {
+                        lastMessage = outcome.message
+                        break@attempts
+                    }
+                    // Rate-limited / overloaded / unknown model / transient — try the next fallback.
+                    is CallOutcome.Retry -> { lastMessage = outcome.message; break@attempts }
+                    // Safety block, bad key, malformed request — a fallback won't help; stop now.
+                    is CallOutcome.Fatal -> return@withContext AiResult.Failure(outcome.message)
+                }
             }
         }
         AiResult.Failure(lastMessage)
     }
+
+    /**
+     * The reasoning depth to ask for: the deepest ("high") for the thinking tier on Gemini 3 and
+     * later, which take the setting; nothing for the fast helpers or older models, which keep their
+     * own defaults.
+     */
+    private fun thinkingLevelFor(model: String, tier: AiModelTier): String? = thinkingLevel(model, tier)
 
     /**
      * A one-shot connectivity check for a single model, using [apiKey] as typed in Settings (so it can
@@ -101,13 +126,16 @@ class GeminiClient @Inject constructor(
         }
     }
 
-    private fun callOnce(model: String, key: String, prompt: String, maxOutputTokens: Int): CallOutcome {
+    private fun callOnce(model: String, key: String, prompt: String, maxOutputTokens: Int, thinkingLevel: String?): CallOutcome {
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$key"
         val body = json.encodeToString(
             GeminiRequest.serializer(),
             GeminiRequest(
                 contents = listOf(GeminiRequest.Content(parts = listOf(GeminiRequest.Part(prompt)))),
-                generationConfig = GeminiRequest.GenerationConfig(maxOutputTokens = maxOutputTokens),
+                generationConfig = GeminiRequest.GenerationConfig(
+                    maxOutputTokens = maxOutputTokens,
+                    thinkingConfig = thinkingLevel?.let { GeminiRequest.ThinkingConfig(it) },
+                ),
             ),
         ).toRequestBody(jsonMedia)
         val request = Request.Builder().url(url).post(body).build()
@@ -123,6 +151,8 @@ class GeminiClient @Inject constructor(
                     // 400/401/403 (bad request or auth) → fatal; the fallbacks would fail the same way.
                     if (resp.code == 429 || resp.code == 404 || resp.code >= 500) {
                         CallOutcome.Retry("$model: $msg")
+                    } else if (resp.code == 400 && thinkingLevel != null && msg.contains("thinking", ignoreCase = true)) {
+                        CallOutcome.RejectedThinking("$model: $msg")
                     } else {
                         CallOutcome.Fatal(msg)
                     }
@@ -132,6 +162,7 @@ class GeminiClient @Inject constructor(
                     }.getOrNull()
                     val text = parsed?.text
                     when {
+                        parsed?.truncated == true -> CallOutcome.Truncated
                         text != null -> CallOutcome.Ok(text.trim())
                         parsed?.promptFeedback?.blockReason != null ->
                             CallOutcome.Fatal("Blocked by safety filter: ${parsed.promptFeedback.blockReason}")
@@ -147,7 +178,35 @@ class GeminiClient @Inject constructor(
     /** One model attempt: succeeded, worth trying the next model, or not worth retrying at all. */
     private sealed interface CallOutcome {
         data class Ok(val text: String) : CallOutcome
+
+        /** Ran out of output tokens mid-answer (finishReason MAX_TOKENS) — retried with more room. */
+        data object Truncated : CallOutcome
+
+        /** The model refused the reasoning-depth setting — asked again without it. */
+        data class RejectedThinking(val message: String) : CallOutcome
         data class Retry(val message: String) : CallOutcome
         data class Fatal(val message: String) : CallOutcome
     }
+
+    private companion object {
+        /** The thinking tier's first budget: room for deep reasoning and a full analysis together. */
+        const val THINKING_BUDGET = 32_768
+
+        /** The fast helpers' budget — short structured replies. */
+        const val FAST_BUDGET = 900
+
+        /** The ceiling a truncated reply is retried up to (Gemini Flash's maximum output). */
+        const val MAX_BUDGET = 65_536
+    }
+}
+
+/**
+ * The reasoning depth [GeminiClient] asks a model for: "high" for the thinking tier on Gemini 3 and
+ * later, nothing otherwise. (The version pattern once read `gemini-(d+)` — a literal "d" in a raw
+ * string — so it never matched and the deepest setting was silently never sent.)
+ */
+internal fun thinkingLevel(model: String, tier: AiModelTier): String? {
+    if (tier != AiModelTier.THINKING) return null
+    val major = Regex("""gemini-(\d+)""").find(model)?.groupValues?.get(1)?.toIntOrNull() ?: return null
+    return if (major >= 3) "high" else null
 }

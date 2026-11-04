@@ -24,8 +24,8 @@ class PhoneWearListenerService : WearableListenerService() {
         val data = String(event.data)
         runCatching {
             when (event.path) {
-                WearSync.PATH_HR_BATCH ->
-                    bus.onHrBatch(json.decodeFromString(HrBatchPayload.serializer(), data).samples)
+                WearSync.PATH_HR_BATCH -> json.decodeFromString(HrBatchPayload.serializer(), data)
+                    .let { bus.onHrBatch(it.sessionId, it.samples) }
                 WearSync.PATH_SESSION_STATE ->
                     bus.onState(json.decodeFromString(SessionStatePayload.serializer(), data))
                 WearSync.PATH_CONTROL ->

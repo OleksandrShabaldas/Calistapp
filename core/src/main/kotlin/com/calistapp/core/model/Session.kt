@@ -30,6 +30,13 @@ data class Segment(
     val metabolics: ExerciseMetabolics? = null,
 ) {
     fun durationMs(nowMs: Long): Long = (endMs ?: nowMs) - startMs
+
+    /**
+     * Whether [reps] is a rep count. A timed hold (and every warm-up or stretch, which are holds) logs
+     * its seconds in the same field — 40 s of chest opener is not 40 reps, and used to be totalled as if
+     * it were.
+     */
+    val countsReps: Boolean get() = metabolics?.isometric != true
 }
 
 @Serializable
@@ -63,6 +70,8 @@ data class WorkoutSession(
     val plan: WorkoutPlan = WorkoutPlan.EMPTY,
     /** What was actually performed, set by set. */
     val setLogs: List<SetLog> = emptyList(),
+    /** Planned sets that were skipped, or dropped with their exercise from this session. */
+    val skips: List<SetSkip> = emptyList(),
     /** The specific exercise this session was launched for, if started from the gallery. */
     val exerciseName: String? = null,
     val notes: String = "",
