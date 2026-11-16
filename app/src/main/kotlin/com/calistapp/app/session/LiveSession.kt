@@ -7,6 +7,7 @@ import com.calistapp.core.model.HrLinkHealth
 import com.calistapp.core.model.NextUp
 import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.PlannedSet
+import com.calistapp.core.model.RoundOrder
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionStatus
 import com.calistapp.core.model.SessionSummary
@@ -75,6 +76,13 @@ data class LiveSession(
      */
     val pendingEffortScale: EffortScale? = null,
     val pendingEffortValue: Double? = null,
+    /** A circuit round held to its pre-reorder order — "use the new order from next round". */
+    val roundOrder: RoundOrder? = null,
+    /**
+     * Exercise-by-exercise: a reorder that re-points the session once the set (or the exercise) in
+     * progress is finished — see [com.calistapp.core.model.reorderEffect].
+     */
+    val reanchor: Reanchor? = null,
 ) {
     /** Whether the set in progress has had its effort rated yet. */
     val hasPendingEffort: Boolean get() = pendingEffortScale != null && pendingEffortValue != null
@@ -121,11 +129,17 @@ data class LiveSession(
      */
     val upNext: NextUp?
         get() {
-            if (!isWorking) return plan.upcoming(currentSlotId, completedSets, deferred)
+            if (!isWorking) return plan.upcoming(currentSlotId, completedSets, deferred, roundOrder)
             // While working, count the set in progress as done — otherwise a warm-up move, or a split's
             // set 1 of 3, answered "what's next" with itself.
-            val slot = currentSlotId ?: return plan.nextUp(null, completedSets, deferred)
-            return plan.nextUp(slot, completedSets + (slot to ((completedSets[slot] ?: 0) + 1)), deferred - slot)
+            val slot = currentSlotId ?: return plan.nextUp(null, completedSets, deferred, roundOrder)
+            val after = completedSets + (slot to ((completedSets[slot] ?: 0) + 1))
+            // A reorder waiting on this set (or this exercise) to finish decides what follows it.
+            if (reanchor != null && !plan.isCircuit) {
+                val owes = plan.targetSetsFor(slot) - (after[slot] ?: 0) > 0
+                if (reanchor == Reanchor.AFTER_SET || !owes) return plan.nextUp(null, after, deferred - slot)
+            }
+            return plan.nextUp(slot, after, deferred - slot, roundOrder)
         }
 
     /** The movement the next work block will run — the current one again, or a new exercise. */
@@ -162,7 +176,7 @@ data class LiveSession(
             if (!isWorking) return false
             val slot = currentSlotId ?: return false
             val after = completedSets + (slot to ((completedSets[slot] ?: 0) + 1))
-            return plan.nextUp(slot, after, deferred - slot) == null
+            return plan.nextUp(slot, after, deferred - slot, roundOrder) == null
         }
 
     /** Whether the set in progress (or about to start) is a warm-up set of the current exercise. */
@@ -248,3 +262,19 @@ data class LiveSession(
 
 /** A rest between two phases of the session — see [LiveSession.phaseHandOff]. */
 data class PhaseHandOff(val from: SlotPhase?, val to: SlotPhase)
+
+/** When a reorder's re-pointing of an exercise-by-exercise session takes effect. */
+enum class Reanchor { AFTER_SET, AFTER_EXERCISE }
+
+/**
+ * A reorder waiting on the user: in a circuit it would leave [behind] — still owed this round — before
+ * the exercise in progress, so the live screen asks what to do with them. [plan] is the reordered plan,
+ * shown in the editor while the question is up; nothing changes until it's answered.
+ */
+data class PendingReorder(
+    val plan: WorkoutPlan,
+    val movedSlotId: String,
+    val behind: List<String>,
+) {
+    val behindNames: List<String> get() = behind.mapNotNull { plan.slot(it)?.name }
+}

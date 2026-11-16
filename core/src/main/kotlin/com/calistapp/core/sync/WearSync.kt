@@ -2,6 +2,7 @@ package com.calistapp.core.sync
 
 import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.HeartRateSample
+import com.calistapp.core.model.RoundOrder
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionStatus
 import com.calistapp.core.model.SkipReason
@@ -160,4 +161,14 @@ data class ControlPayload(
     val segment: SegmentType? = null,
     /** REQUEST_HR: resend every reading timestamped after this. */
     val sinceMs: Long? = null,
+    /**
+     * SYNC_PLAN with progress: a circuit round held to its pre-reorder order ("new order from next
+     * round"), so the watch picks the same next exercise as the phone until that round is done.
+     */
+    val roundOrder: RoundOrder? = null,
+    /**
+     * START: when the workout began, for a START that (re)joins one already running on the sender —
+     * the phone's Reconnect — so the watch's clock matches instead of restarting at zero.
+     */
+    val sessionStartMs: Long? = null,
 )

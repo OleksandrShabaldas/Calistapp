@@ -7,6 +7,7 @@ import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.Sex
 import com.calistapp.core.model.UserProfile
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -123,15 +124,17 @@ class CalorieEngineTest {
 
     @Test
     fun `sensor dropout gap is capped and does not explode calories`() {
-        // Two samples 10 minutes apart — a big gap. Should credit only maxIntervalMs (30s).
-        val samples = listOf(
-            HeartRateSample(0, 150),
-            HeartRateSample(600_000, 150),
-        )
+        // A real 5-second stream with a 4-minute hole in a 10-minute block. The hole credits only
+        // maxIntervalMs (30 s) — never guessed across. (Two lone readings 10 minutes apart are no
+        // longer a "stream with a gap": with that little heart rate the session is estimated instead —
+        // see NoHeartRateEstimateTest.)
+        val samples = steadySamples(150).filterNot { it.timestampMs in 185_000L..425_000L }
         val seg = listOf(Segment(SegmentType.ACTIVE, 0, 600_000))
         val s = engine.compute(samples, seg, profile)
-        // ~30s @ ~14 kcal/min ≈ 7 kcal, nowhere near 10 min worth (~140 kcal).
-        assertTrue("Gap should be capped, got ${s.totalKcal}", s.totalKcal < 15.0)
+        val full = engine.compute(steadySamples(150), seg, profile)
+        assertFalse(s.estimated)
+        // ~6.5 of 10 minutes credited: well under the full ten minutes' worth.
+        assertTrue("Gap should be capped, got ${s.totalKcal} vs ${full.totalKcal}", s.totalKcal < full.totalKcal * 0.7)
     }
 
     // ---- Exercise-aware refinements ----------------------------------------------------------

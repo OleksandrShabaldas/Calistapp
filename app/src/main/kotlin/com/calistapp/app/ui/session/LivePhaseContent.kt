@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.AlertDialog
@@ -75,6 +76,7 @@ import com.calistapp.app.ui.theme.FlameGlow
 import com.calistapp.app.ui.theme.FlameHot
 import com.calistapp.app.ui.theme.Onyx
 import com.calistapp.app.ui.theme.Sky
+import com.calistapp.core.model.BehindChoice
 import com.calistapp.core.model.SlotPhase
 import com.calistapp.core.model.repsIn
 
@@ -157,6 +159,72 @@ fun SkipChoicesSheet(
             )
             TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.CenterHorizontally)) {
                 Text("Keep going", color = Ash, style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
+}
+
+/**
+ * A circuit reorder left exercises still owed this round *behind* the one you're on — what should happen
+ * to them? Your three answers, in your order: keep this round as it was, skip them, or come back round
+ * to them later this round. "Put it back" undoes the move.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ReorderChoicesSheet(
+    behindNames: List<String>,
+    currentName: String?,
+    /** On the last round there is no "next round" in this session — the new order is for next time. */
+    lastRound: Boolean,
+    onChoice: (BehindChoice?) -> Unit,
+) {
+    val names = when (behindNames.size) {
+        0 -> "Some exercises"
+        1 -> behindNames[0]
+        else -> behindNames.dropLast(1).joinToString(", ") + " and " + behindNames.last()
+    }
+    ModalBottomSheet(
+        onDismissRequest = { onChoice(null) },
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = SheetSurface,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                "Now behind you",
+                style = TextStyle(fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = (-0.3).sp),
+                color = Chalk,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+            Text(
+                if (currentName != null) "$names — not done this round, now before $currentName." else "$names — not done this round.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Ash,
+                modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
+            )
+            SkipOption(
+                icon = Icons.Filled.Repeat,
+                title = if (lastRound) "Keep this round's order" else "New order from next round",
+                body = if (lastRound) "The new order is for next time." else "This round finishes as it was.",
+                primary = true,
+                onClick = { onChoice(BehindChoice.NEXT_ROUND) },
+            )
+            SkipOption(
+                icon = Icons.Filled.SkipNext,
+                title = "Skip them this round",
+                body = if (lastRound) "Marked skipped." else "Marked skipped. Next round uses the new order.",
+                onClick = { onChoice(BehindChoice.SKIP_THIS_ROUND) },
+            )
+            SkipOption(
+                icon = Icons.Filled.Schedule,
+                title = "Do them later this round",
+                body = "After the rest of the round, in the new order.",
+                onClick = { onChoice(BehindChoice.LATER_THIS_ROUND) },
+            )
+            TextButton(onClick = { onChoice(null) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text("Put it back", color = Ash, style = MaterialTheme.typography.labelLarge)
             }
         }
     }

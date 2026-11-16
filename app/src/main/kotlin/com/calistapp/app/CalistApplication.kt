@@ -6,16 +6,23 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
+import com.calistapp.app.data.device.BandHeartRateManager
 import com.calistapp.app.sync.StepPullWorker
 import com.calistapp.app.ui.exercises.VideoFrameFetcher
 import com.calistapp.app.ui.exercises.VideoThumbUrlMapper
 import dagger.hilt.android.HiltAndroidApp
+import javax.inject.Inject
 
 @HiltAndroidApp
 class CalistApplication : Application(), ImageLoaderFactory {
 
+    @Inject lateinit var bandHeartRate: BandHeartRateManager
+
     override fun onCreate() {
         super.onCreate()
+        // Streams a chosen Bluetooth heart-rate band into any running workout — including one revived
+        // after the process was killed, with no screen open.
+        bandHeartRate.start()
         // Register Calistapp's own daily step-pull from FitPal, so it exists even on a cold start
         // the FitPal wake-broadcast spun up (no Activity). KEEP, so it isn't reset each launch.
         runCatching { StepPullWorker.schedulePeriodic(this) }

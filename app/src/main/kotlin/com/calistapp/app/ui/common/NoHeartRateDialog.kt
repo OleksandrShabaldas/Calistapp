@@ -24,9 +24,9 @@ fun NoHeartRateDialog(
         title = { Text("No heart rate from your watch") },
         text = {
             Text(
-                "Calistapp estimates calories from your heart rate, and nothing is arriving. " +
-                    "Started now, this workout will record its sets and reps, but with no readings " +
-                    "to integrate it will be filed at 0 kcal.",
+                "Calistapp measures calories from heart rate, and nothing is arriving. Started now, " +
+                    "this workout's calories are estimated from your sets instead — and filled in later " +
+                    "if a ring or tracker recorded heart rate to Health Connect.",
             )
         },
         confirmButton = {

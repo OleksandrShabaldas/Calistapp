@@ -1,5 +1,6 @@
 package com.calistapp.app.session
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,8 +8,11 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import androidx.core.content.ContextCompat
 import com.calistapp.app.MainActivity
 import com.calistapp.app.R
 import com.calistapp.core.model.SegmentType
@@ -49,12 +53,31 @@ class WorkoutSessionService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (!started) {
             started = true
-            startForeground(NOTIFICATION_ID, buildNotification(null))
+            startAsForeground()
             observeSession()
         }
         // Restarting with no session to attach to would leave an ongoing notification for a workout
         // that isn't running, so the service is not sticky — recovery is the controller's job.
         return START_NOT_STICKY
+    }
+
+    /**
+     * Foreground as dataSync (the watch link), plus connectedDevice when a Bluetooth heart-rate band
+     * can be used — the type has to be named explicitly, because Android 14+ refuses a connectedDevice
+     * service outright (a crash, not a fallback) when the Bluetooth permission isn't granted.
+     */
+    private fun startAsForeground() {
+        val notification = buildNotification(null)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification)
+            return
+        }
+        var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        val bluetoothOk = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+        if (bluetoothOk) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        runCatching { startForeground(NOTIFICATION_ID, notification, types) }
+            .onFailure { startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC) }
     }
 
     /**

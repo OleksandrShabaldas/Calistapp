@@ -56,6 +56,23 @@ import com.calistapp.core.model.Routine
  * session-wide rest default — then start. Sits between building a workout and running it, so the plan
  * you launch is the one you meant, warm-up and cooldown included.
  */
+/** With a Bluetooth band chosen, the pre-flight strip names it instead of worrying about the watch. */
+@Composable
+private fun BandStatusStrip(name: String) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            Modifier
+                .size(9.dp)
+                .background(com.calistapp.app.ui.theme.Mint, androidx.compose.foundation.shape.CircleShape),
+        )
+        Text("$name · connects when you start", style = MaterialTheme.typography.labelLarge, color = com.calistapp.app.ui.theme.Chalk)
+    }
+}
+
 @Composable
 fun SessionSetupScreen(
     onStarted: () -> Unit,
@@ -67,6 +84,7 @@ fun SessionSetupScreen(
     val stretchId by viewModel.stretchId.collectAsStateWithLifecycle()
     val prefs by viewModel.prefs.collectAsStateWithLifecycle()
     val watchLink by viewModel.watchLink.collectAsStateWithLifecycle()
+    val band by viewModel.band.collectAsStateWithLifecycle()
     var confirmNoWatch by rememberSaveable { mutableStateOf(false) }
 
     fun start() {
@@ -131,14 +149,16 @@ fun SessionSetupScreen(
                     SettingToggle("Cue sounds", "Tick and go tones on countdowns", prefs.sound, viewModel::setSound)
                     SettingToggle("Vibration", "Buzz when you bank a set", prefs.vibration, viewModel::setVibration)
                     SettingToggle("Autoplay video", "Start the demo automatically", prefs.autoplayVideo, viewModel::setAutoplay)
+                    SettingToggle("Keep screen on", "Until the workout ends", prefs.keepScreenOn, viewModel::setKeepScreenOn)
                 }
             }
         }
 
         Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            WatchStatusStrip(state = watchLink, onReconnect = viewModel::reconnectWatch)
+            val chosen = band
+            if (chosen != null) BandStatusStrip(chosen.name) else WatchStatusStrip(state = watchLink, onReconnect = viewModel::reconnectWatch)
             Button(
-                onClick = { if (watchLink.isUsable) start() else confirmNoWatch = true },
+                onClick = { if (watchLink.isUsable || chosen != null) start() else confirmNoWatch = true },
                 enabled = !plan.isEmpty,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = Capsule,

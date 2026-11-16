@@ -94,6 +94,9 @@ internal fun buildCoachPrompt(
         appendLine("- Warm-up (preparation and any guided warm-up before the first set) and cool-down are neither work nor between-set rest. Do not include them when assessing rest length or training density.")
         val workKcal = s.workingKcal(session.plan)
         appendLine("- Calories ${s.totalKcal.toInt()} kcal (${workKcal.toInt()} in the working sets, ${(s.totalKcal - workKcal).toInt()} across warm-up, cool-down and between-set recovery; non-working time uses the conservative estimate)")
+        if (s.estimated) {
+            appendLine("- NOTE: no usable heart rate was recorded for this session, so these calories are an ESTIMATE from the sets and timings (standard activity rates), not measured. Don't draw intensity or heart-rate conclusions; say the figure is estimated if you mention it.")
+        }
         appendLine("- Heart rate: avg ${s.avgHr}, active-avg ${s.avgActiveHr}, peak ${s.peakHr}, min ${s.minHr} bpm")
         val zones = HrZone.entries.filter { (s.timeInZonesMs[it] ?: 0L) > 0 }
         if (zones.isNotEmpty()) {

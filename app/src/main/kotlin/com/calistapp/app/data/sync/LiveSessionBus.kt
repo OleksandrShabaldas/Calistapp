@@ -12,9 +12,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Where a batch of heart rate came from: the watch app, or a Bluetooth heart-rate band. */
+enum class HrSource { WATCH, BAND }
+
 /** A batch of heart-rate readings as the watch sent it — tied to its session, since a resend or a
  *  backfill can arrive after that session has already ended on the phone. */
-data class HrBatch(val sessionId: String, val samples: List<HeartRateSample>)
+data class HrBatch(val sessionId: String, val samples: List<HeartRateSample>, val source: HrSource = HrSource.WATCH)
 
 /**
  * In-memory hub connecting the [PhoneWearListenerService] (which receives Data Layer events on a
@@ -37,8 +40,8 @@ class LiveSessionBus @Inject constructor() {
         _watchState.value = payload
     }
 
-    fun onHrBatch(sessionId: String, samples: List<HeartRateSample>) {
-        if (samples.isNotEmpty()) _hrBatches.tryEmit(HrBatch(sessionId, samples))
+    fun onHrBatch(sessionId: String, samples: List<HeartRateSample>, source: HrSource = HrSource.WATCH) {
+        if (samples.isNotEmpty()) _hrBatches.tryEmit(HrBatch(sessionId, samples, source))
     }
 
     fun onControl(payload: ControlPayload) {

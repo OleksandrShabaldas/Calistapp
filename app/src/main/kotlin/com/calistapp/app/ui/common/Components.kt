@@ -26,11 +26,16 @@ fun SectionCard(
     modifier: Modifier = Modifier,
     title: String? = null,
     accent: Color? = null,
+    /** What the card is about, behind a "?" next to the title — instead of a paragraph under it. */
+    help: String? = null,
     content: @Composable () -> Unit,
 ) {
     GlassCard(modifier = modifier, accent = accent) {
         if (title != null) {
-            Text(title, style = MaterialTheme.typography.titleLarge, color = Chalk)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(title, style = MaterialTheme.typography.titleLarge, color = Chalk)
+                if (help != null) HelpDot(help)
+            }
         }
         content()
     }

@@ -409,7 +409,21 @@ private fun HeroEnergy(summary: SessionSummary, workKcal: Double, enabled: Boole
                 .background(Brush.radialGradient(listOf(FlameHot.copy(alpha = bloomAlpha), Color.Transparent))),
         )
         Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Eyebrow("Total energy", color = FlameGlow.copy(alpha = 0.85f))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Eyebrow("Total energy", color = FlameGlow.copy(alpha = 0.85f))
+                // No usable heart rate: say so on the number itself, not only in the breakdown.
+                if (summary.estimated) {
+                    Text(
+                        "ESTIMATED",
+                        style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.2.sp),
+                        fontWeight = FontWeight.Bold,
+                        color = com.calistapp.app.ui.theme.Sky,
+                        modifier = Modifier
+                            .background(com.calistapp.app.ui.theme.Sky.copy(alpha = 0.12f), RoundedCornerShape(999.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+            }
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     "${summary.totalKcal.toInt()}",

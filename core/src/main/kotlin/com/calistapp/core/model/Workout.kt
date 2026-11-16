@@ -371,10 +371,11 @@ data class WorkoutPlan(
         currentSlotId: String?,
         completedSets: Map<String, Int>,
         deferred: Set<String> = emptySet(),
+        roundOrder: RoundOrder? = null,
     ): NextUp? {
         val current = slot(currentSlotId)
         if (current != null && completedSets.values.sum() == 0 && current.slotId !in deferred) return NextUp(current.slotId, 1)
-        return nextUp(currentSlotId, completedSets, deferred)
+        return nextUp(currentSlotId, completedSets, deferred, roundOrder)
     }
 
     /**
@@ -387,12 +388,15 @@ data class WorkoutPlan(
      * owed again (a skip used to leave the slot owing, and the circuit looped back to it after the last
      * exercise instead of finishing). [deferred] holds the slots put off with "do it later": they're
      * still owed, but everything else in the same round (or, in a split, the rest of the workout) comes
-     * first.
+     * first. [roundOrder], when it names the round being worked, runs that one round of a circuit in
+     * the order it held before a reorder (the "use the new order from next round" choice); it lapses
+     * by itself once the round is done.
      */
     fun nextUp(
         currentSlotId: String?,
         completedSets: Map<String, Int>,
         deferred: Set<String> = emptySet(),
+        roundOrder: RoundOrder? = null,
     ): NextUp? {
         if (exercises.isEmpty()) return null
         fun done(id: String) = completedSets[id] ?: 0
@@ -413,6 +417,7 @@ data class WorkoutPlan(
             val lead = exercises.takeWhile { it.runsOnce }
             val trail = exercises.drop(lead.size).filter { it.runsOnce }
             walkInOrder(lead, ::remaining, deferred)?.let { return next(it) }
+            val rotation = rotationFor(roundOrder, completedSets)
             // The round in progress is the lowest one any rotation slot still owes. Finish it — a set
             // put off with "do it later" included — before any slot starts the next round.
             val owing = rotation.filter { remaining(it) > 0 }
@@ -464,6 +469,17 @@ data class WorkoutPlan(
     ): PlannedExercise? {
         val owing = list.filter { remaining(it) > 0 }
         return owing.firstOrNull { it.slotId !in deferred } ?: owing.firstOrNull()
+    }
+
+    /**
+     * The rotation as the round being worked runs it: this plan's order, or — while [roundOrder] holds
+     * for that round — the order it had before a reorder, with any slot it doesn't know (added since)
+     * kept after the ones it does.
+     */
+    internal fun rotationFor(roundOrder: RoundOrder?, completedSets: Map<String, Int>): List<PlannedExercise> {
+        if (roundOrder == null || roundOrder.round != roundOf(completedSets)) return rotation
+        val at = roundOrder.order.withIndex().associate { (i, id) -> id to i }
+        return rotation.sortedBy { at[it.slotId] ?: Int.MAX_VALUE }
     }
 
     /** Round currently being worked, 1-based. Always 1 for a split. */

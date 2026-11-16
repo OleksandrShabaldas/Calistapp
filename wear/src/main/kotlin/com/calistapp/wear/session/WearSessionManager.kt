@@ -1,12 +1,14 @@
 package com.calistapp.wear.session
 
 import android.content.Context
+import android.util.Log
 import com.calistapp.core.calorie.LiveCalorieAccumulator
 import com.calistapp.core.model.ExerciseMeasure
 import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.HeartRateSample
 import com.calistapp.core.model.NextUp
 import com.calistapp.core.model.PlannedExercise
+import com.calistapp.core.model.RoundOrder
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionStatus
 import com.calistapp.core.model.SessionSummary
@@ -34,6 +36,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import java.util.concurrent.Executors
 
@@ -54,6 +58,8 @@ data class WearSessionState(
     val completedSets: Map<String, Int> = emptyMap(),
     /** Slots put off with "do it later" on the phone. */
     val deferred: Set<String> = emptySet(),
+    /** A circuit round the phone is running in its pre-reorder order — see [RoundOrder]. */
+    val roundOrder: RoundOrder? = null,
     val lastBpm: Int = 0,
     val startMs: Long = 0,
     val elapsedMs: Long = 0,
@@ -71,7 +77,7 @@ data class WearSessionState(
 
     /** What the next work block runs — the same rule the phone's live screen asks. */
     val upNext: NextUp?
-        get() = if (isWorking) plan.nextUp(currentSlotId, completedSets, deferred) else plan.upcoming(currentSlotId, completedSets, deferred)
+        get() = if (isWorking) plan.nextUp(currentSlotId, completedSets, deferred, roundOrder) else plan.upcoming(currentSlotId, completedSets, deferred, roundOrder)
 
     /** The set a skip acts on: the one being worked, or the one coming up while resting. */
     val focus: NextUp? get() = if (isWorking) currentSlotId?.let { NextUp(it, setIndex) } else upNext
@@ -107,6 +113,7 @@ object WearSessionManager {
 
     private var appContext: Context? = null
     private var sender: PhoneSender? = null
+    private var store: WearSessionStore? = null
     private var accumulator: LiveCalorieAccumulator? = null
 
     private var collectJob: Job? = null
@@ -118,6 +125,17 @@ object WearSessionManager {
 
     /** Readings captured but not yet delivered to the phone. */
     private val pendingSamples = mutableListOf<HeartRateSample>()
+
+    /**
+     * Guards [pendingSamples] and [sessionLog]. The collector, the tick, a resumed or replaced
+     * workout and the phone's resend requests all touch them from different threads, and a flush
+     * waits on the network between reading the list and trimming it — so an unguarded list was
+     * cleared or trimmed underneath it, crashing the watch app (removeAt on an empty list).
+     */
+    private val readingsLock = Any()
+
+    /** One delivery at a time, so two flushes can't send (and then trim) the same readings. */
+    private val flushMutex = Mutex()
     private var lastHrFlushMs = 0L
     private var lastFailedSendMs = 0L
     private var lastStateSendMs = 0L
@@ -135,6 +153,9 @@ object WearSessionManager {
         val app = context.applicationContext
         appContext = app
         sender = PhoneSender(app)
+        store = WearSessionStore(app)
+        // A workout the process died in the middle of is still on disk: carry on with it.
+        scope.launch { resumeSaved(app) }
         scope.launch {
             WearProfileHolder.profile.collect { profile -> accumulator?.updateProfile(profile) }
         }
@@ -255,6 +276,7 @@ object WearSessionManager {
      * stops the two devices echoing each other into an infinite toggle loop.
      */
     fun applyControl(payload: ControlPayload) = scope.launch {
+        Log.i("CalWear", "control ${payload.command} from ${payload.origin} session=${payload.sessionId}")
         markPhoneHeard()
         when (payload.command) {
             ControlCommand.PING -> announce()
@@ -264,6 +286,8 @@ object WearSessionManager {
                 type = payload.exerciseType ?: ExerciseType.CALISTHENICS,
                 plan = payload.plan ?: WorkoutPlan.EMPTY,
                 broadcast = false,
+                // A rejoin (the phone's Reconnect) carries the workout's real start, so the clocks agree.
+                startMs = payload.sessionStartMs,
             )
             ControlCommand.STOP -> endSession(broadcast = false)
             // The phone already ran its own lead-in before sending these, so they apply at once. It
@@ -289,8 +313,8 @@ object WearSessionManager {
             // The phone answers its own skips with SYNC_PLAN progress; it doesn't forward these.
             ControlCommand.SKIP_SET, ControlCommand.DEFER -> Unit
             ControlCommand.REQUEST_HR -> resend(payload.sessionId, payload.sinceMs ?: 0L)
-            ControlCommand.PAUSE -> _state.update { it.copy(status = SessionStatus.PAUSED) }
-            ControlCommand.RESUME -> _state.update { it.copy(status = SessionStatus.ACTIVE) }
+            ControlCommand.PAUSE -> { _state.update { it.copy(status = SessionStatus.PAUSED) }; persist() }
+            ControlCommand.RESUME -> { _state.update { it.copy(status = SessionStatus.ACTIVE) }; persist() }
             // Handled by WearListenerService before it reaches the session — see there.
             ControlCommand.CHECK_UPDATE -> Unit
         }
@@ -316,6 +340,7 @@ object WearSessionManager {
                     plan = plan,
                     completedSets = completed,
                     deferred = payload.deferred.orEmpty().toSet(),
+                    roundOrder = payload.roundOrder,
                     currentSlotId = payload.slotId?.takeIf { id -> plan.slot(id) != null } ?: it.currentSlotId,
                     setIndex = payload.setIndex.takeIf { i -> i > 0 } ?: it.setIndex,
                     currentSegment = segment,
@@ -325,6 +350,7 @@ object WearSessionManager {
         }
         applyCurrentExerciseToAccumulator()
         publish()
+        persist()
     }
 
     // ---- Session lifecycle ---------------------------------------------------------------------
@@ -334,16 +360,26 @@ object WearSessionManager {
         type: ExerciseType,
         plan: WorkoutPlan,
         broadcast: Boolean,
+        startMs: Long? = null,
     ) {
-        if (_state.value.running) return
+        val running = _state.value
+        if (running.running) {
+            // The same workout again — a rejoin while this copy is alive — changes nothing.
+            if (running.sessionId == sessionId || broadcast) return
+            // The phone started a different one: this copy is stale (a workout the phone already
+            // finished, resumed here after a restart). The phone's workout wins.
+            endSession(broadcast = false)
+        }
         val now = System.currentTimeMillis()
         val profile = WearProfileHolder.profile.value
         val firstSlot = plan.exercises.firstOrNull()
 
         // Opens in REST, matching the phone — the workout begins when you do, not when the app does.
         accumulator = LiveCalorieAccumulator(profile).apply { begin(now, SegmentType.REST) }
-        sessionLog.clear()
-        pendingSamples.clear()
+        synchronized(readingsLock) {
+            sessionLog.clear()
+            pendingSamples.clear()
+        }
         lastHrFlushMs = now
         lastFailedSendMs = 0L
         lastStateSendMs = 0L
@@ -358,9 +394,10 @@ object WearSessionManager {
             currentSlotId = firstSlot?.slotId,
             currentReps = 0,
             setIndex = 1,
-            startMs = now,
+            startMs = startMs ?: now,
         )
         applyCurrentExerciseToAccumulator()
+        persist()
 
         if (broadcast) {
             send(ControlPayload(ControlCommand.START, now, DeviceOrigin.WATCH, type, sessionId, plan))
@@ -371,6 +408,7 @@ object WearSessionManager {
 
     private suspend fun endSession(broadcast: Boolean) {
         if (!_state.value.running) return
+        Log.i("CalWear", "endSession broadcast=$broadcast session=${_state.value.sessionId}")
         val now = System.currentTimeMillis()
         collectJob?.cancel()
         tickJob?.cancel()
@@ -379,7 +417,7 @@ object WearSessionManager {
         flushHr(force = true)
         // Keep this session's readings a while: the phone asks for them once more after the stop.
         lastEndedId = _state.value.sessionId
-        lastEndedLog = sessionLog.toList()
+        lastEndedLog = synchronized(readingsLock) { sessionLog.toList() }
         lastEndedAtMs = now
 
         _state.update {
@@ -435,7 +473,7 @@ object WearSessionManager {
         var slotId = cur.currentSlotId
         var setIndex = cur.setIndex
         if (type == SegmentType.ACTIVE) {
-            (target ?: cur.plan.upcoming(slotId, completed, deferred))?.let { slotId = it.slotId; setIndex = it.setIndex }
+            (target ?: cur.plan.upcoming(slotId, completed, deferred, cur.roundOrder))?.let { slotId = it.slotId; setIndex = it.setIndex }
         }
 
         accumulator?.startSegment(type, now)
@@ -510,6 +548,78 @@ object WearSessionManager {
         accumulator?.setCurrentReps(cur.currentReps)
     }
 
+    // ---- Surviving a restart ------------------------------------------------------------------------
+
+    /** Write the running workout to disk (or clear it once it's over) — see [WearSessionStore]. */
+    private fun persist() {
+        val st = _state.value
+        val s = store ?: return
+        if (!st.running) {
+            s.clear()
+            return
+        }
+        s.save(
+            SavedWatchSession(
+                sessionId = st.sessionId,
+                exerciseType = st.exerciseType,
+                plan = st.plan,
+                startMs = st.startMs,
+                status = st.status,
+                currentSegment = st.currentSegment,
+                currentSlotId = st.currentSlotId,
+                setIndex = st.setIndex,
+                completedSets = st.completedSets,
+                deferred = st.deferred,
+                roundOrder = st.roundOrder,
+                savedAtMs = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    /**
+     * Pick up the workout this process died in the middle of. Heart rate starts again (a Health
+     * Services exercise still running for this app is simply re-attached), the keep-alive service is
+     * asked back, and the phone hears from this copy at once. If the phone has since finished that
+     * workout, it answers the state report by stopping this one.
+     */
+    private suspend fun resumeSaved(context: Context) {
+        val saved = store?.load() ?: return
+        if (_state.value.running) return
+        val now = System.currentTimeMillis()
+        if (now - saved.savedAtMs > RESUME_WINDOW_MS) {
+            store?.clear()
+            return
+        }
+        accumulator = LiveCalorieAccumulator(WearProfileHolder.profile.value).apply { begin(now, saved.currentSegment) }
+        synchronized(readingsLock) {
+            sessionLog.clear()
+            pendingSamples.clear()
+        }
+        lastHrFlushMs = now
+        lastFailedSendMs = 0L
+        lastStateSendMs = 0L
+        _state.value = WearSessionState(
+            running = true,
+            sessionId = saved.sessionId,
+            exerciseType = saved.exerciseType,
+            status = saved.status,
+            currentSegment = saved.currentSegment,
+            plan = saved.plan,
+            currentSlotId = saved.currentSlotId,
+            setIndex = saved.setIndex,
+            completedSets = saved.completedSets,
+            deferred = saved.deferred,
+            roundOrder = saved.roundOrder,
+            startMs = saved.startMs,
+        )
+        applyCurrentExerciseToAccumulator()
+        WearSessionService.start(context)
+        startCollecting()
+        startTicking()
+        publish()
+        sendState(force = true)
+    }
+
     // ---- Streams ---------------------------------------------------------------------------------
 
     private fun startCollecting() {
@@ -520,8 +630,10 @@ object WearSessionManager {
                 heartRateSourceFactory(ctx).samples().collect { sample ->
                     if (_state.value.status != SessionStatus.ACTIVE) return@collect
                     accumulator?.addSample(sample)
-                    sessionLog.mergeReadings(listOf(sample))
-                    pendingSamples += sample
+                    synchronized(readingsLock) {
+                        sessionLog.mergeReadings(listOf(sample))
+                        pendingSamples += sample
+                    }
                     _state.update { it.copy(lastBpm = sample.bpm) }
                     flushHr(force = false)
                 }
@@ -558,22 +670,27 @@ object WearSessionManager {
      * rest, instead of being dropped.
      */
     private suspend fun flushHr(force: Boolean) {
-        if (pendingSamples.isEmpty()) return
-        val now = System.currentTimeMillis()
-        if (!force && now - lastFailedSendMs < RETRY_AFTER_FAILURE_MS) return
-        while (pendingSamples.isNotEmpty()) {
-            val batch = pendingSamples.take(MAX_BATCH)
-            val payload = HrBatchPayload(_state.value.sessionId, batch)
-            val delivered = sender?.send(
-                WearSync.PATH_HR_BATCH,
-                WearJson.encodeToString(HrBatchPayload.serializer(), payload).toByteArray(),
-            ) == true
-            if (!delivered) {
-                lastFailedSendMs = now
-                return
+        if (synchronized(readingsLock) { pendingSamples.isEmpty() }) return
+        flushMutex.withLock {
+            val now = System.currentTimeMillis()
+            if (!force && now - lastFailedSendMs < RETRY_AFTER_FAILURE_MS) return
+            while (true) {
+                val batch = synchronized(readingsLock) { pendingSamples.take(MAX_BATCH) }
+                if (batch.isEmpty()) return
+                val payload = HrBatchPayload(_state.value.sessionId, batch)
+                val delivered = sender?.send(
+                    WearSync.PATH_HR_BATCH,
+                    WearJson.encodeToString(HrBatchPayload.serializer(), payload).toByteArray(),
+                ) == true
+                if (!delivered) {
+                    lastFailedSendMs = now
+                    return
+                }
+                // Drop exactly what was delivered — the list may have been cleared or have grown
+                // while the send was in flight.
+                synchronized(readingsLock) { pendingSamples.removeAll(batch.toSet()) }
+                lastHrFlushMs = now
             }
-            repeat(batch.size) { pendingSamples.removeAt(0) }
-            lastHrFlushMs = now
         }
     }
 
@@ -584,7 +701,7 @@ object WearSessionManager {
     private suspend fun resend(sessionId: String?, sinceMs: Long) {
         val current = _state.value
         val log = when {
-            current.running && sessionId == current.sessionId -> sessionLog.toList()
+            current.running && sessionId == current.sessionId -> synchronized(readingsLock) { sessionLog.toList() }
             sessionId != null && sessionId == lastEndedId &&
                 System.currentTimeMillis() - lastEndedAtMs < KEEP_ENDED_LOG_MS -> lastEndedLog
             else -> return
@@ -602,6 +719,7 @@ object WearSessionManager {
         if (!force && now - lastStateSendMs < STATE_SEND_MS) return
         lastStateSendMs = now
 
+        persist()
         val st = _state.value
         val payload = SessionStatePayload(
             sessionId = st.sessionId,
@@ -633,6 +751,9 @@ object WearSessionManager {
     }
 
     private const val TICK_MS = 1_000L
+
+    /** A saved workout older than this when the app comes back isn't resumed — it ended without us. */
+    private const val RESUME_WINDOW_MS = 3 * 60 * 60_000L
 
     /** Readings per message — well under the Data Layer's message size limit. */
     private const val MAX_BATCH = 500

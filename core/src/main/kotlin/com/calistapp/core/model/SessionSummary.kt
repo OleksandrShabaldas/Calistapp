@@ -102,6 +102,11 @@ data class SessionSummary(
     val warmupDurationMs: Long = 0,
     /** A guided cool-down: from the last working set to the end. Absent in older stored summaries. */
     val coolDownDurationMs: Long = 0,
+    /**
+     * Scored without usable heart rate — no device, or too little of the session measured — by
+     * [com.calistapp.core.calorie.NoHeartRateEstimate]. Screens label these calories as an estimate.
+     */
+    val estimated: Boolean = false,
 ) {
     /**
      * The whole session on the clock. [activeDurationMs] and [restDurationMs] are the workout proper —

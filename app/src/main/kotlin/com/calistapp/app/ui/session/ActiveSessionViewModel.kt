@@ -11,9 +11,12 @@ import com.calistapp.app.data.session.SessionRepository
 import com.calistapp.app.data.sync.WatchConnectionMonitor
 import com.calistapp.app.data.sync.WatchLinkState
 import com.calistapp.app.session.LiveSession
+import com.calistapp.app.session.PendingReorder
+import com.calistapp.app.session.WatchRejoin
 import com.calistapp.app.session.SessionController
 import com.calistapp.app.session.WorkoutChanges
 import com.calistapp.app.ui.navigation.Routes
+import com.calistapp.core.model.BehindChoice
 import com.calistapp.core.model.EffortScale
 import com.calistapp.core.model.Exercise
 import com.calistapp.core.model.ExerciseType
@@ -41,6 +44,7 @@ class ActiveSessionViewModel @Inject constructor(
     private val drafts: PlanDraftRepository,
     private val watchConnection: WatchConnectionMonitor,
     private val sessionPrefs: SessionPrefsRepository,
+    bandHeartRate: com.calistapp.app.data.device.BandHeartRateManager,
     sessionRepository: SessionRepository,
     savedStateHandle: SavedStateHandle,
     exerciseRepository: ExerciseRepository,
@@ -60,7 +64,19 @@ class ActiveSessionViewModel @Inject constructor(
     /** Link health comes from the monitor, which distinguishes paired / reachable / streaming. */
     val watchLink: StateFlow<WatchLinkState> = watchConnection.state
 
-    fun reconnectWatch() { watchConnection.reconnect() }
+    /**
+     * Reconnect. During a workout it brings the watch back into it (re-sending the workout if the
+     * watch lost it) with feedback in [rejoin]; before one it re-checks the link.
+     */
+    fun reconnectWatch() {
+        if (controller.live.value != null) controller.rejoinWatch() else watchConnection.reconnect()
+    }
+
+    /** Where a "bring the watch back" attempt stands. */
+    val rejoin: StateFlow<WatchRejoin> = controller.rejoin
+
+    /** The chosen Bluetooth heart-rate band, when there is one — it's then the heart-rate source. */
+    val band: StateFlow<com.calistapp.app.data.device.BandState> = bandHeartRate.state
 
     /** The live-workout toggles (sound, vibration, autoplay, hands-free), from the pause screen. */
     val prefs: StateFlow<SessionPrefs> =
@@ -145,6 +161,10 @@ class ActiveSessionViewModel @Inject constructor(
 
     // Editing today's session from the journal.
     fun moveExercise(slotId: String, toIndex: Int) = controller.moveExercise(slotId, toIndex)
+
+    /** A circuit reorder waiting on "what about the exercises now behind you?". */
+    val pendingReorder: StateFlow<PendingReorder?> = controller.pendingReorder
+    fun resolveReorder(choice: BehindChoice?) = controller.resolveReorder(choice)
     fun retarget(slotId: String, value: Int, weightKg: Double) = controller.retarget(slotId, value, weightKg)
     fun setRounds(rounds: Int) = controller.setRounds(rounds)
 
@@ -215,6 +235,7 @@ class ActiveSessionViewModel @Inject constructor(
     fun setSound(on: Boolean) = viewModelScope.launch { sessionPrefs.setSound(on) }
     fun setVibration(on: Boolean) = viewModelScope.launch { sessionPrefs.setVibration(on) }
     fun setAutoplay(on: Boolean) = viewModelScope.launch { sessionPrefs.setAutoplay(on) }
+    fun setKeepScreenOn(on: Boolean) = viewModelScope.launch { sessionPrefs.setKeepScreenOn(on) }
 
 }
 

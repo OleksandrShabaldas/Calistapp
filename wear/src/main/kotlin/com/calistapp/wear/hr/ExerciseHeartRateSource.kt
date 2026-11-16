@@ -2,6 +2,7 @@ package com.calistapp.wear.hr
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import androidx.health.services.client.ExerciseUpdateCallback
 import androidx.health.services.client.HealthServices
 import androidx.health.services.client.clearUpdateCallback
@@ -28,7 +29,10 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicInteger
 import java.time.Instant
 import kotlin.math.roundToInt
 
@@ -55,11 +59,24 @@ class ExerciseHeartRateSource(private val context: Context) : HeartRateSource {
 
     override val label = "Watch sensor"
 
+    private companion object {
+        /**
+         * Starting and ending the one Health Services exercise must take turns, and only the newest
+         * collector may end it. A workout that is replaced (a saved one resumed at launch, then the
+         * phone's new START) cancels the old collector, whose clean-up ends the exercise from a
+         * separate coroutine — which used to land just after the new collector had started its own
+         * exercise, silently ending it a second in and leaving the workout with no heart rate.
+         */
+        val exerciseLock = Mutex()
+        val newest = AtomicInteger(0)
+    }
+
     override fun samples(): Flow<HeartRateSample> = callbackFlow {
+        val mine = newest.incrementAndGet()
         val client = HealthServices.getClient(context).exerciseClient
 
         // Never take a workout over from another app — fall back instead (see ResilientHeartRateSource).
-        val tracked = client.getCurrentExerciseInfo().exerciseTrackedStatus
+        val tracked = exerciseLock.withLock { client.getCurrentExerciseInfo().exerciseTrackedStatus }
         if (tracked == ExerciseTrackedStatus.OTHER_APP_IN_PROGRESS) throw ExerciseOwnedElsewhere()
 
         val capabilities = client.getCapabilities()
@@ -95,24 +112,35 @@ class ExerciseHeartRateSource(private val context: Context) : HeartRateSource {
             override fun onAvailabilityChanged(dataType: DataType<*, *>, availability: Availability) = Unit
         }
 
-        client.setUpdateCallback(callback)
-        if (tracked != ExerciseTrackedStatus.OWNED_EXERCISE_IN_PROGRESS) {
-            client.startExercise(
-                ExerciseConfig.Builder(type)
-                    .setDataTypes(setOf(DataType.HEART_RATE_BPM))
-                    .setIsAutoPauseAndResumeEnabled(false)
-                    .setIsGpsEnabled(false)
-                    .setBatchingModeOverrides(batching)
-                    .build(),
-            )
+        exerciseLock.withLock {
+            client.setUpdateCallback(callback)
+            // Look again under the lock: a collector being replaced may have ended its exercise since.
+            val now = client.getCurrentExerciseInfo().exerciseTrackedStatus
+            if (now == ExerciseTrackedStatus.OTHER_APP_IN_PROGRESS) throw ExerciseOwnedElsewhere()
+            if (now != ExerciseTrackedStatus.OWNED_EXERCISE_IN_PROGRESS) {
+                client.startExercise(
+                    ExerciseConfig.Builder(type)
+                        .setDataTypes(setOf(DataType.HEART_RATE_BPM))
+                        .setIsAutoPauseAndResumeEnabled(false)
+                        .setIsGpsEnabled(false)
+                        .setBatchingModeOverrides(batching)
+                        .build(),
+                )
+            }
         }
 
         awaitClose {
             // The flow is being cancelled; ending the exercise must still happen, off this thread.
             CoroutineScope(Dispatchers.Default).launch {
                 withContext(NonCancellable) {
-                    runCatching { client.endExercise() }
-                    runCatching { client.clearUpdateCallback(callback) }
+                    exerciseLock.withLock {
+                        Log.i("CalWear", "exercise collector $mine closing; newest=${newest.get()}")
+                        // A newer collector has taken over the exercise (and the callback): leave both.
+                        if (newest.get() == mine) {
+                            runCatching { client.endExercise() }
+                            runCatching { client.clearUpdateCallback(callback) }
+                        }
+                    }
                 }
             }
         }

@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.calistapp.app.ui.common.GlassCard
 import com.calistapp.app.ui.common.GradientStatCard
+import com.calistapp.app.ui.common.HelpDot
 import com.calistapp.app.ui.common.MetricBlock
 import com.calistapp.app.ui.common.SectionHeading
 import com.calistapp.app.ui.common.SegmentedToggle
@@ -212,7 +213,13 @@ private fun TrainingLoadCard(ramp: TrainingLoad.Ramp) {
     GlassCard(accent = accent) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Training load", style = MaterialTheme.typography.titleMedium, color = Chalk)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Training load", style = MaterialTheme.typography.titleMedium, color = Chalk)
+                    HelpDot(
+                        "Banister TRIMP — heart rate and time, weighted so hard minutes count for more. " +
+                            "A description of your last week, not a prediction about your next one.",
+                    )
+                }
                 Text(ramp.band.label, style = MaterialTheme.typography.labelLarge, color = accent)
             }
             Text(
@@ -227,12 +234,6 @@ private fun TrainingLoadCard(ramp: TrainingLoad.Ramp) {
             MetricBlock("This week", "${ramp.acuteLoad.toInt()}", accent)
             MetricBlock("Average week", "${ramp.chronicLoad.toInt()}", Ash)
         }
-        Text(
-            "Banister TRIMP — heart rate and time, weighted so hard minutes count for more. " +
-                "A description of your last week, not a prediction about your next one.",
-            style = MaterialTheme.typography.labelSmall,
-            color = Ash,
-        )
     }
 }
 
@@ -312,7 +313,15 @@ private fun BodyMassCard(trend: BodyMassTrend) {
     val sign = if (trend.changeKg > 0) "+" else ""
 
     GlassCard {
-        SectionHeading("Bodyweight")
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Bodyweight", style = MaterialTheme.typography.titleLarge, color = Chalk)
+            HelpDot(
+                "This is arithmetic, not a check on the calorie estimate. What you weigh responds to " +
+                    "what you eat minus everything you spend, and most of what you spend is resting " +
+                    "metabolism and daily movement — neither of which this app measures. Without food " +
+                    "logging, a difference here can't be pinned on any one of them.",
+            )
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             MetricBlock("Now", "%.1f kg".format(trend.latest.weightKg), Chalk)
             MetricBlock("Change", "$sign%.1f kg".format(trend.changeKg), accent)
@@ -336,15 +345,6 @@ private fun BodyMassCard(trend: BodyMassTrend) {
                 color = Ash,
             )
         }
-
-        Text(
-            "This is arithmetic, not a check on the calorie estimate. What you weigh responds to " +
-                "what you eat minus everything you spend, and most of what you spend is resting " +
-                "metabolism and daily movement — neither of which this app measures. Without food " +
-                "logging, a difference here can't be pinned on any one of them.",
-            style = MaterialTheme.typography.labelSmall,
-            color = Ash,
-        )
     }
 }
 

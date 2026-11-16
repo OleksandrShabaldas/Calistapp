@@ -7,9 +7,11 @@ import com.calistapp.app.data.session.SavedWorkoutRepository
 import com.calistapp.app.data.session.SessionPrefsRepository
 import com.calistapp.app.data.session.SessionRepository
 import com.calistapp.app.data.sync.HrBatch
+import com.calistapp.app.data.sync.HrSource
 import com.calistapp.app.data.sync.LiveSessionBus
 import com.calistapp.app.data.sync.WatchAppLauncher
 import com.calistapp.app.data.sync.WatchCommandSender
+import com.calistapp.app.data.sync.WatchConnectionMonitor
 import com.calistapp.app.di.ApplicationScope
 import com.calistapp.core.calorie.CalorieEngine
 import com.calistapp.core.calorie.ExerciseIntensity
@@ -22,7 +24,11 @@ import com.calistapp.core.model.ExerciseMeasure
 import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.HeartRateSample
 import com.calistapp.core.model.NextUp
+import com.calistapp.core.model.BehindChoice
 import com.calistapp.core.model.PlannedExercise
+import com.calistapp.core.model.ReorderEffect
+import com.calistapp.core.model.RoundOrder
+import com.calistapp.core.model.reorderEffect
 import com.calistapp.core.model.Segment
 import com.calistapp.core.model.SegmentType
 import com.calistapp.core.model.SessionStatus
@@ -46,6 +52,7 @@ import com.calistapp.core.model.withoutSlot
 import com.calistapp.core.sync.ControlCommand
 import com.calistapp.core.sync.ControlPayload
 import com.calistapp.core.sync.DeviceOrigin
+import com.calistapp.core.sync.SessionStatePayload
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -101,6 +108,8 @@ class SessionController @Inject constructor(
     private val watch: WatchCommandSender,
     private val watchLauncher: WatchAppLauncher,
     private val fitPalExportManager: FitPalExportManager,
+    private val watchConnection: WatchConnectionMonitor,
+    private val devicePrefs: com.calistapp.app.data.device.DevicePrefsRepository,
 ) {
     private val _live = MutableStateFlow<LiveSession?>(null)
     val live: StateFlow<LiveSession?> = _live.asStateFlow()
@@ -160,6 +169,128 @@ class SessionController @Inject constructor(
         } }
         scope.launch { sessionPrefs.prefs.collect { autoAdvanceRoutines = it.autoAdvanceRoutines } }
         scope.launch { bus.hrBatches.collect { onHrBatch(it) } }
+        scope.launch { bus.watchState.collect { it?.let(::onWatchState) } }
+        scope.launch { devicePrefs.prefs.collect { bandChosen = it.band != null } }
+    }
+
+    // ---- Bringing the watch back into the workout ----------------------------------------------------
+
+    private val _rejoin = MutableStateFlow<WatchRejoin>(WatchRejoin.Idle)
+    /** Where a "bring the watch back" attempt stands — the HR panel's and HUD chip's feedback. */
+    val rejoin: StateFlow<WatchRejoin> = _rejoin.asStateFlow()
+
+    private var rejoinJob: Job? = null
+    /** When the watch last reported its state for *this* workout — proof its copy of it is alive. */
+    private var lastWatchStateAtMs = 0L
+    private var lastAutoRejoinMs = 0L
+    private var autoRejoinFailures = 0
+    /** When a Bluetooth band last delivered a reading — while it's streaming, it's the heart-rate source. */
+    private var lastBandSampleAtMs = 0L
+    /** A band is chosen in Settings → Devices: heart rate comes from it, so the watch isn't chased. */
+    private var bandChosen = false
+    private var lastGhostStopMs = 0L
+
+    /**
+     * Reconnect: bring the watch back into this workout. Pings it, re-sends the workout itself (plan,
+     * progress, start time) and raises the watch app, then waits for heart rate — so it also recovers a
+     * watch whose copy of the workout was lost, which the old ping-only reconnect couldn't.
+     */
+    fun rejoinWatch() = startRejoin(auto = false)
+
+    private fun startRejoin(auto: Boolean) {
+        if (rejoinJob?.isActive == true) return
+        val cur = _live.value ?: return
+        rejoinJob = scope.launch {
+            _rejoin.value = WatchRejoin.Working(auto)
+            val attemptAt = System.currentTimeMillis()
+            watchConnection.reconnect().join()
+            if (watchConnection.state.value.status == com.calistapp.app.data.sync.WatchLinkStatus.NO_DEVICE) {
+                finishRejoin(WatchRejoin.Failed(WatchRejoin.Reason.NO_WATCH), auto)
+                return@launch
+            }
+            watch.send(
+                ControlPayload(
+                    command = ControlCommand.START,
+                    timestampMs = attemptAt,
+                    origin = DeviceOrigin.PHONE,
+                    exerciseType = cur.exerciseType,
+                    sessionId = cur.id,
+                    plan = cur.plan,
+                    sessionStartMs = cur.startMs,
+                ),
+            )
+            syncProgress()
+            watchLauncher.launch()
+            // Heart rate arriving is the only real proof; the watch's own state report proves it rejoined.
+            val deadline = attemptAt + REJOIN_WAIT_MS
+            while (System.currentTimeMillis() < deadline) {
+                if (lastSampleAtMs > attemptAt) {
+                    finishRejoin(WatchRejoin.Back, auto)
+                    return@launch
+                }
+                delay(500)
+            }
+            val reason = if (lastWatchStateAtMs > attemptAt) WatchRejoin.Reason.NO_HEART_RATE else WatchRejoin.Reason.NO_ANSWER
+            finishRejoin(WatchRejoin.Failed(reason), auto)
+        }
+    }
+
+    private suspend fun finishRejoin(result: WatchRejoin, auto: Boolean) {
+        _rejoin.value = result
+        if (result == WatchRejoin.Back) {
+            autoRejoinFailures = 0
+            delay(REJOIN_BACK_SHOWN_MS)
+            if (_rejoin.value == WatchRejoin.Back) _rejoin.value = WatchRejoin.Idle
+        } else if (auto) {
+            autoRejoinFailures++
+        }
+    }
+
+    /**
+     * The phone noticing silence by itself: no heart rate and no word from the watch's copy of this
+     * workout for a while, though a watch is paired — rejoin without waiting for a tap. Throttled, and
+     * it stops trying after a few misses (Reconnect still works by hand).
+     */
+    private fun maybeAutoRejoin(cur: LiveSession, now: Long) {
+        if (rejoinJob?.isActive == true || autoRejoinFailures >= AUTO_REJOIN_MAX_FAILURES) return
+        // Heart rate is the band's job; its own manager reconnects it. Don't wake a watch nobody asked for.
+        if (bandChosen) return
+        val status = watchConnection.state.value.status
+        if (status == com.calistapp.app.data.sync.WatchLinkStatus.NO_DEVICE ||
+            status == com.calistapp.app.data.sync.WatchLinkStatus.CHECKING
+        ) return
+        // Only once the watch has been part of this workout — a session started without a watch on
+        // purpose shouldn't keep poking one that's merely paired.
+        if (lastSampleAtMs == 0L && lastWatchStateAtMs == 0L && status != com.calistapp.app.data.sync.WatchLinkStatus.READY &&
+            status != com.calistapp.app.data.sync.WatchLinkStatus.STREAMING
+        ) return
+        val lastSign = maxOf(lastSampleAtMs, lastWatchStateAtMs, cur.startMs)
+        if (now - lastSign < AUTO_REJOIN_AFTER_MS || now - lastAutoRejoinMs < AUTO_REJOIN_EVERY_MS) return
+        lastAutoRejoinMs = now
+        startRejoin(auto = true)
+    }
+
+    /**
+     * A state report from the watch. For this workout it's a sign of life. For a workout the phone isn't
+     * running — one the watch resumed after a restart though the phone had finished it — it's a ghost
+     * draining the battery, so the watch is told to stop (unless it's brand new: a workout the watch just
+     * started may simply not have reached the phone yet).
+     */
+    private fun onWatchState(state: SessionStatePayload) {
+        val now = System.currentTimeMillis()
+        val cur = _live.value
+        if (cur != null && state.sessionId == cur.id) {
+            lastWatchStateAtMs = now
+            return
+        }
+        val running = state.status == SessionStatus.ACTIVE || state.status == SessionStatus.PAUSED
+        if (!running || now - state.startMs < GHOST_GRACE_MS || now - lastGhostStopMs < GHOST_GRACE_MS) return
+        lastGhostStopMs = now
+        scope.launch {
+            watch.send(ControlPayload(ControlCommand.STOP, now, DeviceOrigin.PHONE, sessionId = state.sessionId))
+            // The phone has a workout of its own running: put the watch on that one instead.
+            if (cur != null) startRejoin(auto = true)
+        }
     }
 
     // ---- Local actions — these broadcast to the watch -----------------------------------------
@@ -475,8 +606,97 @@ class SessionController @Inject constructor(
         editPlan { it.withAddedSlot(slot) }
     }
 
-    /** Move [slotId] to [toIndex] within its own phase. */
-    fun moveExercise(slotId: String, toIndex: Int) = scope.launch { editPlan { it.withSlotMoved(slotId, toIndex) } }
+    /**
+     * A reorder that's waiting on the user's answer — in a circuit it would leave exercises still owed
+     * this round behind the one in progress. The editor shows its order while the question is up.
+     */
+    private val _pendingReorder = MutableStateFlow<PendingReorder?>(null)
+    val pendingReorder: StateFlow<PendingReorder?> = _pendingReorder.asStateFlow()
+
+    /**
+     * Move [slotId] to [toIndex] within its own phase — and carry the session on in the new order. The
+     * session used to keep whatever slot it had picked (the old first exercise, before set 1), so a
+     * reorder looked ignored and the progress dashes lit the moved exercise in its new spot. The rules
+     * live in [reorderEffect]; a circuit asks first when the new order leaves owed exercises behind you.
+     */
+    fun moveExercise(slotId: String, toIndex: Int) = scope.launch {
+        val applied = mutex.withLock {
+            val cur = _live.value ?: return@withLock false
+            val after = cur.plan.withSlotMoved(slotId, toIndex)
+            if (after == cur.plan) return@withLock false
+            when (val effect = reorderEffect(cur.plan, after, slotId, cur.currentSlotId, cur.completedSets, cur.deferred, cur.isWorking, cur.roundOrder)) {
+                is ReorderEffect.AskBehind -> {
+                    _pendingReorder.value = PendingReorder(after, slotId, effect.behind)
+                    false
+                }
+                is ReorderEffect.Apply -> {
+                    applyReorderLocked(cur, after, effect)
+                    true
+                }
+            }
+        }
+        if (applied) afterProgressChange()
+    }
+
+    /** The answer to [pendingReorder]; null puts the exercise back where it was. */
+    fun resolveReorder(choice: BehindChoice?) = scope.launch {
+        val pending = _pendingReorder.value ?: return@launch
+        _pendingReorder.value = null
+        if (choice == null) return@launch
+        mutex.withLock {
+            val cur = _live.value ?: return@withLock
+            when (choice) {
+                // This round keeps the order it was running in; the new one takes over next round.
+                BehindChoice.NEXT_ROUND -> _live.update {
+                    it?.copy(roundOrder = RoundOrder(cur.plan.roundOf(cur.completedSets), cur.plan.exercises.map { s -> s.slotId }))
+                }
+                BehindChoice.SKIP_THIS_ROUND -> {
+                    val now = System.currentTimeMillis()
+                    pending.behind.forEach { id ->
+                        val setIndex = (cur.completedSets[id] ?: 0) + 1
+                        if (skips.none { it.slotId == id && it.setIndex == setIndex }) skips += SetSkip(id, setIndex, now)
+                    }
+                    _live.update { it?.copy(skips = skips.toList()) }
+                }
+                // Nothing extra: the round walks on from the current exercise and comes back round to them.
+                BehindChoice.LATER_THIS_ROUND -> Unit
+            }
+            _live.value?.let { applyReorderLocked(it, pending.plan, ReorderEffect.Apply()) }
+        }
+        afterProgressChange()
+    }
+
+    private fun applyReorderLocked(cur: LiveSession, after: WorkoutPlan, effect: ReorderEffect.Apply) {
+        val anchor = effect.anchor?.takeIf { after.slot(it.slotId) != null }
+        val opening = cur.completedSetCount == 0 && !cur.isWorking
+        if (anchor != null && opening) {
+            // Before set 1 the open rest is the opening warm-up of whichever exercise leads — re-point
+            // it at the new first exercise, so the record and the live score agree with the screen.
+            val slot = after.slot(anchor.slotId)
+            segments.lastOrNull()?.takeIf { it.endMs == null }?.let {
+                segments[segments.lastIndex] = it.copy(slotId = slot?.slotId, exerciseName = slot?.name, metabolics = slot?.metabolics)
+            }
+            accumulator?.setCurrentExercise(slot?.slotId, slot?.name, slot?.metabolics)
+        }
+        _live.update {
+            it?.copy(
+                plan = after,
+                completedSets = resolvedFor(after),
+                currentSlotId = anchor?.slotId ?: it.currentSlotId,
+                setIndex = when {
+                    anchor == null -> it.setIndex
+                    opening -> 1
+                    else -> (it.completedSets[anchor.slotId] ?: 0).coerceAtLeast(1)
+                },
+                reanchor = when {
+                    effect.afterSet -> Reanchor.AFTER_SET
+                    effect.afterExercise -> Reanchor.AFTER_EXERCISE
+                    anchor != null -> null
+                    else -> it.reanchor
+                },
+            )
+        }
+    }
 
     /** Change [slotId]'s remaining sets to [value] reps (or seconds) at [weightKg]. */
     fun retarget(slotId: String, value: Int, weightKg: Double) = scope.launch {
@@ -524,20 +744,24 @@ class SessionController @Inject constructor(
      * disagreeing about what comes next.
      */
     private suspend fun syncProgress() {
-        val cur = _live.value ?: return
-        watch.send(
-            ControlPayload(
-                command = ControlCommand.SYNC_PLAN,
-                timestampMs = System.currentTimeMillis(),
-                origin = DeviceOrigin.PHONE,
-                sessionId = cur.id,
-                plan = cur.plan,
-                slotId = cur.currentSlotId,
-                setIndex = cur.setIndex,
-                completed = cur.completedSets,
-                deferred = cur.deferred.toList(),
-                segment = cur.currentSegment,
-            ),
+        progressPayload()?.let { watch.send(it) }
+    }
+
+    /** The phone's whole progress as a SYNC_PLAN message — see [syncProgress]. */
+    private fun progressPayload(): ControlPayload? {
+        val cur = _live.value ?: return null
+        return ControlPayload(
+            command = ControlCommand.SYNC_PLAN,
+            timestampMs = System.currentTimeMillis(),
+            origin = DeviceOrigin.PHONE,
+            sessionId = cur.id,
+            plan = cur.plan,
+            slotId = cur.currentSlotId,
+            setIndex = cur.setIndex,
+            completed = cur.completedSets,
+            deferred = cur.deferred.toList(),
+            segment = cur.currentSegment,
+            roundOrder = cur.roundOrder,
         )
     }
 
@@ -1008,7 +1232,24 @@ class SessionController @Inject constructor(
             // `upcoming` works the on-screen slot for the opening block and asks nextUp after that —
             // the same rule the live screen's "up next" and the watch use. A remote start names its
             // set; that wins, so the devices can't diverge.
-            (target ?: cur.plan.upcoming(slotId, completed, deferred))?.let { slotId = it.slotId; setIndex = it.setIndex }
+            (target ?: cur.plan.upcoming(slotId, completed, deferred, cur.roundOrder))?.let { slotId = it.slotId; setIndex = it.setIndex }
+        }
+
+        // A reorder waiting on this set (or this exercise) to finish: point the session at the first
+        // unfinished exercise in the new order now. Only the live position moves — the rest block
+        // itself still belongs to the set just done.
+        var liveSlotId = slotId
+        var liveSetIndex = setIndex
+        var reanchor = cur.reanchor
+        if (type == SegmentType.REST && banked && reanchor != null && !cur.plan.isCircuit) {
+            val owes = cur.plan.targetSetsFor(finishedSlot) - (completed[finishedSlot] ?: 0) > 0
+            if (reanchor == Reanchor.AFTER_SET || !owes) {
+                cur.plan.nextUp(null, completed, deferred)?.let { next ->
+                    liveSlotId = next.slotId
+                    liveSetIndex = (completed[next.slotId] ?: 0).coerceAtLeast(1)
+                }
+                reanchor = null
+            }
         }
 
         val slot = cur.plan.slot(slotId)
@@ -1035,17 +1276,19 @@ class SessionController @Inject constructor(
                 currentSegment = type,
                 completedSets = completed,
                 deferred = deferred,
-                currentSlotId = slotId,
-                setIndex = setIndex,
+                currentSlotId = liveSlotId,
+                setIndex = liveSetIndex,
                 currentReps = openingReps,
                 segmentStartMs = now,
                 // The set just banked consumed its effort; the next one starts unrated.
                 pendingEffortScale = null,
                 pendingEffortValue = null,
+                reanchor = reanchor,
             )
         }
+        val reanchored = liveSlotId != slotId
 
-        if (!broadcast) return emptyList()
+        if (!broadcast) return if (reanchored) listOfNotNull(progressPayload()) else emptyList()
         return buildList {
             // Tell the watch what the set was before telling it the state changed, so its rep
             // count matches ours.
@@ -1072,6 +1315,9 @@ class SessionController @Inject constructor(
                     setIndex = setIndex,
                 ),
             )
+            // Re-pointed after the set: hand the watch the new position, or its next start would
+            // still walk on from the exercise just finished.
+            if (reanchored) progressPayload()?.let(::add)
         }
     }
 
@@ -1160,6 +1406,11 @@ class SessionController @Inject constructor(
      */
     private suspend fun onHrBatch(batch: HrBatch) {
         val cur = _live.value
+        // One heart-rate source at a time: with a band streaming, the watch's readings (if it's on too)
+        // would interleave with the band's and jitter the curve — the band is the one you chose.
+        val now = System.currentTimeMillis()
+        if (batch.source == HrSource.BAND) lastBandSampleAtMs = now
+        if (batch.source == HrSource.WATCH && now - lastBandSampleAtMs < BAND_PREFERRED_MS && cur?.id == batch.sessionId) return
         when {
             cur != null && batch.sessionId == cur.id -> if (cur.status == SessionStatus.ACTIVE) mergeLive(batch.samples)
             batch.sessionId == finishedSessionId &&
@@ -1177,6 +1428,9 @@ class SessionController @Inject constructor(
             if (backfill + fresh == 0) return@withLock
             backfilled += backfill
             lastSampleAtMs = System.currentTimeMillis()
+            // Heart rate is back on its own: a failed rejoin's warning no longer applies.
+            if (_rejoin.value is WatchRejoin.Failed) _rejoin.value = WatchRejoin.Idle
+            autoRejoinFailures = 0
 
             // A gap before this batch: ask the watch for whatever it measured in between.
             val firstNew = newer.minOfOrNull { it.timestampMs }
@@ -1256,6 +1510,7 @@ class SessionController @Inject constructor(
                 // Silence from the watch while a workout runs: ask for anything it has that we don't.
                 val newest = samples.lastOrNull()?.timestampMs
                 if (newest != null && now - newest > STALE_REQUEST_MS) requestReadings(newest)
+                maybeAutoRejoin(cur, now)
                 maybeAdvanceRoutine()
             }
         }
@@ -1275,7 +1530,9 @@ class SessionController @Inject constructor(
     /** Publish a fresh snapshot. O(1) — this is what the quadratic recompute was replaced with. */
     private fun refresh() {
         val now = System.currentTimeMillis()
-        val snap = accumulator?.snapshot(now) ?: return
+        // No heart-rate source at all (no watch, no band): show the same estimate the finished
+        // session will be scored with, instead of a live counter stuck near zero.
+        val snap = (if (samples.isEmpty()) liveEstimate(now) else null) ?: accumulator?.snapshot(now) ?: return
         _live.update {
             it?.copy(
                 summary = snap,
@@ -1287,6 +1544,13 @@ class SessionController @Inject constructor(
                 maxHr = profile.effectiveMaxHr,
             )
         }
+    }
+
+    /** The no-heart-rate estimate for the session so far — see [com.calistapp.core.calorie.NoHeartRateEstimate]. */
+    private fun liveEstimate(now: Long): SessionSummary? {
+        val plan = _live.value?.plan ?: return null
+        val segs = runCatching { segments.toList() }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return null
+        return runCatching { engine.compute(emptyList(), segs, profile, endMs = now, plan = plan) }.getOrNull()
     }
 
     private suspend fun broadcast(command: ControlCommand) {
@@ -1357,6 +1621,12 @@ class SessionController @Inject constructor(
         backfilled = 0
         lastHrRequestMs = 0L
         accumulator = null
+        _pendingReorder.value = null
+        rejoinJob?.cancel()
+        _rejoin.value = WatchRejoin.Idle
+        lastWatchStateAtMs = 0L
+        lastAutoRejoinMs = 0L
+        autoRejoinFailures = 0
     }
 
     private companion object {
@@ -1365,6 +1635,27 @@ class SessionController @Inject constructor(
 
         /** No reading for this long means the watch link has gone quiet. */
         const val HR_STALE_MS = 10_000L
+
+        /** How long a rejoin waits for heart rate before calling it failed. */
+        const val REJOIN_WAIT_MS = 15_000L
+
+        /** How long "heart rate back" stays up after a rejoin worked. */
+        const val REJOIN_BACK_SHOWN_MS = 3_000L
+
+        /** Silence (no heart rate, no watch state) that sets off an automatic rejoin… */
+        const val AUTO_REJOIN_AFTER_MS = 15_000L
+
+        /** …no more often than this… */
+        const val AUTO_REJOIN_EVERY_MS = 60_000L
+
+        /** …and not after this many misses in a row (Reconnect still works by hand). */
+        const val AUTO_REJOIN_MAX_FAILURES = 3
+
+        /** A watch workout younger than this may just not have reached the phone yet — never a ghost. */
+        const val GHOST_GRACE_MS = 30_000L
+
+        /** A band reading this recent makes the band the heart-rate source; the watch's are set aside. */
+        const val BAND_PREFERRED_MS = 10_000L
 
         /** A gap this long between consecutive readings is worth asking the watch to fill. */
         const val GAP_REQUEST_MS = 12_000L

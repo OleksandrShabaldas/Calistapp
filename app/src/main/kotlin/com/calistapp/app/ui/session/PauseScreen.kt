@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Vibration
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -62,6 +63,7 @@ fun PauseScreen(
     onSound: (Boolean) -> Unit,
     onVibration: (Boolean) -> Unit,
     onAutoplay: (Boolean) -> Unit,
+    onKeepScreenOn: (Boolean) -> Unit,
     onResume: () -> Unit,
     onEnd: () -> Unit,
     onDiscard: () -> Unit,
@@ -93,10 +95,15 @@ fun PauseScreen(
 
         Spacer(Modifier.weight(1f))
 
+        // Two by two: four in a row wrapped their labels mid-word on a phone-width screen.
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ToggleCard("Sound", Icons.AutoMirrored.Filled.VolumeUp, prefs.sound, Modifier.weight(1f)) { onSound(!prefs.sound) }
             ToggleCard("Vibration", Icons.Filled.Vibration, prefs.vibration, Modifier.weight(1f)) { onVibration(!prefs.vibration) }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ToggleCard("Autoplay", Icons.Filled.Videocam, prefs.autoplayVideo, Modifier.weight(1f)) { onAutoplay(!prefs.autoplayVideo) }
+            ToggleCard("Screen on", Icons.Filled.LightMode, prefs.keepScreenOn, Modifier.weight(1f)) { onKeepScreenOn(!prefs.keepScreenOn) }
         }
 
         Spacer(Modifier.height(24.dp))

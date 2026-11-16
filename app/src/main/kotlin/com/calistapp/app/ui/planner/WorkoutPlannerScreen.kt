@@ -78,6 +78,7 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.calistapp.app.ui.common.HelpDot
 import com.calistapp.app.ui.common.DecimalPadSheet
 import com.calistapp.app.ui.common.EditableNumber
 import com.calistapp.app.ui.common.GlassCard
@@ -395,11 +396,6 @@ private fun SaveWorkoutDialog(
         title = { Text("Save this workout") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "It'll be waiting on this screen next time, so you don't rebuild it from scratch.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Ash,
-                )
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -454,7 +450,7 @@ private fun StyleSelector(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text("ROUNDS", style = Eyebrow, color = Ash)
-                InfoDot("In a circuit you do one set of every exercise in order, then repeat the whole list. Rounds is how many times you go through it.")
+                HelpDot("In a circuit you do one set of every exercise in order, then repeat the whole list. Rounds is how many times you go through it.")
                 Box(Modifier.weight(1f))
                 ProtoStepper(value = rounds, onChange = onRounds, min = 1)
             }
@@ -1203,32 +1199,3 @@ private fun FlatCard(
     )
 }
 
-/** A tiny "?" that reveals a small tooltip popup right next to it — not a full-screen dialog. */
-@Composable
-private fun InfoDot(text: String) {
-    var show by rememberSaveable { mutableStateOf(false) }
-    Box {
-        Box(
-            Modifier.size(18.dp).clip(Capsule).border(1.dp, Ash.copy(alpha = 0.5f), Capsule).clickable { show = true },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("?", style = MaterialTheme.typography.labelSmall, color = Ash)
-        }
-        if (show) {
-            Popup(
-                alignment = Alignment.BottomStart,
-                offset = IntOffset(0, 8),
-                onDismissRequest = { show = false },
-                properties = PopupProperties(focusable = true),
-            ) {
-                Box(
-                    Modifier.widthIn(max = 240.dp).clip(RoundedCornerShape(10.dp))
-                        .background(OnyxRaised).border(1.dp, OnyxBorder, RoundedCornerShape(10.dp))
-                        .padding(horizontal = 12.dp, vertical = 9.dp),
-                ) {
-                    Text(text, style = MaterialTheme.typography.bodySmall, color = Chalk)
-                }
-            }
-        }
-    }
-}

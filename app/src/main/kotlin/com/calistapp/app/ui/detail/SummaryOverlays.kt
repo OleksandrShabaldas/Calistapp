@@ -53,6 +53,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.calistapp.app.ui.common.GlowBox
 import com.calistapp.app.ui.common.GlowIcon
+import com.calistapp.app.ui.common.HelpDot
 import com.calistapp.app.ui.dashboard.CardBorder
 import com.calistapp.app.ui.dashboard.CardSurface
 import com.calistapp.app.ui.theme.Amber
@@ -266,7 +267,14 @@ fun RecoveryOverlay(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             GlowIcon(Icons.Filled.FavoriteBorder, null, band.color, size = 28.dp, glowRadius = 8.dp, glowAlpha = 0.5f)
             Column {
-                Text("Heart-rate recovery", style = MaterialTheme.typography.headlineSmall, color = Chalk)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Heart-rate recovery", style = MaterialTheme.typography.headlineSmall, color = Chalk)
+                    HelpDot(
+                        "How far your pulse falls in the minute after a hard effort. It tracks how quickly your " +
+                            "nervous system switches from \"push\" back toward \"rest\" — one of the clearer " +
+                            "day-to-day windows onto aerobic fitness and how recovered you are.",
+                    )
+                }
                 Text("How fast your heart came back down", style = MaterialTheme.typography.bodySmall, color = Ash)
             }
         }
@@ -280,16 +288,6 @@ fun RecoveryOverlay(
         }
 
         RecoveryScale(recovery.meanDropBpm)
-
-        RecSection("What this is") {
-            Text(
-                "How far your pulse falls in the minute after a hard effort. It tracks how quickly your " +
-                    "nervous system switches from \"push\" back toward \"rest\" — one of the clearer " +
-                    "day-to-day windows onto aerobic fitness and how recovered you are.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Ash,
-            )
-        }
 
         RecSection("What it means for you") {
             Text(recoveryAdvice(recovery.meanDropBpm), style = MaterialTheme.typography.bodyMedium, color = Chalk)
@@ -309,7 +307,12 @@ fun RecoveryOverlay(
         }
 
         if (recovery.drops.isNotEmpty()) {
-            RecSection("After each set — how this number was found") {
+            RecSection(
+                "After each set — how this number was found",
+                help = "Measured from your peak heart rate at the end of a set to one minute into the rest that " +
+                    "followed, across rests long enough to count. Under about 12 bpm/min is the clinically " +
+                    "blunted range; trained people usually see 20–40.",
+            ) {
                 recovery.drops.forEachIndexed { i, drop ->
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.04f)).padding(horizontal = 14.dp, vertical = 11.dp),
@@ -333,21 +336,16 @@ fun RecoveryOverlay(
                 )
             }
         }
-
-        Text(
-            "Measured from your peak heart rate at the end of a set to one minute into the rest that " +
-                "followed, across rests long enough to count. Under about 12 bpm/min is the clinically " +
-                "blunted range; trained people usually see 20–40.",
-            style = MaterialTheme.typography.labelSmall,
-            color = Ash,
-        )
     }
 }
 
 @Composable
-private fun RecSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+private fun RecSection(title: String, help: String? = null, content: @Composable ColumnScope.() -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title.uppercase(), style = MaterialTheme.typography.labelSmall, color = FlameHot, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title.uppercase(), style = MaterialTheme.typography.labelSmall, color = FlameHot, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f, fill = false))
+            if (help != null) HelpDot(help)
+        }
         content()
     }
 }

@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.FitnessCenter
@@ -64,6 +65,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.calistapp.app.data.ai.AiSettings
 import com.calistapp.app.share.shareTextFile
+import com.calistapp.app.ui.common.HelpDot
 import com.calistapp.app.ui.common.SectionCard
 import com.calistapp.app.ui.update.UpdateCard
 import kotlinx.coroutines.launch
@@ -86,6 +88,7 @@ private enum class SettingsCategory(
     PROFILE("Profile & body", "The metrics that personalise every calorie estimate", Icons.Filled.Person),
     GOALS("Goals", "Your daily step goal (drives the streak) and weekly targets", Icons.Filled.Flag),
     WORKOUT("Workout", "How the live workout screen behaves", Icons.Filled.FitnessCenter),
+    DEVICES("Devices", "Heart-rate bands, rings and your watch", Icons.Filled.Watch),
     AI("AI", "API key, and the models for analysis and coaching", Icons.Filled.AutoAwesome),
     OFFLINE("Offline media", "Download exercise videos to use the app with no connection", Icons.Filled.CloudDownload),
     FITPAL("FitPal sync", "Send workouts to FitPal and import your steps", Icons.Filled.Sync),
@@ -128,6 +131,7 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
                 SettingsCategory.PROFILE -> ProfileDetail(viewModel)
                 SettingsCategory.GOALS -> GoalsDetail(viewModel)
                 SettingsCategory.WORKOUT -> WorkoutDetail(viewModel)
+                SettingsCategory.DEVICES -> com.calistapp.app.ui.devices.DevicesSettings()
                 SettingsCategory.AI -> AiSettingsDetail(viewModel)
                 SettingsCategory.OFFLINE -> OfflineDetail(viewModel)
                 SettingsCategory.FITPAL -> FitPalDetail(viewModel)
@@ -220,13 +224,10 @@ private fun ProfileDetail(viewModel: ProfileViewModel) {
     fun touched() { saved = false }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(
-            "These numbers personalize every calorie estimate. VO₂max is optional but noticeably improves accuracy.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        SectionCard(title = "About you") {
+        SectionCard(
+            title = "About you",
+            help = "These numbers personalize every calorie estimate. VO₂max is optional but noticeably improves accuracy.",
+        ) {
             OutlinedTextField(
                 value = name, onValueChange = { name = it; touched() },
                 label = { Text("Name (optional)") }, singleLine = true,
@@ -315,11 +316,19 @@ private fun WorkoutDetail(viewModel: ProfileViewModel) {
     SectionCard(title = "Set targets") {
         ToggleRow(
             title = "Start each set from last time",
-            subtitle = "When you repeat a workout you've done before, the counter opens on the reps you " +
+            help = "When you repeat a workout you've done before, the counter opens on the reps you " +
                 "actually did last time in that same workout — so you're matching or beating yourself. " +
                 "Turn off to always show the plan's target.",
             checked = p.startFromLastTime,
             onCheckedChange = viewModel::setStartFromLastTime,
+        )
+    }
+    SectionCard(title = "During a workout") {
+        ToggleRow(
+            title = "Keep screen on",
+            help = "Keeps the phone's screen on while a workout runs and Calistapp is open, on every screen.",
+            checked = p.keepScreenOn,
+            onCheckedChange = viewModel::setKeepScreenOn,
         )
     }
 }
@@ -327,14 +336,14 @@ private fun WorkoutDetail(viewModel: ProfileViewModel) {
 @Composable
 private fun ToggleRow(
     title: String,
-    subtitle: String,
+    help: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
+            HelpDot(help)
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
@@ -372,13 +381,11 @@ private fun SleepConnectSection(
         PermissionController.createRequestPermissionResultContract(),
     ) { onResult() }
 
-    SectionCard(title = "Training readiness") {
-        Text(
-            "The home screen's readiness gauge is sharper when it can see last night's sleep. " +
-                "Calistapp reads it from Health Connect — nothing is stored or sent anywhere.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    SectionCard(
+        title = "Training readiness",
+        help = "The home screen's readiness gauge is sharper when it can see last night's sleep. " +
+            "Calistapp reads it from Health Connect — nothing is stored or sent anywhere.",
+    ) {
         when {
             !available -> Text(
                 "Health Connect isn't available on this device, so readiness uses training load only.",
@@ -420,12 +427,10 @@ private fun AiSettingsDetail(viewModel: ProfileViewModel) {
     fun touched() { saved = false }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SectionCard(title = "Gemini API key") {
-            Text(
-                "Your key stays on this device. Without it the analysis and coaching features stay off.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        SectionCard(
+            title = "Gemini API key",
+            help = "Your key stays on this device. Without it the analysis and coaching features stay off.",
+        ) {
             OutlinedTextField(
                 value = key,
                 onValueChange = { key = it; touched() },
@@ -444,25 +449,21 @@ private fun AiSettingsDetail(viewModel: ProfileViewModel) {
             )
         }
 
-        SectionCard(title = "Thinking models") {
-            Text(
-                "Used for the reasoning-heavy work — session analysis and coaching. Tried top to bottom, " +
-                    "so a rate-limited primary falls through to a backup.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        SectionCard(
+            title = "Thinking models",
+            help = "Used for the reasoning-heavy work — session analysis and coaching. Tried top to bottom, " +
+                "so a rate-limited primary falls through to a backup.",
+        ) {
             ModelField("Primary", t0, modelTests[t0.trim()], { viewModel.testModel(t0, key) }) { t0 = it; touched() }
             ModelField("Fallback 1", t1, modelTests[t1.trim()], { viewModel.testModel(t1, key) }) { t1 = it; touched() }
             ModelField("Fallback 2", t2, modelTests[t2.trim()], { viewModel.testModel(t2, key) }) { t2 = it; touched() }
         }
 
-        SectionCard(title = "Fast models") {
-            Text(
-                "Used for the high-volume helper work — bulk exercise enrichment and quick suggestions. " +
-                    "Lite models here have far more daily quota, so the good models are saved for analysis.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        SectionCard(
+            title = "Fast models",
+            help = "Used for the high-volume helper work — bulk exercise enrichment and quick suggestions. " +
+                "Lite models here have far more daily quota, so the good models are saved for analysis.",
+        ) {
             ModelField("Primary", f0, modelTests[f0.trim()], { viewModel.testModel(f0, key) }) { f0 = it; touched() }
             ModelField("Fallback 1", f1, modelTests[f1.trim()], { viewModel.testModel(f1, key) }) { f1 = it; touched() }
             ModelField("Fallback 2", f2, modelTests[f2.trim()], { viewModel.testModel(f2, key) }) { f2 = it; touched() }
@@ -500,7 +501,12 @@ private fun AiSettingsDetail(viewModel: ProfileViewModel) {
 @Composable
 private fun EnrichLibraryCard(viewModel: ProfileViewModel) {
     val p by viewModel.enrichmentProgress.collectAsStateWithLifecycle()
-    SectionCard(title = "Enrich the whole library") {
+    SectionCard(
+        title = "Enrich the whole library",
+        help = "Generates an overview, common mistakes and tips for every exercise with the Fast models. " +
+            "Runs in the background and is cached, so each exercise is only generated once. On the free " +
+            "tier the daily quota can pause it — tap again tomorrow to continue.",
+    ) {
         if (p.running) {
             Text(
                 "Generating coaching content ${p.done} / ${p.total}…",
@@ -513,13 +519,6 @@ private fun EnrichLibraryCard(viewModel: ProfileViewModel) {
             )
             OutlinedButton(onClick = viewModel::stopEnrichAll, modifier = Modifier.fillMaxWidth()) { Text("Stop") }
         } else {
-            Text(
-                "Generate an overview, common mistakes and tips for every exercise, using the Fast models. " +
-                    "Runs in the background and is cached, so each exercise is only ever generated once. " +
-                    "On the free tier the daily quota can pause it — just tap again tomorrow to continue.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             Button(onClick = viewModel::startEnrichAll, modifier = Modifier.fillMaxWidth()) {
                 Text(if (p.done > 0) "Continue enriching" else "Enrich all with AI")
             }
@@ -583,14 +582,12 @@ private fun OfflineDetail(viewModel: ProfileViewModel) {
     LaunchedEffect(Unit) { viewModel.refreshMediaSize() }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SectionCard(title = "Offline media") {
-            Text(
-                "Exercise videos stream from the cloud and can be slow (or fail) on a poor connection. " +
-                    "Download them once and the workout screen works with no network at all. Clips you've " +
-                    "already watched are kept too.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        SectionCard(
+            title = "Offline media",
+            help = "Exercise videos stream from the cloud and can be slow (or fail) on a poor connection. " +
+                "Download them once and the workout screen works with no network at all. Clips you've " +
+                "already watched are kept too.",
+        ) {
             Text(
                 "On this device: ${formatBytes(p.bytes)}",
                 style = MaterialTheme.typography.labelLarge,
@@ -653,14 +650,12 @@ private fun FitPalDetail(viewModel: ProfileViewModel) {
     val lastImport by viewModel.lastStepImportAt.collectAsStateWithLifecycle()
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SectionCard(title = "Send workouts to FitPal") {
-            Text(
-                "Each finished workout is sent to FitPal automatically — its duration, calories, " +
-                    "intensity and the exercises you did — so FitPal's daily burn includes your training. " +
-                    "Use this if one didn't make it across.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        SectionCard(
+            title = "Send workouts to FitPal",
+            help = "Each finished workout is sent to FitPal automatically — its duration, calories, " +
+                "intensity and the exercises you did — so FitPal's daily burn includes your training. " +
+                "Use this if one didn't make it across.",
+        ) {
             Text(
                 if (unsynced > 0) "$unsynced workout${if (unsynced == 1) "" else "s"} waiting to send"
                 else "All finished workouts are in FitPal",
@@ -675,13 +670,11 @@ private fun FitPalDetail(viewModel: ProfileViewModel) {
             ) { Text("Transfer to FitPal now") }
         }
 
-        SectionCard(title = "Import steps from FitPal") {
-            Text(
-                "Calistapp pulls your daily steps and their calories from FitPal (using FitPal's own " +
-                    "step-calorie formula — nothing is recalculated here).",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        SectionCard(
+            title = "Import steps from FitPal",
+            help = "Calistapp pulls your daily steps and their calories from FitPal (using FitPal's own " +
+                "step-calorie formula — nothing is recalculated here).",
+        ) {
             Text(
                 lastImport?.let { "Last imported ${android.text.format.DateUtils.getRelativeTimeSpanString(it)}" }
                     ?: "No steps imported yet",
@@ -708,13 +701,11 @@ private fun AboutDetail(viewModel: ProfileViewModel) {
     var exporting by remember { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SectionCard(title = "Your data") {
-            Text(
-                "Export every finished session — its sets, plan, calories and heart-rate summary — as a " +
-                    "JSON file you can keep or move elsewhere. Your data stays yours.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        SectionCard(
+            title = "Your data",
+            help = "Export every finished session — its sets, plan, calories and heart-rate summary — as a " +
+                "JSON file you can keep or move elsewhere. Your data stays yours.",
+        ) {
             OutlinedButton(
                 onClick = {
                     scope.launch {
@@ -754,12 +745,10 @@ private fun HiddenExercisesSection(
     hidden: List<com.calistapp.core.model.Exercise>,
     onRestore: (String) -> Unit,
 ) {
-    SectionCard(title = "Hidden exercises") {
-        Text(
-            "Hidden from the library. Restore one to see it again.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    SectionCard(
+        title = "Hidden exercises",
+        help = "Hidden from the library. Restore one to see it again.",
+    ) {
         hidden.forEach { ex ->
             Row(
                 Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -795,13 +784,17 @@ private fun Vo2MaxSuggestion(from: UserProfile, alreadySet: Boolean, onUse: (Dou
 
     when {
         estimate != null && !alreadySet -> Column {
-            Text(
-                "Estimated ${trimNum(estimate)} ml/kg/min from your max and resting heart rates. " +
-                    "Roughly ±10–15% against a lab measurement, and it improves every calorie " +
-                    "figure the app produces.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Estimated ${trimNum(estimate)} ml/kg/min",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                HelpDot(
+                    "Worked out from your max and resting heart rates. Roughly ±10–15% against a lab " +
+                        "measurement, and it improves every calorie figure the app produces.",
+                )
+            }
             TextButton(
                 onClick = { onUse(estimate) },
                 contentPadding = ButtonDefaults.TextButtonContentPadding,
@@ -847,33 +840,29 @@ private fun GoalsSection(goals: TrainingGoals?, onSave: (TrainingGoals) -> Unit)
     )
     val changed = edited != goals
 
-    SectionCard(title = "Goals") {
-        Text(
-            "The daily step goal drives your streak: the app turns it into a calorie goal and counts " +
-                "walking and workouts against it, so a training day needs fewer steps. The weekly goals " +
-                "feed the stats screen. A calendar week, Monday to Sunday.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    SectionCard(
+        title = "Goals",
+        help = "The daily step goal drives your streak: the app turns it into a calorie goal and counts " +
+            "walking and workouts against it, so a training day needs fewer steps. The weekly goals " +
+            "feed the stats screen. A calendar week, Monday to Sunday.",
+    ) {
         NumberField(
             label = "Steps per day",
             value = steps,
             error = "Enter 1,000–50,000".takeIf { edited.dailyStepGoal !in TrainingGoals.DAILY_STEP_GOAL_RANGE },
         ) { steps = it }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Reduce goal after an active day", modifier = Modifier.weight(1f))
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Reduce goal after an active day", modifier = Modifier.weight(1f, fill = false))
+                HelpDot(
+                    "Tomorrow's goal drops by half the calories above 150% of your original goal. " +
+                        "On a reduced day, the threshold is 100% of the original goal. " +
+                        "Your goal never falls below 20%. Walking and workouts both count. " +
+                        "For example: 20,000 equivalent steps against a 10,000 goal makes tomorrow's goal 7,500. " +
+                        "Applies to your recorded days while enabled.",
+                )
+            }
             androidx.compose.material3.Switch(checked = reduceGoal, onCheckedChange = { reduceGoal = it })
-        }
-        androidx.compose.animation.AnimatedVisibility(visible = reduceGoal) {
-            Text(
-                "Tomorrow's goal drops by half the calories above 150% of your original goal. " +
-                    "On a reduced day, the threshold is 100% of the original goal. " +
-                    "Your goal never falls below 20%. Walking and workouts both count. " +
-                    "For example: 20,000 equivalent steps against a 10,000 goal makes tomorrow's goal 7,500. " +
-                    "Applies to your recorded days while enabled.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
         NumberField(
             label = "Calories per week",

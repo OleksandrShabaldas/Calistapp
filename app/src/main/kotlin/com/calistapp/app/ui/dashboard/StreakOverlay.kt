@@ -188,15 +188,25 @@ private fun Heatmap(cells: List<HeatCell>) {
     LaunchedEffect(weeks.size) { scroll.scrollTo(scroll.maxValue) }
 
     // dp-derived, so the axis labels can't grow with the system font-size setting and get clipped by
-    // their fixed square-cadence boxes (the "cut off" bug on devices with enlarged fonts).
+    // their fixed square-cadence boxes (the "cut off" bug on devices with enlarged fonts). The line
+    // height has to be pinned too: a bare fontSize still inherits the theme's 24sp line height, which
+    // DOES scale with the font setting — inside a 13dp box that cut the glyphs' bottom half off.
     val labelSp = with(LocalDensity.current) { 8.5.dp.toSp() }
+    val labelStyle = androidx.compose.ui.text.TextStyle(
+        fontSize = labelSp,
+        lineHeight = labelSp,
+        lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+            alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+            trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both,
+        ),
+    )
 
     Row(Modifier.fillMaxWidth()) {
         // Weekday labels — fixed, aligned to the seven square rows.
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             DAY_LABELS.forEachIndexed { i, l ->
                 Box(Modifier.height(13.dp).width(16.dp), contentAlignment = Alignment.CenterStart) {
-                    Text(l, fontSize = labelSp, color = if (i == 6) Coral else Ash, maxLines = 1)
+                    Text(l, style = labelStyle, color = if (i == 6) Coral else Ash, maxLines = 1)
                 }
             }
             Spacer(Modifier.height(17.dp)) // room under, aligning with the month-label row
@@ -220,7 +230,7 @@ private fun Heatmap(cells: List<HeatCell>) {
                         if (month != prev) {
                             Text(
                                 month.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
-                                fontSize = labelSp,
+                                style = labelStyle,
                                 color = Ash,
                                 maxLines = 1,
                                 softWrap = false,

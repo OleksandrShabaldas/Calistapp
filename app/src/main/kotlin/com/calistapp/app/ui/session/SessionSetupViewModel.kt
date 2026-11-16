@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -40,7 +41,13 @@ class SessionSetupViewModel @Inject constructor(
     private val prefsRepo: SessionPrefsRepository,
     private val controller: SessionController,
     private val watchConnection: WatchConnectionMonitor,
+    devicePrefs: com.calistapp.app.data.device.DevicePrefsRepository,
 ) : ViewModel() {
+
+    /** A Bluetooth heart-rate band chosen in Settings → Devices — it connects when the workout starts. */
+    val band: StateFlow<com.calistapp.app.data.device.SavedBand?> = devicePrefs.prefs
+        .map { it.band }
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), null)
 
     val plan: StateFlow<WorkoutPlan> = drafts.draft
 
@@ -67,6 +74,7 @@ class SessionSetupViewModel @Inject constructor(
     fun setSound(on: Boolean) = viewModelScope.launch { prefsRepo.setSound(on) }
     fun setVibration(on: Boolean) = viewModelScope.launch { prefsRepo.setVibration(on) }
     fun setAutoplay(on: Boolean) = viewModelScope.launch { prefsRepo.setAutoplay(on) }
+    fun setKeepScreenOn(on: Boolean) = viewModelScope.launch { prefsRepo.setKeepScreenOn(on) }
 
     /**
      * Build the final plan and start. Warm-up runs first, then the working plan, then the stretch —

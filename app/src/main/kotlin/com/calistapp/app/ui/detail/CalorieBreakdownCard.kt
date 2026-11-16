@@ -41,6 +41,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.calistapp.app.ui.common.HelpDot
 import com.calistapp.app.ui.common.formatClock
 import com.calistapp.app.ui.common.formatCompact
 import com.calistapp.app.ui.theme.Amber
@@ -82,6 +83,7 @@ fun CalorieBreakdownOverlay(audit: CalorieAudit, storedKcal: Double?, onDismiss:
             Text("Every number, shown working.", style = MaterialTheme.typography.bodySmall, color = Ash)
         }
 
+        EstimatedNotice(audit)
         StaleProfileNotice(audit, storedKcal)
         GlanceCard(audit, onOpenMethod = { open = it })
 
@@ -93,11 +95,26 @@ fun CalorieBreakdownOverlay(audit: CalorieAudit, storedKcal: Double?, onDismiss:
             modifier = Modifier.padding(top = 4.dp),
         )
 
-        LayerRow("Your body", bodySummary(audit), open == Layer.BODY, { toggle(Layer.BODY) }) { InputsBody(audit) }
-        LayerRow("Resting metabolism", restingSummary(audit), open == Layer.RESTING, { toggle(Layer.RESTING) }) { RestingBody(audit) }
-        LayerRow("Heart rate → energy", hrSummary(audit), open == Layer.HEART_RATE, { toggle(Layer.HEART_RATE) }) { HeartRateBody(audit) }
+        LayerRow(
+            "Your body", bodySummary(audit), open == Layer.BODY, { toggle(Layer.BODY) },
+            help = "Both formulas below are functions of your body. Nothing else about you enters the calculation.",
+        ) { InputsBody(audit) }
+        LayerRow(
+            "Resting metabolism", restingSummary(audit), open == Layer.RESTING, { toggle(Layer.RESTING) },
+            help = "What your body burns doing nothing. It gets subtracted from every slice, so the total is " +
+                "energy the workout actually cost — not energy you'd have spent on the sofa.",
+        ) { RestingBody(audit) }
+        LayerRow(
+            "Heart rate → energy", hrSummary(audit), open == Layer.HEART_RATE, { toggle(Layer.HEART_RATE) },
+            help = "Evaluated at each heart-rate reading and integrated over the real curve — not applied once " +
+                "to a session average, which is what makes most trackers' numbers soft.",
+        ) { HeartRateBody(audit) }
         LayerRow("How the time was counted", timeSummary(audit), open == Layer.TIME, { toggle(Layer.TIME) }) { TimeBody(audit) }
-        LayerRow("Block by block", "${audit.blocks.size} blocks · tap any for its arithmetic", open == Layer.BLOCKS, { toggle(Layer.BLOCKS) }) { BlocksBody(audit) }
+        LayerRow(
+            "Block by block", "${audit.blocks.size} blocks · tap any for its arithmetic", open == Layer.BLOCKS, { toggle(Layer.BLOCKS) },
+            help = "Each stretch of work is scored three ways — heart rate (corrected), the physical work of " +
+                "the reps, and bare resting metabolism — and counted at whichever is largest.",
+        ) { BlocksBody(audit) }
         LayerRow("Total", totalSummary(audit), open == Layer.TOTAL, { toggle(Layer.TOTAL) }) { TotalBody(audit) }
 
         SourcesNote(audit)
@@ -120,6 +137,7 @@ private fun GlanceCard(audit: CalorieAudit, onOpenMethod: (Layer) -> Unit) {
     val rest = audit.blocks.filter {
         it.basis == CalorieAudit.Basis.REST || it.basis == CalorieAudit.Basis.RESTING_FLOOR
     }.sumOf { it.kcal } + audit.unsegmentedKcal
+    val est = audit.blocks.filter { it.basis == CalorieAudit.Basis.ESTIMATE }.sumOf { it.kcal }
 
     val shape = RoundedCornerShape(18.dp)
     Column(
@@ -148,10 +166,14 @@ private fun GlanceCard(audit: CalorieAudit, onOpenMethod: (Layer) -> Unit) {
 
         Text(glanceSentence(audit), style = MaterialTheme.typography.bodySmall, color = Chalk.copy(alpha = 0.75f))
 
-        CompositionBar(hr, rep, rest, headline = audit.summary.totalKcal.toInt())
+        CompositionBar(hr, rep, rest, headline = audit.summary.totalKcal.toInt(), estimate = est)
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MethodChip("Keytel · 2005", "heart rate → energy", Modifier.weight(1f)) { onOpenMethod(Layer.HEART_RATE) }
+            if (audit.estimated) {
+                MethodChip("Compendium · 2024", "activity → energy", Modifier.weight(1f)) { onOpenMethod(Layer.BLOCKS) }
+            } else {
+                MethodChip("Keytel · 2005", "heart rate → energy", Modifier.weight(1f)) { onOpenMethod(Layer.HEART_RATE) }
+            }
             MethodChip("Mifflin–St Jeor", "resting metabolism", Modifier.weight(1f)) { onOpenMethod(Layer.RESTING) }
         }
     }
@@ -159,9 +181,10 @@ private fun GlanceCard(audit: CalorieAudit, onOpenMethod: (Layer) -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun CompositionBar(hr: Double, rep: Double, rest: Double, headline: Int) {
-    val total = (hr + rep + rest).coerceAtLeast(0.0001)
+private fun CompositionBar(hr: Double, rep: Double, rest: Double, headline: Int, estimate: Double = 0.0) {
+    val total = (hr + rep + rest + estimate).coerceAtLeast(0.0001)
     val segments = listOf(
+        Triple(estimate, "estimate", Brush.linearGradient(listOf(com.calistapp.app.ui.theme.Violet, com.calistapp.app.ui.theme.Violet))),
         Triple(hr, "heart rate", Brush.horizontalGradient(listOf(FlameHot, FlameGlow))),
         Triple(rep, "rep work", Brush.linearGradient(listOf(Amber, Amber))),
         Triple(rest, "rest", Brush.linearGradient(listOf(Sky.copy(alpha = 0.75f), Sky.copy(alpha = 0.75f)))),
@@ -175,7 +198,7 @@ private fun CompositionBar(hr: Double, rep: Double, rest: Double, headline: Int)
         ints[biggest] = (ints[biggest] + (headline - ints.sum())).coerceAtLeast(0)
     }
 
-    val legendColors = mapOf("heart rate" to FlameHot, "rep work" to Amber, "rest" to Sky.copy(alpha = 0.75f))
+    val legendColors = mapOf("estimate" to com.calistapp.app.ui.theme.Violet, "heart rate" to FlameHot, "rep work" to Amber, "rest" to Sky.copy(alpha = 0.75f))
 
     Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
         Row(
@@ -222,6 +245,7 @@ private fun LayerRow(
     summary: String,
     expanded: Boolean,
     onClick: () -> Unit,
+    help: String? = null,
     content: @Composable () -> Unit,
 ) {
     val rotation by animateFloatAsState(if (expanded) 90f else 0f, label = "chev")
@@ -232,7 +256,10 @@ private fun LayerRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, color = if (expanded) FlameHot else Chalk, fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium, color = if (expanded) FlameHot else Chalk, fontWeight = FontWeight.SemiBold)
+                    if (help != null) HelpDot(help)
+                }
                 Text(summary, style = MaterialTheme.typography.bodySmall, color = Ash)
             }
             Icon(
@@ -263,7 +290,8 @@ private fun restingSummary(audit: CalorieAudit): String {
 }
 
 private fun hrSummary(audit: CalorieAudit): String =
-    "Keytel · scaled ×${audit.settings.hrCalibration.n(2)} for resistance work"
+    if (audit.estimated) "Not used — heart rate covered ${(audit.hrCoverage * 100).n(0)}% of the workout"
+    else "Keytel · scaled ×${audit.settings.hrCalibration.n(2)} for resistance work"
 
 private fun timeSummary(audit: CalorieAudit): String {
     val s = audit.sampling
@@ -274,13 +302,43 @@ private fun timeSummary(audit: CalorieAudit): String {
 private fun totalSummary(audit: CalorieAudit): String =
     "working ${audit.workBlocks.sumOf { it.kcal }.kcal()} + prep / rest ${audit.restBlocks.sumOf { it.kcal }.kcal()} = ${audit.blockKcalTotal.kcal()} kcal"
 
-private fun glanceSentence(audit: CalorieAudit): String = buildString {
+private fun glanceSentence(audit: CalorieAudit): String = if (audit.estimated) {
+    "Estimated across ${audit.blocks.size} work/rest blocks from what you did, at standard activity rates — " +
+        "not measured. Every figure below is reproducible with a calculator."
+} else buildString {
     append("Integrated from ${audit.sampling.sampleCount} real heart-rate readings across ${audit.blocks.size} work/rest blocks")
     if (audit.settings.netOfResting) append(", with resting metabolism removed")
     append(". Every figure below is reproducible with a calculator.")
 }
 
-// ---- Stale-profile banner ----------------------------------------------------------------------
+// ---- Estimated / stale-profile banners ---------------------------------------------------------
+
+/**
+ * A session scored without usable heart rate says so before anything else — the figures below are
+ * what was done, costed at standard activity rates, not measured energy.
+ */
+@Composable
+private fun EstimatedNotice(audit: CalorieAudit) {
+    if (!audit.estimated) return
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Sky.copy(alpha = 0.10f), RoundedCornerShape(12.dp))
+            .border(1.dp, Sky.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Estimated — not enough heart rate", style = MaterialTheme.typography.labelLarge, color = Sky, modifier = Modifier.weight(1f, fill = false))
+        HelpDot(
+            "Heart rate covered ${(audit.hrCoverage * 100).n(0)}% of this workout — too little to measure it. " +
+                "Each block is costed from what you did instead, at standard activity rates (Compendium of " +
+                "Physical Activities): sets at 6 MET, holds at 4, warm-up and stretching at 2.3, rests at 1.5, " +
+                "net of resting metabolism, and never below a set's rep work. Connect a heart-rate band in " +
+                "Settings → Devices, or let Health Connect fill in heart rate afterwards, for measured calories.",
+        )
+    }
+}
 
 /**
  * The audit is recomputed from the stored samples using the *current* profile, so editing your
@@ -316,28 +374,25 @@ private fun StaleProfileNotice(audit: CalorieAudit, storedKcal: Double?) {
 @Composable
 private fun InputsBody(audit: CalorieAudit) {
     val p = audit.profile
-    Note("Both formulas below are functions of your body. Nothing else about you enters the calculation.")
     AuditRow("Weight", "${p.weightKg.n(1)} kg")
     AuditRow("Height", "${p.heightCm.n(0)} cm")
     AuditRow("Age", "${p.ageYears}")
     AuditRow("Sex", if (p.sex == Sex.MALE) "Male" else "Female")
-    AuditRow("VO₂max", p.vo2Max?.let { "${it.n(1)} ml/kg/min" } ?: "not set")
-    AuditRow("Max HR", "${p.effectiveMaxHr} bpm" + if (p.maxHr == null) " (estimated from age)" else "")
-    if (p.vo2Max == null) {
-        Note(
+    AuditRow(
+        "VO₂max", p.vo2Max?.let { "${it.n(1)} ml/kg/min" } ?: "not set",
+        help = if (p.vo2Max == null) {
             "Without VO₂max the estimate falls back to the age/weight/sex regression. Adding it " +
-                "in your profile switches to the fitness-adjusted one, which is measurably closer.",
-        )
-    }
+                "in your profile switches to the fitness-adjusted one, which is measurably closer."
+        } else {
+            null
+        },
+    )
+    AuditRow("Max HR", "${p.effectiveMaxHr} bpm" + if (p.maxHr == null) " (estimated from age)" else "")
 }
 
 @Composable
 private fun RestingBody(audit: CalorieAudit) {
     val r = audit.resting
-    Note(
-        "What your body burns doing nothing. It gets subtracted from every slice, so the total is " +
-            "energy the workout actually cost — not energy you'd have spent on the sofa.",
-    )
     Formula("kcal/day = 10×weight + 6.25×height − 5×age " + if (r.sexOffset > 0) "+ 5" else "− 161")
     AuditRow("10 × ${audit.profile.weightKg.n(1)} kg", r.weightTerm.n(1))
     AuditRow("6.25 × ${audit.profile.heightCm.n(0)} cm", r.heightTerm.n(1))
@@ -348,15 +403,11 @@ private fun RestingBody(audit: CalorieAudit) {
 
 @Composable
 private fun HeartRateBody(audit: CalorieAudit) {
-    Note(
-        "Evaluated at each heart-rate reading and integrated over the real curve — not applied once " +
-            "to a session average, which is what makes most trackers' numbers soft.",
-    )
     AuditRow("Regression", audit.keytel.label)
     Formula(audit.keytel.equation)
-    AuditRow("Field calibration", "× ${audit.settings.hrCalibration.n(2)}")
-    Note(
-        "Keytel was fitted on steady cycling and treadmill work. Resistance training breaks its " +
+    AuditRow(
+        "Field calibration", "× ${audit.settings.hrCalibration.n(2)}",
+        help = "Keytel was fitted on steady cycling and treadmill work. Resistance training breaks its " +
             "assumptions in ways that all push the same way — heart rate stays high between sets, " +
             "gripping and bracing raise it without matching oxygen uptake, and wrist sensors read " +
             "high under motion — so the heart-rate term is scaled down " +
@@ -369,9 +420,7 @@ private fun HeartRateBody(audit: CalorieAudit) {
         "Rest blocks bounded to",
         "${audit.resting.kcalPerMin.n(2)}–" +
             "${(audit.resting.kcalPerMin * audit.settings.restCeilingMultiplier).n(2)} kcal/min gross",
-    )
-    Note(
-        "Heart rate stays high for minutes after a hard set without the oxygen cost to match, so " +
+        help = "Heart rate stays high for minutes after a hard set without the oxygen cost to match, so " +
             "rest is capped at ${audit.settings.restCeilingMultiplier.n(0)}× resting before the " +
             "subtraction — at most ${
                 (audit.resting.kcalPerMin * (audit.settings.restCeilingMultiplier - 1) *
@@ -385,15 +434,15 @@ private fun TimeBody(audit: CalorieAudit) {
     val s = audit.sampling
     AuditRow("Heart-rate readings", "${s.sampleCount}")
     AuditRow("Spanning", formatClock(s.lastSampleMs - s.firstSampleMs))
-    AuditRow("Integration slices", "${s.sliceCount}")
-    Note(
-        "One slice per reading, plus one at every work/rest boundary — so no slice is ever split " +
+    AuditRow(
+        "Integration slices", "${s.sliceCount}",
+        help = "One slice per reading, plus one at every work/rest boundary — so no slice is ever split " +
             "across working and resting.",
     )
     if (s.gapSliceCount > 0) {
-        AuditRow("Sensor gaps", "${s.gapSliceCount}, ${formatCompact(s.uncreditedGapMs)} not credited", accent = Coral)
-        Note(
-            "A gap longer than ${formatCompact(audit.settings.maxIntervalMs)} is only credited up to " +
+        AuditRow(
+            "Sensor gaps", "${s.gapSliceCount}, ${formatCompact(s.uncreditedGapMs)} not credited", accent = Coral,
+            help = "A gap longer than ${formatCompact(audit.settings.maxIntervalMs)} is only credited up to " +
                 "that cap. Guessing across a dropout is how estimates run away.",
         )
     } else {
@@ -409,19 +458,16 @@ private fun TimeBody(audit: CalorieAudit) {
 
 @Composable
 private fun BlocksBody(audit: CalorieAudit) {
-    Note(
-        "Each stretch of work is scored three ways — heart rate (corrected), the physical work of " +
-            "the reps, and bare resting metabolism — and counted at whichever is largest. Tap a " +
-            "block for its arithmetic.",
-    )
     // Keyed so each block's open/closed state belongs to that block and survives a rebuild — without
     // it every row in the loop shares one saveable slot.
     audit.blocks.forEach { block ->
         key(block.ordinal) { BlockRow(block, audit.settings) }
     }
     if (audit.unsegmentedMs > 0) {
-        AuditRow("Time outside any block", "${formatCompact(audit.unsegmentedMs)} · ${audit.unsegmentedKcal.kcal()} kcal")
-        Note("Heart rate recorded before the first work/rest toggle, or after the last one.")
+        AuditRow(
+            "Time outside any block", "${formatCompact(audit.unsegmentedMs)} · ${audit.unsegmentedKcal.kcal()} kcal",
+            help = "Heart rate recorded before the first work/rest toggle, or after the last one.",
+        )
     }
 }
 
@@ -514,21 +560,21 @@ private fun HeartRateTermRows(block: CalorieAudit.Block, settings: CalorieAudit.
         "Integrated over ${formatClock(hr.coveredDurationMs)}",
         "${hr.kcal.kcal()} kcal  (${hr.effectiveKcalPerMin.n(2)} kcal/min)",
         strong = true,
-    )
-    if (hr.sliceCount > 1) {
-        Note(
-            "${hr.sliceCount} slices, each at its own instantaneous heart rate. The rate above is the " +
+        help = if (hr.sliceCount > 1) {
+            "${hr.sliceCount} slices, each at its own instantaneous heart rate. The rate is the " +
                 "integral divided by the time, so it differs a little from the value at the average " +
-                "bpm whenever heart rate moved during the block.",
-        )
-    }
+                "bpm whenever heart rate moved during the block."
+        } else {
+            null
+        },
+    )
 }
 
 @Composable
 private fun CorrectionRows(c: ExerciseIntensity.Correction, block: CalorieAudit.Block) {
-    SubHeading("Exercise correction  × ${c.factor.n(3)}")
-    Note(
-        "Applied only where heart rate is blind. Bounded to " +
+    SubHeading(
+        "Exercise correction  × ${c.factor.n(3)}",
+        help = "Applied only where heart rate is blind. Bounded to " +
             "×${ExerciseIntensity.MIN_CORRECTION.n(2)}–×${ExerciseIntensity.MAX_CORRECTION.n(2)}, " +
             "so knowing the movement can nudge the estimate but never drive it.",
     )
@@ -546,9 +592,17 @@ private fun CorrectionRows(c: ExerciseIntensity.Correction, block: CalorieAudit.
 
 @Composable
 private fun RepWorkRows(w: ExerciseIntensity.MechanicalWork, block: CalorieAudit.Block) {
-    SubHeading("Rep work (physics, independent of heart rate)")
+    SubHeading(
+        "Rep work (physics, independent of heart rate)",
+        help = if (w.isometric) {
+            "A static hold displaces nothing, so there is no external work to compute — its cost is " +
+                "internal and sits in the heart-rate term above."
+        } else {
+            null
+        },
+    )
     if (w.isometric) {
-        Note("A static hold displaces nothing, so there is no external work to compute — its cost is internal and sits in the heart-rate term above.")
+        Note("None for a static hold.")
         return
     }
     AuditRow(
@@ -560,13 +614,15 @@ private fun RepWorkRows(w: ExerciseIntensity.MechanicalWork, block: CalorieAudit
     AuditRow("Lowering counted at", "× ${(1 + w.eccentricFactor).n(2)}")
     AuditRow("Muscular efficiency", "÷ ${(w.efficiency * 100).n(0)}%")
     AuditRow("Per rep", "${w.kcalPerRep.n(3)} kcal")
-    AuditRow("× ${w.reps} reps", "${w.kcal.kcal()} kcal", strong = true)
-    if (w.kcal > block.correctedKcal) {
-        Note(
+    AuditRow(
+        "× ${w.reps} reps", "${w.kcal.kcal()} kcal", strong = true,
+        help = if (w.kcal > block.correctedKcal) {
             "This beat the heart-rate estimate, so it's what the block was counted at — the usual " +
-                "cause is the wrist sensor losing the signal on grip-heavy work.",
-        )
-    }
+                "cause is the wrist sensor losing the signal on grip-heavy work."
+        } else {
+            null
+        },
+    )
 }
 
 @Composable
@@ -576,43 +632,43 @@ private fun SourcesNote(audit: CalorieAudit) {
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 4.dp)) {
         HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
-        Text(
-            "Keytel et al. (2005), heart rate → energy expenditure. Mifflin–St Jeor (1990), resting " +
-                "metabolic rate." + (
-                efficiency?.let {
-                    " Rep work is force × distance ÷ muscular efficiency at ${(it * 100).n(0)}%, the " +
-                        "established gross figure for concentric work."
-                } ?: ""
-                ),
-            style = MaterialTheme.typography.labelSmall,
-            color = Ash,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-        Text(
-            "No estimate here is generated by AI. The AI coach reads these numbers; it never produces them.",
-            style = MaterialTheme.typography.labelSmall,
-            color = Ash,
-        )
+        Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Sources", style = MaterialTheme.typography.labelMedium, color = Ash)
+            HelpDot(
+                "Keytel et al. (2005), heart rate → energy expenditure. Mifflin–St Jeor (1990), resting " +
+                    "metabolic rate." + (
+                    efficiency?.let {
+                        " Rep work is force × distance ÷ muscular efficiency at ${(it * 100).n(0)}%, the " +
+                            "established gross figure for concentric work."
+                    } ?: ""
+                    ) + " No estimate here is generated by AI — the AI coach reads these numbers, it never produces them.",
+            )
+        }
     }
 }
 
 // ---- Small building blocks ---------------------------------------------------------------------
 
 @Composable
-private fun SubHeading(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.labelMedium,
-        fontWeight = FontWeight.SemiBold,
-        color = Chalk,
-        modifier = Modifier.padding(top = 2.dp),
-    )
+private fun SubHeading(text: String, help: String? = null) {
+    Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = Chalk,
+        )
+        if (help != null) HelpDot(help)
+    }
 }
 
 @Composable
-private fun AuditRow(label: String, value: String, strong: Boolean = false, accent: Color? = null) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
-        Text(label, style = MaterialTheme.typography.bodySmall, color = Ash, modifier = Modifier.weight(1f))
+private fun AuditRow(label: String, value: String, strong: Boolean = false, accent: Color? = null, help: String? = null) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(label, style = MaterialTheme.typography.bodySmall, color = Ash, modifier = Modifier.weight(1f, fill = false))
+            if (help != null) HelpDot(help)
+        }
         Text(
             value,
             style = MaterialTheme.typography.bodySmall,
@@ -653,6 +709,7 @@ private fun CalorieAudit.Basis.label(): String = when (this) {
     CalorieAudit.Basis.REP_WORK -> "rep work"
     CalorieAudit.Basis.RESTING_FLOOR -> "resting floor"
     CalorieAudit.Basis.REST -> "rest"
+    CalorieAudit.Basis.ESTIMATE -> "estimate"
 }
 
 private fun CalorieAudit.Basis.accent(): Color = when (this) {
@@ -662,6 +719,8 @@ private fun CalorieAudit.Basis.accent(): Color = when (this) {
     // A muted, receding orange rather than a hue swap — "this block was rest" reads as a quieter
     // version of the same warm palette, not a foreign colour dropped into an otherwise orange list.
     CalorieAudit.Basis.REST -> Flame.copy(alpha = 0.5f)
+    // A cool colour on purpose: an estimate isn't measured energy and shouldn't read like it.
+    CalorieAudit.Basis.ESTIMATE -> Sky
 }
 
 private fun CalorieAudit.Block.title(): String {

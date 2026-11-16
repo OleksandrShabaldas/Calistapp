@@ -1,0 +1,20 @@
+<!-- Themed-icon (Android 13+ "Themed icons") layer: the same traced "CA" silhouette as ic_notification,
+     scaled into the adaptive icon's 66dp safe zone. The launcher tints it; only the alpha matters. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="1080"
+    android:viewportHeight="1080">
+    <group
+        android:scaleX="0.945"
+        android:scaleY="0.945"
+        android:translateX="53.3"
+        android:translateY="82.6">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M375,340 L582,340 L520,407 L400,407 L323,486 L372,543 L468,543 L582,404 L655,404 L787,628 L720,628 L625,477 L505,607 L342,607 L239,479 Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M610,558 L657,558 L692,617 L560,617 Z" />
+    </group>
+</vector>

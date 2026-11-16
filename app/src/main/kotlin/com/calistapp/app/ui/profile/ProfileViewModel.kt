@@ -146,6 +146,7 @@ class ProfileViewModel @Inject constructor(
 
     /** Open each set's counter on last time's reps (for a workout done before) vs. the plan's target. */
     fun setStartFromLastTime(on: Boolean) = viewModelScope.launch { sessionPrefsRepository.setStartFromLastTime(on) }
+    fun setKeepScreenOn(on: Boolean) = viewModelScope.launch { sessionPrefsRepository.setKeepScreenOn(on) }
 
     /** Per-model connection-test results, keyed by the trimmed model id. Drives the Test buttons. */
     private val _modelTests = MutableStateFlow<Map<String, ModelTestResult>>(emptyMap())

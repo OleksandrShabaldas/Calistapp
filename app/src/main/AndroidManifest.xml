@@ -32,6 +32,19 @@
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY" />
+    <!--
+      Heart-rate bands over Bluetooth (Settings → Devices): the standard Heart Rate Service, streamed
+      straight to the phone during a workout — for bands that can't run an app of their own. Scanning
+      is only ever for heart-rate devices, never to derive location (neverForLocation). Android 11 and
+      older use the legacy permissions plus fine location, which BLE scanning required there.
+    -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <!-- The workout service also holds the band's Bluetooth link while the screen is off. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
 
     <application
         android:name=".CalistApplication"
@@ -72,7 +85,7 @@
         <service
             android:name=".session.WorkoutSessionService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="dataSync|connectedDevice" />
 
         <!-- Keeps the offline-video download running when the app is backgrounded or the screen is off. -->
         <service

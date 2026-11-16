@@ -83,6 +83,7 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.calistapp.app.R
+import com.calistapp.app.ui.common.HelpDot
 import com.calistapp.app.ui.common.AiActionCard
 import com.calistapp.app.ui.common.GlowBox
 import com.calistapp.app.ui.common.GlowIcon
@@ -761,39 +762,9 @@ private fun EfficiencyCard(efficiency: Int) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("EFFICIENCY", style = Eyebrow, color = Ash)
-                InfoDot("Calistapp's own rating of how much strength a movement builds for the energy it costs — higher means more result per rep. An estimate to help you choose, not a measurement.")
+                HelpDot("Calistapp's own rating of how much strength a movement builds for the energy it costs — higher means more result per rep. An estimate to help you choose, not a measurement.")
             }
             Text("Strength built vs. energy spent — Calistapp's own rating.", style = MaterialTheme.typography.bodySmall, color = Ash)
-        }
-    }
-}
-
-/** A tiny "?" that reveals a small tooltip popup right next to it — not a full-screen dialog. */
-@Composable
-private fun InfoDot(text: String) {
-    var show by rememberSaveable { mutableStateOf(false) }
-    Box {
-        Box(
-            Modifier.size(18.dp).clip(Capsule).border(1.dp, Ash.copy(alpha = 0.5f), Capsule).clickable { show = true },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("?", style = MaterialTheme.typography.labelSmall, color = Ash)
-        }
-        if (show) {
-            Popup(
-                alignment = Alignment.BottomStart,
-                offset = IntOffset(0, 8),
-                onDismissRequest = { show = false },
-                properties = PopupProperties(focusable = true),
-            ) {
-                Box(
-                    Modifier.widthIn(max = 240.dp).clip(RoundedCornerShape(10.dp))
-                        .background(OnyxRaised).border(1.dp, OnyxBorder, RoundedCornerShape(10.dp))
-                        .padding(horizontal = 12.dp, vertical = 9.dp),
-                ) {
-                    Text(text, style = MaterialTheme.typography.bodySmall, color = Chalk)
-                }
-            }
         }
     }
 }

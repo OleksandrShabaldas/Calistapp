@@ -1,5 +1,13 @@
 package com.calistapp.app.ui.session
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,9 +24,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -31,12 +42,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.calistapp.app.session.WatchRejoin
 import com.calistapp.app.ui.common.formatClock
 import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.Capsule
 import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.Coral
 import com.calistapp.app.ui.theme.Flame
+import com.calistapp.app.ui.theme.Mint
 import com.calistapp.app.ui.theme.NumericMedium
 import com.calistapp.app.ui.theme.OnyxBorder
 import com.calistapp.app.ui.theme.OnyxFillStrong
@@ -46,7 +59,16 @@ import com.calistapp.core.model.HrLinkHealth
 
 /** The always-on heart-rate + calorie chip in the corner of the hero. Tapping it opens [LiveHudPanel]. */
 @Composable
-fun LiveHudChip(bpm: Int, kcal: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun LiveHudChip(
+    bpm: Int,
+    kcal: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    /** Heart rate is arriving now. When it isn't, the last number is not shown as if it were live. */
+    live: Boolean = true,
+    /** The phone is bringing the watch back into the workout by itself. */
+    reconnecting: Boolean = false,
+) {
     Row(
         modifier
             .clip(Capsule)
@@ -57,8 +79,28 @@ fun LiveHudChip(bpm: Int, kcal: Int, onClick: () -> Unit, modifier: Modifier = M
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Filled.Favorite, null, tint = Coral, modifier = Modifier.size(14.dp))
-        Text(if (bpm > 0) "$bpm" else "—", style = MaterialTheme.typography.labelLarge, color = Chalk)
+        // A stale reading used to sit here looking live for minutes after the watch went quiet.
+        AnimatedContent(
+            targetState = when {
+                reconnecting -> HrChipState.RECONNECTING
+                live && bpm > 0 -> HrChipState.LIVE
+                else -> HrChipState.NO_SIGNAL
+            },
+            transitionSpec = { (fadeIn(tween(220)) + scaleIn(initialScale = 0.8f)) togetherWith fadeOut(tween(120)) },
+            label = "hrChip",
+        ) { state ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                when (state) {
+                    HrChipState.RECONNECTING -> CircularProgressIndicator(color = Coral, strokeWidth = 1.6.dp, modifier = Modifier.size(13.dp))
+                    else -> Icon(Icons.Filled.Favorite, null, tint = if (state == HrChipState.LIVE) Coral else Ash, modifier = Modifier.size(14.dp))
+                }
+                Text(
+                    if (state == HrChipState.LIVE) "$bpm" else "—",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (state == HrChipState.LIVE) Chalk else Ash,
+                )
+            }
+        }
         Icon(Icons.Filled.LocalFireDepartment, null, tint = Flame, modifier = Modifier.size(14.dp))
         Text("$kcal", style = MaterialTheme.typography.labelLarge, color = Chalk)
         Icon(Icons.Filled.KeyboardArrowDown, "Details", tint = Ash, modifier = Modifier.size(14.dp))
@@ -80,10 +122,13 @@ fun LiveHudPanel(
     kcal: Int,
     kcalPerMin: Double,
     elapsedMs: Long,
-    watchLabel: String,
-    showReconnect: Boolean,
+    receivingHr: Boolean,
+    watchUsable: Boolean,
+    rejoin: WatchRejoin,
     onReconnect: () -> Unit,
     onClose: () -> Unit,
+    /** A chosen heart-rate band; when there is one, its link is shown instead of the watch's. */
+    band: com.calistapp.app.data.device.BandState = com.calistapp.app.data.device.BandState.None,
     modifier: Modifier = Modifier,
     /** How continuous the watch's stream is — readings a minute, longest gap, readings backfilled. */
     link: HrLinkHealth = HrLinkHealth(),
@@ -110,7 +155,7 @@ fun LiveHudPanel(
         }
 
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(if (bpm > 0) "$bpm" else "—", style = NumericMedium, color = Chalk)
+            Text(if (bpm > 0 && receivingHr) "$bpm" else "—", style = NumericMedium, color = if (receivingHr) Chalk else Ash)
             Text("bpm", style = MaterialTheme.typography.labelMedium, color = Ash, modifier = Modifier.padding(bottom = 5.dp))
             if (zone != null) {
                 Box(Modifier.weight(1f))
@@ -154,27 +199,28 @@ fun LiveHudPanel(
 
         Divider()
 
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.Bolt, null, tint = Ash, modifier = Modifier.size(16.dp))
-            Text("  $watchLabel", style = MaterialTheme.typography.labelLarge, color = Chalk, modifier = Modifier.weight(1f))
-            if (showReconnect) {
-                Text(
-                    "Reconnect",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Flame,
-                    modifier = Modifier.clip(Capsule).clickable(onClick = onReconnect).padding(horizontal = 8.dp, vertical = 4.dp),
-                )
-            }
+        if (band != com.calistapp.app.data.device.BandState.None) {
+            BandLinkRow(band)
+        } else {
+            WatchLinkRow(receivingHr = receivingHr, watchUsable = watchUsable, rejoin = rejoin, onReconnect = onReconnect)
         }
 
         // The stream's health, so a workout can show whether heart rate arrived continuously instead of
         // that only surfacing afterwards as straight lines in the chart. ~60 a minute is a healthy link.
+        // Gone quiet, it says how long ago the last reading was — "gap 1s" (the longest gap between the
+        // readings that DID arrive) read as healthy for eight silent minutes.
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Signal", style = MaterialTheme.typography.labelLarge, color = Ash, modifier = Modifier.weight(1f))
-            val healthy = link.readingsLastMinute >= 45 && link.longestGapMs < 15_000
+            val age = link.newestAgeMs
+            val quiet = age == null || link.readingsLastMinute == 0 || age > 15_000
+            val healthy = !quiet && link.readingsLastMinute >= 45 && link.longestGapMs < 15_000
             Text(
-                "${link.readingsLastMinute}/min · gap ${link.longestGapMs / 1000}s" +
-                    if (link.backfilled > 0) " · +${link.backfilled}" else "",
+                when {
+                    age == null -> "no readings yet"
+                    quiet -> "last reading ${agoLabel(age)}"
+                    else -> "${link.readingsLastMinute}/min · gap ${link.longestGapMs / 1000}s" +
+                        if (link.backfilled > 0) " · +${link.backfilled}" else ""
+                },
                 style = MaterialTheme.typography.labelLarge,
                 color = if (healthy) Chalk else Flame,
             )
@@ -183,6 +229,134 @@ fun LiveHudPanel(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Elapsed", style = MaterialTheme.typography.labelLarge, color = Ash, modifier = Modifier.weight(1f))
             Text(formatClock(elapsedMs), style = MaterialTheme.typography.labelLarge, color = Chalk)
+        }
+    }
+}
+
+private enum class HrChipState { LIVE, NO_SIGNAL, RECONNECTING }
+
+private fun agoLabel(ms: Long): String {
+    val s = ms / 1000
+    return when {
+        s < 60 -> "${s}s ago"
+        s < 3600 -> "${s / 60} min ago"
+        else -> "${s / 3600} h ago"
+    }
+}
+
+/** What the watch line shows — the rejoin state folded together with whether heart rate is flowing. */
+private sealed interface LinkLine {
+    data object Streaming : LinkLine
+    data class Quiet(val watchUsable: Boolean) : LinkLine
+    data class Working(val auto: Boolean) : LinkLine
+    data object Back : LinkLine
+    data class Failed(val reason: WatchRejoin.Reason) : LinkLine
+}
+
+/**
+ * The watch line of the panel: what the link is doing and the Reconnect control, which now shows its
+ * own progress and outcome — it used to give no feedback at all. Each state swaps in with a short
+ * vertical slide, so a change reads as the result of the tap.
+ */
+@Composable
+private fun WatchLinkRow(receivingHr: Boolean, watchUsable: Boolean, rejoin: WatchRejoin, onReconnect: () -> Unit) {
+    val line = when (rejoin) {
+        is WatchRejoin.Working -> LinkLine.Working(rejoin.auto)
+        WatchRejoin.Back -> LinkLine.Back
+        is WatchRejoin.Failed -> if (receivingHr) LinkLine.Streaming else LinkLine.Failed(rejoin.reason)
+        WatchRejoin.Idle -> if (receivingHr) LinkLine.Streaming else LinkLine.Quiet(watchUsable)
+    }
+    AnimatedContent(
+        targetState = line,
+        transitionSpec = {
+            (fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 3 }) togetherWith
+                (fadeOut(tween(140)) + slideOutVertically(tween(180)) { -it / 3 })
+        },
+        label = "watchLink",
+    ) { state ->
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                when (state) {
+                    is LinkLine.Working -> CircularProgressIndicator(color = Flame, strokeWidth = 1.8.dp, modifier = Modifier.size(15.dp))
+                    LinkLine.Back -> Icon(Icons.Filled.CheckCircle, null, tint = Mint, modifier = Modifier.size(16.dp))
+                    is LinkLine.Failed -> Icon(Icons.Filled.ErrorOutline, null, tint = Flame, modifier = Modifier.size(16.dp))
+                    LinkLine.Streaming -> Icon(Icons.Filled.Bolt, null, tint = Mint, modifier = Modifier.size(16.dp))
+                    is LinkLine.Quiet -> Icon(Icons.Filled.Bolt, null, tint = Ash, modifier = Modifier.size(16.dp))
+                }
+                Text(
+                    "  " + when (state) {
+                        is LinkLine.Working -> if (state.auto) "Watch went quiet — reconnecting…" else "Reconnecting…"
+                        LinkLine.Back -> "Heart rate back"
+                        is LinkLine.Failed -> "Couldn't reconnect"
+                        LinkLine.Streaming -> "Watch streaming"
+                        is LinkLine.Quiet -> if (state.watchUsable) "No heart rate" else "Watch offline"
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (state == LinkLine.Back) Mint else Chalk,
+                    modifier = Modifier.weight(1f),
+                )
+                if (state is LinkLine.Failed || state is LinkLine.Quiet) {
+                    Text(
+                        if (state is LinkLine.Failed) "Retry" else "Reconnect",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Flame,
+                        modifier = Modifier.clip(Capsule).clickable(onClick = onReconnect).padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+            }
+            if (state is LinkLine.Failed) {
+                Text(
+                    when (state.reason) {
+                        WatchRejoin.Reason.NO_WATCH -> "No watch is connected to this phone."
+                        WatchRejoin.Reason.NO_ANSWER -> "The watch didn't answer. Open Calistapp on it."
+                        WatchRejoin.Reason.NO_HEART_RATE -> "The watch is back, but no heart rate. Is it snug on your wrist?"
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Ash,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The band's line in the panel. No Reconnect button: the band reconnects by itself as soon as it's back
+ * in range, and the line says when it's doing that.
+ */
+@Composable
+private fun BandLinkRow(band: com.calistapp.app.data.device.BandState) {
+    AnimatedContent(
+        targetState = band,
+        transitionSpec = {
+            (fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 3 }) togetherWith
+                (fadeOut(tween(140)) + slideOutVertically(tween(180)) { -it / 3 })
+        },
+        contentKey = { it::class },
+        label = "bandLink",
+    ) { state ->
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            when (state) {
+                is com.calistapp.app.data.device.BandState.Streaming ->
+                    Icon(Icons.Filled.Bolt, null, tint = if (state.contact) Mint else Coral, modifier = Modifier.size(16.dp))
+                is com.calistapp.app.data.device.BandState.Connecting,
+                is com.calistapp.app.data.device.BandState.Reconnecting,
+                -> CircularProgressIndicator(color = Flame, strokeWidth = 1.8.dp, modifier = Modifier.size(15.dp))
+                else -> Icon(Icons.Filled.ErrorOutline, null, tint = Flame, modifier = Modifier.size(16.dp))
+            }
+            val name = state.bandName.orEmpty()
+            Text(
+                "  " + when (state) {
+                    is com.calistapp.app.data.device.BandState.Streaming -> if (state.contact) "$name streaming" else "$name — no skin contact"
+                    is com.calistapp.app.data.device.BandState.Connecting -> "Connecting to $name…"
+                    is com.calistapp.app.data.device.BandState.Reconnecting -> "$name — reconnecting…"
+                    is com.calistapp.app.data.device.BandState.NeedsPermission -> "$name needs Bluetooth permission"
+                    is com.calistapp.app.data.device.BandState.BluetoothOff -> "Bluetooth is off"
+                    com.calistapp.app.data.device.BandState.None -> ""
+                },
+                style = MaterialTheme.typography.labelLarge,
+                color = Chalk,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }

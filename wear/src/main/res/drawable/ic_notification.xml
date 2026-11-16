@@ -1,17 +1,19 @@
-<!-- Status-bar notification icon (watch) — see the phone module's copy for why this is separate
-     from the launcher icon: notification small icons render from alpha only, flattened to one tint. -->
+<!-- Status-bar notification icon (watch) — the "CA" monogram as a white silhouette. See the phone
+     module's copy for why this is separate from the launcher icon (notification small icons render
+     from alpha only, flattened to one tint) and where the paths come from; keep the two identical. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="600"
+    android:viewportHeight="600">
     <group
-        android:pivotX="54"
-        android:pivotY="54"
-        android:scaleX="0.9"
-        android:scaleY="0.9">
+        android:translateX="-215"
+        android:translateY="-184">
         <path
             android:fillColor="#FFFFFFFF"
-            android:pathData="M54,17 C50,31 42,39 42,55 C42,71 48,85 54,85 C60,85 67,71 67,55 C67,45 61,42 60,33 C59,28 61,24 59,22 C57,25 56,19 54,17 Z" />
+            android:pathData="M375,340 L582,340 L520,407 L400,407 L323,486 L372,543 L468,543 L582,404 L655,404 L787,628 L720,628 L625,477 L505,607 L342,607 L239,479 Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M610,558 L657,558 L692,617 L560,617 Z" />
     </group>
 </vector>

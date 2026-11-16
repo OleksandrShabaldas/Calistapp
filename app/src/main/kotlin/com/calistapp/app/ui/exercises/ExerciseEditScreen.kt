@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.calistapp.app.ui.common.HelpDot
 import com.calistapp.app.ui.common.SectionCard
 import com.calistapp.core.model.BodyPart
 import com.calistapp.core.model.Difficulty
@@ -170,12 +171,11 @@ fun ExerciseEditScreen(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Text("Generate details with AI", fontWeight = FontWeight.SemiBold)
+                    HelpDot(
+                        "Fill in the name and muscles above, then let AI draft the overview, instructions, " +
+                            "mistakes, tips, problem areas and efficiency. You can edit everything after.",
+                    )
                 }
-                Text(
-                    "Fill in the name and muscles above, then let AI draft the overview, instructions, mistakes, tips, problem areas and efficiency. You can edit everything after.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 when (val s = aiState) {
                     is EditAiState.Loading -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         CircularProgressIndicator(Modifier.size(20.dp))

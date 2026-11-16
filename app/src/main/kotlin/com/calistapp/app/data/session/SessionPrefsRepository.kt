@@ -36,6 +36,11 @@ data class SessionPrefs(
      * one starts by itself, so the phone needn't be touched mid-stretch. On by default.
      */
     val autoAdvanceRoutines: Boolean = true,
+    /**
+     * Keep the phone's screen on for as long as a workout is running and Calistapp is on screen — on
+     * every screen, not only the live one (opening an exercise's info mid-workout used to let it sleep).
+     */
+    val keepScreenOn: Boolean = true,
 )
 
 @Singleton
@@ -48,6 +53,7 @@ class SessionPrefsRepository @Inject constructor(
     private val handsFreeKey = booleanPreferencesKey("hands_free")
     private val startFromLastTimeKey = booleanPreferencesKey("start_from_last_time")
     private val autoAdvanceKey = booleanPreferencesKey("auto_advance_routines")
+    private val keepScreenOnKey = booleanPreferencesKey("keep_screen_on")
 
     val prefs: Flow<SessionPrefs> = context.sessionPrefs.data.map {
         SessionPrefs(
@@ -57,6 +63,7 @@ class SessionPrefsRepository @Inject constructor(
             handsFree = it[handsFreeKey] ?: false,
             startFromLastTime = it[startFromLastTimeKey] ?: true,
             autoAdvanceRoutines = it[autoAdvanceKey] ?: true,
+            keepScreenOn = it[keepScreenOnKey] ?: true,
         )
     }
 
@@ -82,5 +89,9 @@ class SessionPrefsRepository @Inject constructor(
 
     suspend fun setAutoAdvanceRoutines(on: Boolean) {
         context.sessionPrefs.edit { it[autoAdvanceKey] = on }
+    }
+
+    suspend fun setKeepScreenOn(on: Boolean) {
+        context.sessionPrefs.edit { it[keepScreenOnKey] = on }
     }
 }

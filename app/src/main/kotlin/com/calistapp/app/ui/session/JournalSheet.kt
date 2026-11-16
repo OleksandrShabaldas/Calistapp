@@ -3,7 +3,12 @@ package com.calistapp.app.ui.session
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -52,6 +57,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -71,6 +80,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.zIndex
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -78,6 +89,7 @@ import androidx.compose.ui.unit.sp
 import com.calistapp.app.session.LiveSession
 import com.calistapp.app.ui.common.DecimalPadSheet
 import com.calistapp.app.ui.common.GlowBox
+import com.calistapp.app.ui.common.HelpDot
 import com.calistapp.app.ui.common.NumberPadSheet
 import com.calistapp.app.ui.common.formatClock
 import com.calistapp.app.ui.detail.difficultyColor
@@ -102,8 +114,11 @@ import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.SetLog
 import com.calistapp.core.model.SkipReason
 import com.calistapp.core.model.SlotPhase
+import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.formatKg
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** Which value of the journal is being edited. */
 private sealed interface JournalEdit {
@@ -150,6 +165,7 @@ fun JournalSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var editing by remember { mutableStateOf<JournalEdit?>(null) }
     var editMode by rememberSaveable { mutableStateOf(false) }
+    val pendingReorder by vm.pendingReorder.collectAsStateWithLifecycle()
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -180,13 +196,29 @@ fun JournalSheet(
                     label = "journal-mode",
                 ) { editing2 ->
                     if (editing2) {
-                        SessionEditor(live = live, vm = vm, onAddExercise = onAddExercise, onEdit = { editing = it })
+                        SessionEditor(
+                            live = live,
+                            // While a reorder question is up, show the order it would give.
+                            plan = pendingReorder?.plan ?: live.plan,
+                            vm = vm,
+                            onAddExercise = onAddExercise,
+                            onEdit = { editing = it },
+                        )
                     } else {
                         JournalTimeline(live, imageUrlsFor, onEdit = { editing = it }, onOpenExercise = onOpenExercise)
                     }
                 }
             }
         }
+    }
+
+    pendingReorder?.let { pending ->
+        ReorderChoicesSheet(
+            behindNames = pending.behindNames,
+            currentName = live.currentExercise?.name,
+            lastRound = live.currentRound >= live.plan.rounds,
+            onChoice = vm::resolveReorder,
+        )
     }
 
     when (val e = editing) {
@@ -254,11 +286,19 @@ private fun JournalHeader(editMode: Boolean, onToggleEdit: () -> Unit, onDone: (
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AnimatedContent(targetState = editMode, transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) }, label = "title", modifier = Modifier.weight(1f)) { e ->
-            Text(
-                if (e) "Edit session" else "Journal",
-                style = TextStyle(fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 26.sp, letterSpacing = (-0.6).sp),
-                color = Chalk,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    if (e) "Edit session" else "Journal",
+                    style = TextStyle(fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 26.sp, letterSpacing = (-0.6).sp),
+                    color = Chalk,
+                )
+                if (e) {
+                    HelpDot(
+                        "Changes apply to today's session only. Your saved workout stays as it is unless you " +
+                            "choose to keep them at the end.",
+                    )
+                }
+            }
         }
         if (!editMode) {
             Box(
@@ -734,30 +774,13 @@ private fun TimelineNode(kind: NodeKind, size: androidx.compose.ui.unit.Dp) {
 @Composable
 private fun SessionEditor(
     live: LiveSession,
+    plan: WorkoutPlan,
     vm: ActiveSessionViewModel,
     onAddExercise: () -> Unit,
     onEdit: (JournalEdit) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(FlameHot.copy(alpha = 0.10f))
-                .border(1.dp, FlameHot.copy(alpha = 0.28f), RoundedCornerShape(14.dp))
-                .padding(horizontal = 12.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(Icons.Filled.Info, null, tint = FlameGlow, modifier = Modifier.size(16.dp))
-            Text(
-                "Changes apply to today's session only. Your saved workout stays as it is unless you choose to keep them at the end.",
-                style = MaterialTheme.typography.labelMedium,
-                color = Color(0xFFFFD1B8),
-            )
-        }
-
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("WORKOUT", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.6.sp), fontWeight = FontWeight.SemiBold, color = FlameGlow, modifier = Modifier.weight(1f))
             if (live.plan.isCircuit) {
                 Text("Rounds", style = MaterialTheme.typography.labelMedium, color = Ash)
@@ -770,8 +793,7 @@ private fun SessionEditor(
             }
         }
 
-        val main = live.plan.slotsIn(SlotPhase.MAIN)
-        ReorderableSlots(live, main, vm, onEdit)
+        ReorderableSlots(live, plan, vm, onEdit)
 
         Row(
             Modifier
@@ -823,25 +845,103 @@ private fun SessionEditor(
     }
 }
 
-/** The workout's exercises with drag handles — drop to reorder within the workout. */
+/**
+ * The workout's exercises with drag handles. Hold a handle and the row lifts above the others (it used
+ * to slide *behind* the rows below it — a translated row still paints in list order) while the rows it
+ * passes slide out of its way, the same feel as the workout builder. The move is committed once, on
+ * drop, so the session's reorder rules (and a circuit's "what about the ones now behind you?") run once.
+ */
 @Composable
-private fun ReorderableSlots(live: LiveSession, main: List<PlannedExercise>, vm: ActiveSessionViewModel, onEdit: (JournalEdit) -> Unit) {
-    val rowPx = with(LocalDensity.current) { 62.dp.toPx() }
+private fun ReorderableSlots(live: LiveSession, plan: WorkoutPlan, vm: ActiveSessionViewModel, onEdit: (JournalEdit) -> Unit) {
+    val main = plan.slotsIn(SlotPhase.MAIN)
+    val rowPx = with(LocalDensity.current) { (54.dp + 8.dp).toPx() }
+    val scope = rememberCoroutineScope()
     var dragging by remember { mutableStateOf<String?>(null) }
     var dragDy by remember { mutableFloatStateOf(0f) }
+    // Leftover offset the dropped row glides home from once the list has its new order.
+    val settle = remember { Animatable(0f) }
+    var committed by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    var snapShifts by remember { mutableStateOf(false) }
+
+    val order = main.map { it.slotId }
+    val fromIndex = order.indexOf(dragging)
+    val target = if (fromIndex < 0) -1 else (fromIndex + (dragDy / rowPx).roundToInt()).coerceIn(0, main.lastIndex)
+
+    // The reordered list has arrived: the dropped row now sits in its new slot. The rows that had made
+    // room are already where they belong, so they snap; the dropped row eases off its last finger offset.
+    LaunchedEffect(order) {
+        val (from, to) = committed ?: return@LaunchedEffect
+        if (order.indexOf(dragging) != to) return@LaunchedEffect
+        committed = null
+        snapShifts = true
+        settle.snapTo(dragDy - (to - from) * rowPx)
+        dragDy = 0f
+        withFrameNanos { }
+        snapShifts = false
+        settle.animateTo(0f, spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMediumLow))
+        dragging = null
+    }
+
+    fun glideHome() = scope.launch {
+        settle.snapTo(dragDy)
+        dragDy = 0f
+        settle.animateTo(0f, spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow))
+        dragging = null
+    }
+
+    // The drag handler outlives recompositions, so the drop must read the order and the finger offset
+    // as they are *now* — not as they were captured when the handler was first set up (which dropped
+    // every move as "no move").
+    val currentOrder by rememberUpdatedState(order)
+    fun drop(slotId: String) {
+        val ord = currentOrder
+        val from = ord.indexOf(slotId)
+        val to = if (from < 0) -1 else (from + (dragDy / rowPx).roundToInt()).coerceIn(0, ord.lastIndex)
+        if (from >= 0 && to >= 0 && to != from) {
+            committed = from to to
+            vm.moveExercise(slotId, to)
+            // Nothing came back (the move changed nothing for the session): glide home, don't hang.
+            scope.launch {
+                delay(900)
+                if (committed != null) {
+                    committed = null
+                    glideHome()
+                }
+            }
+        } else {
+            glideHome()
+        }
+    }
+
     main.forEachIndexed { index, slot ->
         val logs = live.setLogs.count { it.slotId == slot.slotId }
         val removed = live.removedSlots.contains(slot.slotId)
         val resolved = live.completedSets[slot.slotId] ?: 0
-        val owed = live.plan.targetSetsFor(slot.slotId) - resolved
+        val owed = plan.targetSetsFor(slot.slotId) - resolved
         val isDragging = dragging == slot.slotId
+        val shift = when {
+            fromIndex < 0 || isDragging || committed != null -> 0f
+            fromIndex < target && index in (fromIndex + 1)..target -> -rowPx
+            target < fromIndex && index in target until fromIndex -> rowPx
+            else -> 0f
+        }
+        val animatedShift by animateFloatAsState(
+            targetValue = shift,
+            animationSpec = if (snapShifts) snap() else spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow),
+            label = "rowShift",
+        )
+        // Lifted while held, settling back down as it lands.
+        val lift by animateFloatAsState(if (isDragging && committed == null) 1f else 0f, tween(160), label = "lift")
         Box(
             Modifier
+                .zIndex(if (isDragging) 1f else 0f)
                 .graphicsLayer {
-                    translationY = if (isDragging) dragDy else 0f
-                    shadowElevation = if (isDragging) 18f else 0f
-                    scaleX = if (isDragging) 1.02f else 1f
-                    scaleY = if (isDragging) 1.02f else 1f
+                    translationY = if (isDragging) dragDy + settle.value else animatedShift
+                    shadowElevation = 18f * lift
+                    shape = RoundedCornerShape(16.dp)
+                    clip = false
+                    scaleX = 1f + 0.02f * lift
+                    scaleY = 1f + 0.02f * lift
                 },
         ) {
             when {
@@ -886,21 +986,24 @@ private fun ReorderableSlots(live: LiveSession, main: List<PlannedExercise>, vm:
                             Icon(
                                 Icons.Filled.DragHandle,
                                 "Drag to reorder",
-                                tint = Ash,
+                                tint = if (isDragging) FlameGlow else Ash,
                                 modifier = Modifier
                                     .size(30.dp)
                                     .padding(4.dp)
                                     .pointerInput(slot.slotId, index) {
                                         detectDragGestures(
-                                            onDragStart = { dragging = slot.slotId; dragDy = 0f },
-                                            onDragEnd = {
-                                                val steps = (dragDy / rowPx).roundToInt()
-                                                if (steps != 0) vm.moveExercise(slot.slotId, index + steps)
-                                                dragging = null
-                                                dragDy = 0f
+                                            onDragStart = {
+                                                if (committed == null && dragging == null) {
+                                                    dragging = slot.slotId
+                                                    dragDy = 0f
+                                                }
                                             },
-                                            onDragCancel = { dragging = null; dragDy = 0f },
-                                        ) { change, amount -> change.consume(); dragDy += amount.y }
+                                            onDragEnd = { if (dragging == slot.slotId && committed == null) drop(slot.slotId) },
+                                            onDragCancel = { if (dragging == slot.slotId && committed == null) drop(slot.slotId) },
+                                        ) { change, amount ->
+                                            change.consume()
+                                            if (dragging == slot.slotId && committed == null) dragDy += amount.y
+                                        }
                                     },
                             )
                         },

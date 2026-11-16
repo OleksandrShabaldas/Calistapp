@@ -39,7 +39,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,7 +52,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,6 +60,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.calistapp.app.data.sync.WatchLinkState
 import com.calistapp.app.session.LiveSession
+import com.calistapp.app.session.WatchRejoin
 import com.calistapp.app.ui.common.GlassCard
 import com.calistapp.app.ui.common.NoHeartRateDialog
 import com.calistapp.app.ui.common.PillChip
@@ -109,8 +108,8 @@ fun ActiveSessionScreen(
     val thumbnails by viewModel.thumbnails.collectAsStateWithLifecycle()
     val previousReps by viewModel.previousReps.collectAsStateWithLifecycle()
 
+    // The screen is held awake for the whole workout by MainActivity (every screen, not just this one).
     val session = live
-    KeepScreenOn(enabled = session != null)
 
     if (session == null) {
         StartControls(
@@ -142,16 +141,6 @@ fun ActiveSessionScreen(
     }
 }
 
-/** Holds the display awake for as long as [enabled], and gives it back on the way out. */
-@Composable
-private fun KeepScreenOn(enabled: Boolean) {
-    val view = LocalView.current
-    DisposableEffect(view, enabled) {
-        view.keepScreenOn = enabled
-        onDispose { view.keepScreenOn = false }
-    }
-}
-
 /** An action held back by a pre-bank confirmation — no reps, or no effort rated — with its wording. */
 private class PendingConfirm(
     val title: String,
@@ -176,6 +165,10 @@ private fun LiveControls(
     onOpenExercise: (String) -> Unit,
     onAddExercise: () -> Unit,
 ) {
+    val rejoin by vm.rejoin.collectAsStateWithLifecycle()
+    val band by vm.band.collectAsStateWithLifecycle()
+    val bandReconnecting = band is com.calistapp.app.data.device.BandState.Connecting ||
+        band is com.calistapp.app.data.device.BandState.Reconnecting
     val isActive = live.currentSegment == SegmentType.ACTIVE
     val exercise = live.currentExercise
     val heroPlanned = live.heroExercise
@@ -380,7 +373,13 @@ private fun LiveControls(
                     fontWeight = FontWeight.Bold,
                     color = Chalk,
                 )
-                LiveHudChip(bpm = live.lastBpm, kcal = kcalInt, onClick = { hudExpanded = true })
+                LiveHudChip(
+                    bpm = live.lastBpm,
+                    kcal = kcalInt,
+                    onClick = { hudExpanded = true },
+                    live = live.receivingHr,
+                    reconnecting = rejoin is WatchRejoin.Working || bandReconnecting,
+                )
             }
         }
 
@@ -583,10 +582,12 @@ private fun LiveControls(
                 kcal = kcalInt,
                 kcalPerMin = kcalPerMin,
                 elapsedMs = live.elapsedMs,
-                watchLabel = if (live.receivingHr) "Watch streaming" else if (watchLink.isUsable) "Watch connected" else "Watch offline",
-                showReconnect = !live.receivingHr,
+                receivingHr = live.receivingHr,
+                watchUsable = watchLink.isUsable,
+                rejoin = rejoin,
                 onReconnect = vm::reconnectWatch,
                 onClose = { hudExpanded = false },
+                band = band,
                 link = live.hrLink,
             )
         }
@@ -598,6 +599,7 @@ private fun LiveControls(
                 onSound = vm::setSound,
                 onVibration = vm::setVibration,
                 onAutoplay = vm::setAutoplay,
+                onKeepScreenOn = vm::setKeepScreenOn,
                 onResume = { vm.resume() },
                 onEnd = { vm.requestFinish(onFinished) },
                 onDiscard = { vm.discard(); onDiscarded() },

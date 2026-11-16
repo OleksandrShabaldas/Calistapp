@@ -31,7 +31,16 @@ data class CalorieAudit(
     /** Energy from time no segment covered — before the first toggle, typically. */
     val unsegmentedKcal: Double,
     val unsegmentedMs: Long,
+    /**
+     * Share of the session the heart-rate stream covered (0..1). Below
+     * [NoHeartRateEstimate.MIN_HR_COVERAGE] the session is scored by the estimate, and every block's
+     * basis is [Basis.ESTIMATE] (or [Basis.REP_WORK] where that was higher).
+     */
+    val hrCoverage: Double = 1.0,
 ) {
+    /** Scored by [NoHeartRateEstimate] — no usable heart rate. */
+    val estimated: Boolean get() = summary.estimated
+
     /** What the blocks add up to. Should equal [SessionSummary.totalKcal] to within rounding. */
     val blockKcalTotal: Double get() = blocks.sumOf { it.kcal } + unsegmentedKcal
 
@@ -74,6 +83,9 @@ data class CalorieAudit(
 
         /** A rest block: heart rate only, bounded above and below. */
         REST,
+
+        /** No usable heart rate: the block's activity at its Compendium MET — see [NoHeartRateEstimate]. */
+        ESTIMATE,
     }
 
     /**
