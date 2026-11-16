@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.calistapp.app.data.recommend.RecommendationsUi
+import com.calistapp.app.ui.common.FitText
 import com.calistapp.app.ui.common.GlowBox
 import com.calistapp.app.ui.common.GlowIcon
 import com.calistapp.app.ui.common.ProgressRing
@@ -455,37 +456,25 @@ fun RecommendationsRow(
     /** Today's workout is done — the only thing the readiness gauge's check means. */
     trainedToday: Boolean = false,
 ) {
+    // Both gauges are the same glass object now (see GlassGauge.kt): the conditions one used to be a
+    // plain ring with two lines of text next to the glass readiness lens.
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
         val r = state.readiness
         if (trainedToday) {
             // Done for today: the glass lens with a raised check, whatever readiness said this morning.
             GlassReadinessGauge(score = r?.score, done = true, onClick = { onTap(GaugeKind.READINESS) })
         } else if (state.readinessLoading || r == null) {
-            GaugePlaceholder()
-        } else if (shortReadiness(r.score) == "Train") {
-            // Ready, not trained yet: the score in the glass lens. No check — a check here used to read
-            // as "workout done" on days you hadn't trained.
-            GlassReadinessGauge(score = r.score, done = false, onClick = { onTap(GaugeKind.READINESS) })
+            GlassPlaceholder()
         } else {
-            RecGauge(
-                progress = r.score / 100f,
-                accent = readinessColor(r.score),
-                top = shortReadiness(r.score),
-                bottom = "${r.score}%",
-                onClick = { onTap(GaugeKind.READINESS) },
-            )
+            // The score in the glass lens, tinted by the verdict. No check — a check here used to read as
+            // "workout done" on days you hadn't trained.
+            GlassReadinessGauge(score = r.score, done = false, onClick = { onTap(GaugeKind.READINESS) })
         }
         val c = state.conditions
         if (state.conditionsLoading || c == null) {
-            GaugePlaceholder()
+            GlassPlaceholder()
         } else {
-            RecGauge(
-                progress = conditionsFill(c.label),
-                accent = FlameHot,
-                top = c.label,
-                bottom = c.detail.ifBlank { "—" },
-                onClick = { if (c.needsLocation) onEnableLocation() else onTap(GaugeKind.CONDITIONS) },
-            )
+            GlassConditionsGauge(c, onClick = { if (c.needsLocation) onEnableLocation() else onTap(GaugeKind.CONDITIONS) })
         }
     }
 }
@@ -503,17 +492,11 @@ fun RecGauge(
 ) {
     val ringMod = if (onClick != null) modifier.clip(CircleShape).clickable(onClick = onClick) else modifier
     ProgressRing(progress = progress, accent = accent, modifier = ringMod, diameter = diameter, strokeWidth = 9.dp) {
+        // One line each, shrinking to fit — "8° · partly cloudy" used to wrap onto a second line.
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(top, style = MaterialTheme.typography.titleSmall, color = accent, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(bottom, style = MaterialTheme.typography.labelMedium, color = Chalk, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            FitText(top, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = accent)
+            FitText(bottom, style = MaterialTheme.typography.labelMedium, color = Chalk)
         }
-    }
-}
-
-@Composable
-private fun GaugePlaceholder() {
-    ProgressRing(progress = 0f, accent = AshFaint, diameter = 118.dp, strokeWidth = 9.dp) {
-        Text("Loading…", style = MaterialTheme.typography.labelMedium, color = Ash, textAlign = TextAlign.Center)
     }
 }
 
@@ -529,9 +512,10 @@ internal fun shortReadiness(score: Int): String = when {
     else -> "Rest"
 }
 
-internal fun conditionsFill(label: String): Float = when {
-    label.contains("Outdoor", ignoreCase = true) -> 0.82f
-    label.contains("Indoor", ignoreCase = true) -> 0.42f
+/** The conditions ring: how good it is outside (0..1), falling back to a fixed fill for old results. */
+internal fun conditionsFill(c: com.calistapp.app.data.recommend.Conditions): Float = c.score?.let { it / 100f } ?: when {
+    c.label.contains("Outdoor", ignoreCase = true) -> 0.82f
+    c.label.contains("Indoor", ignoreCase = true) -> 0.42f
     else -> 0f
 }
 

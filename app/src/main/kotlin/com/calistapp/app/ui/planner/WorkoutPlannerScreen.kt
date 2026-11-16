@@ -1,5 +1,10 @@
 package com.calistapp.app.ui.planner
 
+import com.calistapp.app.ui.common.SwipeToDeleteRow
+import com.calistapp.app.ui.common.UndoBar
+import com.calistapp.app.ui.common.rememberPendingDeletes
+import androidx.compose.animation.core.animateFloatAsState
+import com.calistapp.app.ui.common.GestureMotion
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
@@ -146,6 +151,8 @@ fun WorkoutPlannerScreen(
     val watchLink by viewModel.watchLink.collectAsStateWithLifecycle()
     val planListState = rememberLazyListState()
     val reorder = rememberReorderState(planListState) { from, to -> viewModel.moveTo(from, to) }
+    // Saved workouts swipe (or ✕) away with an undo, instead of a confirm dialog.
+    val pendingDeletes = rememberPendingDeletes { viewModel.deleteWorkout(it) }
 
     if (picking) {
         ExercisePicker(
@@ -156,6 +163,7 @@ fun WorkoutPlannerScreen(
         return
     }
 
+    Box(Modifier.fillMaxSize()) {
     Column(
         Modifier.fillMaxSize()
             .background(Brush.verticalGradient(listOf(PageWarm, PageDim, PageInk)))
@@ -217,12 +225,17 @@ fun WorkoutPlannerScreen(
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
-                    items(saved, key = { it.id }) { workout ->
-                        SavedWorkoutRow(
-                            workout = workout,
-                            onOpen = { onOpenSavedWorkout(workout.id) },
-                            onDelete = { viewModel.deleteWorkout(workout.id) },
-                        )
+                    items(saved.filter { it.id !in pendingDeletes.pending }, key = { it.id }) { workout ->
+                        SwipeToDeleteRow(
+                            onDelete = { pendingDeletes.delete(workout.id, workout.name) },
+                            modifier = Modifier.animateItem(),
+                        ) {
+                            SavedWorkoutRow(
+                                workout = workout,
+                                onOpen = { onOpenSavedWorkout(workout.id) },
+                                onDelete = { pendingDeletes.delete(workout.id, workout.name) },
+                            )
+                        }
                     }
                 }
             }
@@ -245,14 +258,22 @@ fun WorkoutPlannerScreen(
                 itemsIndexed(plan.exercises, key = { _, it -> it.slotId }) { index, slot ->
                     val previous = plan.exercises.getOrNull(index - 1)
                     val dragging = reorder.draggingIndex == index
+                    val lifted = reorder.isLifted(index)
+                    // Held: follows the finger 1:1 and lifts (scale + shadow) above the rows it passes,
+                    // which slide out of its way (animateItem) rather than teleporting. Dropped: springs
+                    // into its slot and settles back down.
+                    val lift by animateFloatAsState(if (dragging) 1f else 0f, GestureMotion.spring(0.25f, 0f), label = "planLift")
                     Box(
-                        if (dragging) {
-                            Modifier
-                                .zIndex(1f)
-                                .graphicsLayer { translationY = reorder.draggedTranslationY }
-                        } else {
-                            Modifier
-                        },
+                        Modifier
+                            .then(if (lifted) Modifier.zIndex(1f) else Modifier.animateItem())
+                            .graphicsLayer {
+                                translationY = reorder.translationFor(index)
+                                scaleX = 1f + 0.03f * lift
+                                scaleY = 1f + 0.03f * lift
+                                shadowElevation = 20f * lift
+                                shape = RoundedCornerShape(18.dp)
+                                clip = false
+                            },
                     ) {
                         PlannedExerciseCard(
                             slot = slot,
@@ -336,26 +357,13 @@ fun WorkoutPlannerScreen(
         }
         Box(Modifier.height(8.dp))
     }
+    UndoBar(pendingDeletes, Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp))
+    }
 }
 
-/** One reusable workout: tap to open its detail screen, or drop it. */
+/** One reusable workout: tap to open its detail screen, or drop it (swipe left, or ✕ — both undoable). */
 @Composable
 private fun SavedWorkoutRow(workout: SavedWorkout, onOpen: () -> Unit, onDelete: () -> Unit) {
-    var confirmDelete by rememberSaveable { mutableStateOf(false) }
-
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete \"${workout.name}\"?") },
-            text = { Text("The saved workout goes; sessions you've already done with it stay.") },
-            confirmButton = {
-                TextButton(onClick = { confirmDelete = false; onDelete() }) {
-                    Text("Delete", color = Coral)
-                }
-            },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep it") } },
-        )
-    }
 
     GlassCard(contentPadding = 12) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -376,7 +384,7 @@ private fun SavedWorkoutRow(workout: SavedWorkout, onOpen: () -> Unit, onDelete:
                 )
             }
             TextButton(onClick = onOpen) { Text("Open", color = Flame) }
-            IconButton(onClick = { confirmDelete = true }, modifier = Modifier.size(32.dp)) {
+            IconButton(onClick = onDelete, modifier = Modifier.size(44.dp)) {
                 Icon(Icons.Filled.Close, "Delete ${workout.name}", tint = Coral, modifier = Modifier.size(18.dp))
             }
         }

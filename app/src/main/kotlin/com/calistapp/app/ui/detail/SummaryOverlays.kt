@@ -1,5 +1,8 @@
 package com.calistapp.app.ui.detail
 
+import com.calistapp.app.ui.common.dragToDismiss
+import com.calistapp.app.ui.common.rememberDragDismissState
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -89,11 +92,13 @@ fun SummaryOverlay(
             tween(200),
             label = "scrim",
         )
+        // Swipe the card down to close it; the scrim lifts with it.
+        val drag = rememberDragDismissState(onDismissed = onDismiss)
         val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.9f).dp
         Box(
             Modifier
                 .fillMaxSize()
-                .background(scrim)
+                .drawBehind { drawRect(scrim.copy(alpha = scrim.alpha * (1f - drag.fraction))) }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -108,6 +113,7 @@ fun SummaryOverlay(
             ) {
                 Column(
                     Modifier
+                        .dragToDismiss(drag)
                         .fillMaxWidth(0.94f)
                         .heightIn(max = maxHeight)
                         .padding(vertical = 24.dp)

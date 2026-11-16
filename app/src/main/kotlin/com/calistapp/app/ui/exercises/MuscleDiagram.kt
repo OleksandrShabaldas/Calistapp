@@ -80,8 +80,23 @@ private fun groupsOf(names: List<String>): Set<String> = names.flatMapTo(mutable
 /** A body part ready to draw: the group it highlights with, and its parsed paths. */
 private class DrawPart(val group: String, val paths: List<Path>)
 
+/**
+ * Finer sub-regions layered on top of the base muscles in the source data (upper/lower chest, inner/
+ * outer quad, upper/lower abs, serratus, hip flexors, front delt). They are rough ovals that duplicate
+ * muscles already drawn, so painting them made blobs over the thighs, chest, abs and flanks and filled
+ * the gaps that separate the real muscles. The base muscles already light up for every group they
+ * would, so they are not drawn.
+ */
+private val OverlaySlugs = setOf(
+    "upperChest", "lowerChest", "innerQuad", "outerQuad", "upperAbs", "lowerAbs",
+    "serratus", "hipFlexors", "frontDeltoid",
+)
+
 private fun buildParts(src: List<MuscleMapPart>): List<DrawPart> =
-    src.map { part -> DrawPart(slugGroup(part.slug), part.paths.map { PathParser().parsePathString(it).toPath() }) }
+    src.filter { it.slug !in OverlaySlugs }.map { part ->
+        // Normalised first: Compose's parser silently drops arcs written with compact flags.
+        DrawPart(slugGroup(part.slug), part.paths.map { PathParser().parsePathString(SvgPathNormalizer.normalize(it)).toPath() })
+    }
 
 @Composable
 fun MuscleDiagram(

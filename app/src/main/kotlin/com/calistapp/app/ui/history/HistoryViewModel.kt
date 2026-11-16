@@ -1,5 +1,6 @@
 package com.calistapp.app.ui.history
 
+import kotlinx.coroutines.launch
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.calistapp.app.data.profile.ProfileRepository
@@ -31,6 +32,11 @@ class HistoryViewModel @Inject constructor(
 
     val sessions: StateFlow<List<SessionOverview>> = sessionRepository.observeSessions()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Called once a swiped-away session's undo window has closed. */
+    fun deleteSession(id: String) {
+        viewModelScope.launch { runCatching { sessionRepository.deleteSession(id) } }
+    }
 
     /**
      * Trends and personal bests over the whole history.

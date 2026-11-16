@@ -60,7 +60,7 @@ class DashboardViewModel @Inject constructor(
     profileRepository: ProfileRepository,
     sessionRepository: SessionRepository,
     sessionController: SessionController,
-    stepsImportRepository: StepsImportRepository,
+    private val stepsImportRepository: StepsImportRepository,
     private val scheduleRepository: ScheduleRepository,
     private val savedWorkoutRepository: SavedWorkoutRepository,
     private val planDraftRepository: PlanDraftRepository,
@@ -365,6 +365,30 @@ class DashboardViewModel @Inject constructor(
 
     fun refreshRecommendations(forceConditions: Boolean = false) {
         viewModelScope.launch { runCatching { recommendationsRepository.refresh(forceConditions) } }
+    }
+
+    private val _refreshing = kotlinx.coroutines.flow.MutableStateFlow(false)
+    /** True while a pull-to-refresh is running. */
+    val refreshing: StateFlow<Boolean> = _refreshing
+
+    /**
+     * Pull-to-refresh: re-reads recent steps from FitPal and the weather/conditions together, and
+     * holds the spinner until both are back (at least long enough to read as a refresh). Readiness is
+     * left on its once-a-day clock — the reasoning model's free quota is the scarce thing.
+     */
+    fun pullRefresh() {
+        if (_refreshing.value) return
+        _refreshing.value = true
+        viewModelScope.launch {
+            val started = System.currentTimeMillis()
+            kotlinx.coroutines.coroutineScope {
+                launch { runCatching { stepsImportRepository.reconcileRecent() } }
+                launch { runCatching { recommendationsRepository.refresh(forceConditions = true) } }
+            }
+            val elapsed = System.currentTimeMillis() - started
+            if (elapsed < 700) kotlinx.coroutines.delay(700 - elapsed)
+            _refreshing.value = false
+        }
     }
 
     /** The conditions detail card's manual "regenerate" (and a fresh location grant). */

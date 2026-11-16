@@ -1,5 +1,9 @@
 package com.calistapp.app.ui.history
 
+import com.calistapp.app.ui.common.SwipeToDeleteRow
+import com.calistapp.app.ui.common.UndoBar
+import com.calistapp.app.ui.common.rememberPendingDeletes
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -41,7 +45,10 @@ fun HistoryScreen(
     val period by viewModel.period.collectAsStateWithLifecycle()
     val bodyMass by viewModel.bodyMass.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(TAB_SESSIONS) }
+    // Swipe a session left to delete it; it's only really deleted once the undo window has passed.
+    val pendingDeletes = rememberPendingDeletes { viewModel.deleteSession(it) }
 
+    Box(Modifier.fillMaxSize()) {
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 104.dp),
@@ -87,8 +94,13 @@ fun HistoryScreen(
                     }
                 }
             } else {
-                items(sessions, key = { it.id }) { session ->
-                    SessionRow(session = session, onClick = { onOpenSession(session.id) })
+                items(sessions.filter { it.id !in pendingDeletes.pending }, key = { it.id }) { session ->
+                    SwipeToDeleteRow(
+                        onDelete = { pendingDeletes.delete(session.id, session.title) },
+                        modifier = Modifier.animateItem(),
+                    ) {
+                        SessionRow(session = session, onClick = { onOpenSession(session.id) })
+                    }
                 }
             }
         } else {
@@ -100,6 +112,8 @@ fun HistoryScreen(
                 onPeriodChange = viewModel::setPeriod,
             )
         }
+    }
+    UndoBar(pendingDeletes, Modifier.align(Alignment.BottomCenter).padding(bottom = 112.dp))
     }
 }
 

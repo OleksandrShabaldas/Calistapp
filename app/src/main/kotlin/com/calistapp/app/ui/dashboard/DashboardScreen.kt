@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import com.calistapp.app.ui.common.PullToRefreshBox
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -88,6 +89,9 @@ fun DashboardScreen(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { result -> if (result.values.any { it }) viewModel.regenerateConditions() }
 
+    // Pull down from the top to re-read steps and the weather (readiness stays once a day — AI quota).
+    val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
+    PullToRefreshBox(refreshing = refreshing, onRefresh = viewModel::pullRefresh, modifier = Modifier.fillMaxSize()) {
     Column(
         Modifier
             .fillMaxSize()
@@ -215,6 +219,7 @@ fun DashboardScreen(
 
         // Clearance so the last card can scroll clear of the floating nav (content passes under it).
         Spacer(Modifier.size(104.dp))
+    }
     }
 
     GaugeDetailOverlay(

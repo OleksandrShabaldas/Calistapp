@@ -6,7 +6,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,7 +33,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,7 +52,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -57,7 +62,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import com.calistapp.app.ui.common.GestureMotion
 import com.calistapp.app.ui.common.GlowBox
+import com.calistapp.app.ui.common.rememberReduceMotion
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.calistapp.app.ui.common.glow
 import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.AshFaint
@@ -72,6 +83,12 @@ import kotlin.math.min
  * The weekly calorie strip — no card, short, wide bars. Swipe left/right to step through weeks; tap a
  * day to inspect it; tap the title for the monthly view; tap the number for the steps-vs-exercise
  * split; the "Plan your week" link sits under the total.
+ *
+ * The swipe follows the finger: the week slides 1:1 under it (rubber-banding where there's no week to
+ * go to — nothing after this week), and on release a far-enough drag OR a quick flick carries it off in
+ * the direction it was moving, at the finger's speed, while the next week slides in behind it. It used
+ * to sit still until the finger lifted and then swap. Any week change — the "This week" button, picking
+ * a day in another week — slides in from the side the new week lies on.
  */
 @Composable
 fun WeekStrip(
@@ -87,22 +104,82 @@ fun WeekStrip(
 ) {
     var showBreakdown by remember { mutableStateOf(false) }
 
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val reduceMotion = rememberReduceMotion()
+    val flingPx = GestureMotion.flingPx(density)
+    val offset = remember { Animatable(0f) }
+    var widthPx by remember { mutableFloatStateOf(1f) }
+    var raw by remember { mutableFloatStateOf(0f) }
+    // +1 = the older week is coming in from the left, -1 = the newer one from the right.
+    var entering by remember { mutableIntStateOf(0) }
+    val canGoNext = !week.isCurrentWeek
+    val prev by rememberUpdatedState(onPreviousWeek)
+    val next by rememberUpdatedState(onNextWeek)
+
+    // A new week has arrived: slide it in from the side it lies on. A swipe already knows the side;
+    // anything else (the "This week" button, a day picked in the month) compares the dates.
+    val weekStart = week.days.firstOrNull()?.date
+    var shownStart by remember { mutableStateOf(weekStart) }
+    LaunchedEffect(weekStart) {
+        val before = shownStart
+        shownStart = weekStart
+        if (before == null || weekStart == null || before == weekStart) return@LaunchedEffect
+        val dir = if (entering != 0) entering else if (weekStart < before) 1 else -1
+        entering = 0
+        offset.snapTo(dir * -widthPx * 0.35f)
+        offset.animateTo(0f, GestureMotion.release(reduceMotion, bounce = 0.12f, durationS = 0.45f))
+    }
+
+    val drag = rememberDraggableState { delta ->
+        raw += delta
+        // Free inside one width either way, elastic where there's no week to go to.
+        val min = if (canGoNext) -widthPx else 0f
+        scope.launch { offset.snapTo(GestureMotion.elastic(raw, min, widthPx)) }
+    }
+
     Column(
         modifier
             .fillMaxWidth()
-            .pointerInput(Unit) {
-                var total = 0f
-                detectHorizontalDragGestures(
-                    onDragStart = { total = 0f },
-                    onDragEnd = {
-                        if (total > SWIPE_THRESHOLD) onPreviousWeek()
-                        else if (total < -SWIPE_THRESHOLD) onNextWeek()
-                    },
-                ) { _, dragAmount -> total += dragAmount }
-            }
+            .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
+            .draggable(
+                drag,
+                Orientation.Horizontal,
+                startDragImmediately = offset.isRunning,
+                onDragStarted = { raw = offset.value; offset.stop() },
+                onDragStopped = { v ->
+                    val dir = when {
+                        (v > flingPx || offset.value > widthPx * 0.3f) && v > -flingPx -> 1
+                        (v < -flingPx || offset.value < -widthPx * 0.3f) && v < flingPx && canGoNext -> -1
+                        else -> 0
+                    }
+                    if (dir == 0) {
+                        offset.animateTo(0f, GestureMotion.snapBack(reduceMotion), initialVelocity = v)
+                    } else {
+                        // Off it goes at the finger's speed (no bounce on the way out), then the swap.
+                        offset.animateTo(dir * widthPx, GestureMotion.spring(0.3f, 0f), initialVelocity = v)
+                        entering = dir
+                        if (dir > 0) prev() else next()
+                        // Nothing came back (already at the oldest week): bring this one back in.
+                        scope.launch {
+                            delay(600)
+                            if (entering != 0) {
+                                entering = 0
+                                offset.snapTo(-dir * widthPx * 0.35f)
+                                offset.animateTo(0f, GestureMotion.snapBack(reduceMotion))
+                            }
+                        }
+                    }
+                },
+            )
             // Tapping any empty part of the widget opens the month; the day columns, the total and the
             // plan link have their own taps and consume theirs first.
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onOpenMonth),
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onOpenMonth)
+            // After the drag detector, so moving the content doesn't move the finger's frame of reference.
+            .graphicsLayer {
+                translationX = offset.value
+                alpha = 1f - 0.65f * (kotlin.math.abs(offset.value) / widthPx).coerceIn(0f, 1f)
+            },
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
             Row(
@@ -293,7 +370,6 @@ private fun BreakdownRow(label: String, kcal: Int, fraction: Float, color: Color
     }
 }
 
-private const val SWIPE_THRESHOLD = 60f
 
 // Bar geometry shared with [DayColumn]: a bar's box ends 61dp down its column (5dp padding + 56dp box),
 // and a bar grows from an 8dp base by up to 46dp. Columns are 32dp wide (24dp bar + 4dp each side).

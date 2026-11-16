@@ -17,9 +17,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,7 +65,7 @@ fun NumberPadSheet(
     maxValue: Int? = null,
     help: String? = null,
 ) {
-    Sheet(onDismiss, modifier) {
+    Sheet(onDismiss, modifier) { sheet ->
         NumberPadBody(
             title = title,
             initialText = if (initial > 0) initial.toString() else "",
@@ -78,7 +76,7 @@ fun NumberPadSheet(
             maxValue = maxValue,
             decimal = false,
             help = help,
-            onConfirm = { onConfirm(it.toInt()) },
+            onConfirm = { v -> sheet.dismiss { onConfirm(v.toInt()) } },
         )
     }
 }
@@ -97,7 +95,7 @@ fun DecimalPadSheet(
     modifier: Modifier = Modifier,
     unit: String? = "kg",
 ) {
-    Sheet(onDismiss, modifier) {
+    Sheet(onDismiss, modifier) { sheet ->
         NumberPadBody(
             title = title,
             initialText = if (initial > 0) trimNum(initial) else "",
@@ -108,24 +106,15 @@ fun DecimalPadSheet(
             maxValue = null,
             decimal = true,
             help = null,
-            onConfirm = onConfirm,
+            onConfirm = { v -> sheet.dismiss { onConfirm(v) } },
         )
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** The keypad's sheet: swipe it down (or tap above it) to cancel; confirming slides it away first. */
 @Composable
-private fun Sheet(onDismiss: () -> Unit, modifier: Modifier, content: @Composable () -> Unit) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = OnyxRaised,
-        scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f),
-        dragHandle = null,
-        modifier = modifier,
-        content = { content() },
-    )
+private fun Sheet(onDismiss: () -> Unit, modifier: Modifier, content: @Composable (GestureSheetScope) -> Unit) {
+    GestureModalSheet(onDismissRequest = onDismiss, modifier = modifier, containerColor = OnyxRaised) { sheet -> content(sheet) }
 }
 
 @Composable
@@ -163,7 +152,7 @@ private fun NumberPadBody(
     val value = entry.toDoubleOrNull() ?: 0.0
 
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 18.dp, bottom = 22.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 2.dp, bottom = 22.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {

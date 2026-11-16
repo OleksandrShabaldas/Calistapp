@@ -1,5 +1,11 @@
 package com.calistapp.app.ui.session
 
+import com.calistapp.app.ui.common.DismissStyle
+import com.calistapp.app.ui.common.dismissTransform
+import com.calistapp.app.ui.common.rememberDragDismissState
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -29,6 +35,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -66,6 +73,8 @@ import com.calistapp.app.ui.common.NoHeartRateDialog
 import com.calistapp.app.ui.common.PillChip
 import com.calistapp.app.ui.common.SectionHeading
 import com.calistapp.app.ui.common.WatchStatusCard
+import com.calistapp.app.ui.common.blockTouchesBelow
+import com.calistapp.app.ui.common.rememberSheetDragState
 import com.calistapp.app.ui.common.formatClock
 import com.calistapp.app.ui.common.rememberHaptics
 import com.calistapp.app.ui.common.rememberSoundEffects
@@ -103,7 +112,6 @@ fun ActiveSessionScreen(
     val plan by viewModel.plan.collectAsStateWithLifecycle()
     val watchLink by viewModel.watchLink.collectAsStateWithLifecycle()
     val heroExercise by viewModel.heroExercise.collectAsStateWithLifecycle()
-    val heroHistory by viewModel.heroHistory.collectAsStateWithLifecycle()
     val prefs by viewModel.prefs.collectAsStateWithLifecycle()
     val thumbnails by viewModel.thumbnails.collectAsStateWithLifecycle()
     val previousReps by viewModel.previousReps.collectAsStateWithLifecycle()
@@ -127,7 +135,6 @@ fun ActiveSessionScreen(
             vm = viewModel,
             live = session,
             heroExercise = heroExercise,
-            heroHistory = heroHistory,
             prefs = prefs,
             watchLink = watchLink,
             imageUrlsFor = { id -> thumbnails[id].orEmpty() },
@@ -154,7 +161,6 @@ private fun LiveControls(
     vm: ActiveSessionViewModel,
     live: LiveSession,
     heroExercise: Exercise?,
-    heroHistory: ExerciseHistoryStat?,
     prefs: com.calistapp.app.data.session.SessionPrefs,
     watchLink: WatchLinkState,
     imageUrlsFor: (String) -> List<String>,
@@ -226,21 +232,22 @@ private fun LiveControls(
         }
     }
 
-    var showJournal by remember { mutableStateOf(false) }
-    var hudExpanded by remember { mutableStateOf(false) }
+    // The journal's position: the card's swipe drives it directly, so it follows the finger.
+    val journal = rememberSheetDragState()
+    // The heart-rate chip growing into its panel.
+    val hud = rememberHudMorphState()
+    // Swipe down (on the video, the top bar or the card) to put the workout away; it keeps running.
+    val minimise = rememberDragDismissState(onDismissed = onCollapse)
+    val router = remember(journal, minimise) { LiveDragRouter(journal, minimise) }
+    val routeDrag = rememberDraggableState { router.drag(it) }
     var repsNumpad by remember { mutableStateOf(false) }
     var weightNumpad by remember { mutableStateOf(false) }
     // Whether the effort sheet for the set in progress is open — effort is rated on the exercise
     // screen now, while the set is fresh, rather than after banking on the rest screen.
     var ratingCurrent by remember { mutableStateOf(false) }
 
-    // How far the sheet is pulled up (0 = resting low, 1 = detail open). Drives both the sheet and
-    // the video fading down behind it. Owned here so the two stay in lockstep frame-for-frame.
-    val sheetExpand = remember { Animatable(0f) }
     val density = LocalDensity.current
     val heroShiftPx = with(density) { 36.dp.toPx() }
-    // The lead-in should read on the video, not through a half-open detail sheet — tuck it away.
-    LaunchedEffect(countdown != null) { if (countdown != null) sheetExpand.animateTo(0f) }
 
     confirming?.let { pending ->
         AlertDialog(
@@ -321,7 +328,6 @@ private fun LiveControls(
             "Skip cool-down & finish" to { vm.skipPhaseAndFinish(SlotPhase.COOL_DOWN, onFinished) }
         else -> null
     }
-    val canReveal = (heroExercise != null || heroPlanned != null) && countdown == null
     // Reps this set was performed with last time in this same workout, when the "start from last time"
     // setting is on — the counter opens on these and the caption says so, so you're matching or beating
     // yourself rather than chasing a planned number. Null for a first-time workout, a hold, or off.
@@ -334,25 +340,39 @@ private fun LiveControls(
     val elapsedMin = live.elapsedMs / 60_000.0
     val kcalPerMin = if (elapsedMin > 0.1) s.totalKcal / elapsedMin else 0.0
 
-    Box(Modifier.fillMaxSize().background(Onyx)) {
-        // Full-bleed demonstration behind everything; it fades and sinks as the sheet rises.
+    Box(Modifier.fillMaxSize().dismissTransform(minimise, DismissStyle.Screen).background(Onyx)) {
+        // Full-bleed demonstration behind everything; it dims and sinks as the journal rises — derived
+        // from the journal's own position, so the two never drift apart mid-gesture. Tapping the video
+        // (the part of it not covered by the controls) opens the exercise.
         Box(
             Modifier
                 .fillMaxSize()
+                .draggable(
+                    routeDrag,
+                    Orientation.Vertical,
+                    onDragStarted = { router.start() },
+                    onDragStopped = { v -> router.end(v) },
+                )
                 .graphicsLayer {
-                    alpha = 1f - 0.5f * sheetExpand.value
-                    translationY = sheetExpand.value * heroShiftPx
+                    translationY = journal.fraction * heroShiftPx
                 },
         ) {
             LiveExerciseHero(heroExercise, autoplay = prefs.autoplayVideo,
-                dimAmount = 0.6f * sheetExpand.value,
+                dimAmount = 0.6f * journal.fraction,
                 onOpenExercise = { (heroPlanned?.exerciseId ?: heroExercise?.id)?.let(onOpenExercise) },
                 modifier = Modifier.fillMaxSize())
         }
 
 
-        // Top chrome: minimise / round / pause, then the progress dashes, then clock + HUD chip.
-        Column(Modifier.fillMaxWidth().statusBarsPadding()) {
+        // Top chrome: minimise / round / pause, then the progress dashes, then clock + HUD chip. Takes the
+        // taps that land between its controls, so they don't open the exercise from the video behind.
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .draggable(routeDrag, Orientation.Vertical, onDragStarted = { router.start() }, onDragStopped = { v -> router.end(v) })
+                .blockTouchesBelow()
+                .statusBarsPadding(),
+        ) {
             LiveTopBar(
                 roundLabel = live.topLabel,
                 onCollapse = onCollapse,
@@ -376,9 +396,10 @@ private fun LiveControls(
                 LiveHudChip(
                     bpm = live.lastBpm,
                     kcal = kcalInt,
-                    onClick = { hudExpanded = true },
+                    onClick = { hud.open() },
                     live = live.receivingHr,
                     reconnecting = rejoin is WatchRejoin.Working || bandReconnecting,
+                    modifier = Modifier.hudMorphSource(hud),
                 )
             }
         }
@@ -396,7 +417,7 @@ private fun LiveControls(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
                     .padding(bottom = 8.dp)
-                    .graphicsLayer { alpha = 1f - sheetExpand.value },
+                    .graphicsLayer { alpha = 1f - journal.fraction },
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 // The set the hero is for: the current one while working, otherwise the one coming up.
@@ -434,23 +455,8 @@ private fun LiveControls(
             }
 
             LiveSheet(
-                expand = sheetExpand,
-                canReveal = canReveal,
-                reveal = {
-                    ThisExerciseContent(
-                        exercise = heroExercise,
-                        planned = heroPlanned,
-                        targetLabel = heroPlanned?.let(live.plan::targetLabelFor),
-                        history = heroHistory,
-                        nowMs = live.nowMs,
-                        onOpenExercise = { (heroPlanned?.exerciseId ?: heroExercise?.id)?.let(onOpenExercise) },
-                    )
-                    heroPlanned?.exerciseId?.let { exId ->
-                        TextButton(onClick = { onOpenExercise(exId) }) {
-                            Text("Open full exercise details", color = Flame)
-                        }
-                    }
-                },
+                journal = journal,
+                router = router,
                 peek = {
                     // Each state of the card — counter, rest, phase hand-off, guided move — rises into
                     // place rather than swapping in, so a phase change reads as one.
@@ -545,52 +551,62 @@ private fun LiveControls(
                         Text(primaryLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     }
 
+                    // Tap, or swipe the card up from anywhere — the chevron says it lifts.
                     Row(
-                        Modifier.fillMaxWidth().clip(Capsule).clickable { showJournal = true }.padding(vertical = 8.dp),
+                        Modifier.fillMaxWidth().clip(Capsule).clickable { journal.open() }.padding(vertical = 10.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Journal", style = MaterialTheme.typography.labelLarge, color = Ash)
+                        Icon(Icons.Filled.KeyboardArrowUp, null, tint = Ash, modifier = Modifier.size(18.dp))
+                        Text(" Journal", style = MaterialTheme.typography.labelLarge, color = Ash)
                     }
                     Box(Modifier.navigationBarsPadding())
                 },
             )
         }
 
-        // HUD detail — dims the screen and springs open from the chip's corner.
-        AnimatedVisibility(
-            visible = hudExpanded,
-            enter = fadeIn(tween(150)),
-            exit = fadeOut(tween(150)),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)).clickable { hudExpanded = false })
-        }
-        AnimatedVisibility(
-            visible = hudExpanded,
-            enter = fadeIn(tween(120)) +
-                scaleIn(initialScale = 0.85f, transformOrigin = TransformOrigin(1f, 0f), animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow)),
-            exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.85f, transformOrigin = TransformOrigin(1f, 0f)),
-            modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 92.dp, end = 12.dp),
-        ) {
-            LiveHudPanel(
-                bpm = live.lastBpm,
-                avgHr = s.avgHr,
-                peakHr = s.peakHr,
-                maxHr = live.maxHr,
-                recentBpm = live.recentBpm,
-                kcal = kcalInt,
-                kcalPerMin = kcalPerMin,
-                elapsedMs = live.elapsedMs,
-                receivingHr = live.receivingHr,
-                watchUsable = watchLink.isUsable,
-                rejoin = rejoin,
-                onReconnect = vm::reconnectWatch,
-                onClose = { hudExpanded = false },
-                band = band,
-                link = live.hrLink,
-            )
-        }
+        // The journal, over the card it grew out of.
+        JournalSheet(
+            state = journal,
+            live = live,
+            vm = vm,
+            imageUrlsFor = imageUrlsFor,
+            onAddExercise = onAddExercise,
+            onOpenExercise = onOpenExercise,
+        )
+
+        // HUD detail — the chip itself grows into the panel (and folds back into it).
+        LiveHudMorph(
+            state = hud,
+            chip = {
+                LiveHudChipContent(
+                    bpm = live.lastBpm,
+                    kcal = kcalInt,
+                    live = live.receivingHr,
+                    reconnecting = rejoin is WatchRejoin.Working || bandReconnecting,
+                )
+            },
+            panel = {
+                LiveHudPanel(
+                    bpm = live.lastBpm,
+                    avgHr = s.avgHr,
+                    peakHr = s.peakHr,
+                    maxHr = live.maxHr,
+                    recentBpm = live.recentBpm,
+                    kcal = kcalInt,
+                    kcalPerMin = kcalPerMin,
+                    elapsedMs = live.elapsedMs,
+                    receivingHr = live.receivingHr,
+                    watchUsable = watchLink.isUsable,
+                    rejoin = rejoin,
+                    onReconnect = vm::reconnectWatch,
+                    onClose = { hud.close() },
+                    band = band,
+                    link = live.hrLink,
+                    chrome = false,
+                )
+            },
+        )
 
         if (live.status == SessionStatus.PAUSED) {
             PauseScreen(
@@ -629,16 +645,6 @@ private fun LiveControls(
         )
     }
 
-    if (showJournal) {
-        JournalSheet(
-            live = live,
-            vm = vm,
-            imageUrlsFor = imageUrlsFor,
-            onAddExercise = { showJournal = false; onAddExercise() },
-            onOpenExercise = { id -> showJournal = false; onOpenExercise(id) },
-            onDismiss = { showJournal = false },
-        )
-    }
     if (repsNumpad && exercise != null) {
         com.calistapp.app.ui.common.NumberPadSheet(
             title = if (isHold) "Seconds" else "Reps",
@@ -672,27 +678,22 @@ private fun LiveControls(
 
 @Composable
 private fun LiveTopBar(roundLabel: String, onCollapse: () -> Unit, onPause: () -> Unit) {
+    // 44dp touch targets around 28dp glyphs (they were 28dp targets), the row kept as tall as before.
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 0.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            Icons.Filled.KeyboardArrowDown,
-            "Minimise",
-            tint = Ash,
-            modifier = Modifier.size(28.dp).clip(Capsule).clickable(onClick = onCollapse).padding(2.dp),
-        )
+        Box(Modifier.size(44.dp).clip(Capsule).clickable(onClick = onCollapse), contentAlignment = Alignment.Center) {
+            Icon(Icons.Filled.KeyboardArrowDown, "Minimise", tint = Ash, modifier = Modifier.size(28.dp).padding(2.dp))
+        }
         Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
             if (roundLabel.isNotEmpty()) {
                 Text(roundLabel, style = MaterialTheme.typography.titleSmall, color = Chalk)
             }
         }
-        Icon(
-            Icons.Filled.Pause,
-            "Pause",
-            tint = Chalk,
-            modifier = Modifier.size(28.dp).clip(Capsule).clickable(onClick = onPause).padding(2.dp),
-        )
+        Box(Modifier.size(44.dp).clip(Capsule).clickable(onClick = onPause), contentAlignment = Alignment.Center) {
+            Icon(Icons.Filled.Pause, "Pause", tint = Chalk, modifier = Modifier.size(28.dp).padding(2.dp))
+        }
     }
 }
 

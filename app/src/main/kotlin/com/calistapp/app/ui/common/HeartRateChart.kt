@@ -1,6 +1,23 @@
 package com.calistapp.app.ui.common
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -43,6 +60,10 @@ import com.calistapp.core.model.SegmentType
  * Rest blocks are shaded (toggleable) so you can see how effort and recovery mapped onto the curve,
  * and the peak is marked. A bare Canvas is invisible to a screen reader, so the whole thing carries a
  * spoken summary.
+ *
+ * **Scrub it**: touch and drag along the chart and a cursor follows the finger 1:1, reading out the
+ * exact heart rate, zone and time at that moment (a tap reads one point). It stays a beat after you
+ * let go, then fades. A vertical drag still scrolls the page — only a sideways one scrubs.
  */
 @Composable
 fun HeartRateChart(
@@ -79,12 +100,53 @@ fun HeartRateChart(
         if (restCount > 0 && showRest) append("$restCount rest periods are shaded.")
     }
 
+    // Scrub cursor: where the finger is (px), and how visible the readout is.
+    var scrubX by remember { mutableStateOf<Float?>(null) }
+    val scrubAlpha = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    val measurer = rememberTextMeasurer()
+    val labelStyle = MaterialTheme.typography.labelMedium
+    var fadeJob by remember { mutableStateOf<Job?>(null) }
+    fun showAt(x: Float) {
+        fadeJob?.cancel()
+        scrubX = x
+        scope.launch { scrubAlpha.animateTo(1f, GestureMotion.settle(0.15f)) }
+    }
+    fun release() {
+        fadeJob = scope.launch {
+            delay(1400)
+            scrubAlpha.animateTo(0f, GestureMotion.settle(0.3f))
+            scrubX = null
+        }
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = modifier.fillMaxWidth()) {
         Canvas(
             Modifier
                 .fillMaxWidth()
                 .height(150.dp)
-                .semantics { contentDescription = chartDescription },
+                .semantics { contentDescription = chartDescription }
+                .pointerInput(samples) {
+                    detectTapGestures(onPress = { pos ->
+                        showAt(pos.x)
+                        tryAwaitRelease()
+                        release()
+                    })
+                }
+                .pointerInput(samples) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { pos ->
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            showAt(pos.x)
+                        },
+                        onDragEnd = { release() },
+                        onDragCancel = { release() },
+                    ) { change, _ ->
+                        change.consume()
+                        showAt(change.position.x.coerceIn(0f, size.width.toFloat()))
+                    }
+                },
         ) {
             val startT = samples.first().timestampMs
             val endT = samples.last().timestampMs
@@ -152,6 +214,37 @@ fun HeartRateChart(
 
             // Peak marker.
             drawPeak(px(peak.timestampMs), py(peak.bpm))
+
+            // The scrub cursor: a line under the finger, a dot on the trace, and the reading above it.
+            val sx = scrubX
+            val a = scrubAlpha.value
+            if (sx != null && a > 0f) {
+                val t = startT + (sx / size.width * spanT).toLong()
+                val nearest = samples.minByOrNull { kotlin.math.abs(it.timestampMs - t) } ?: samples.first()
+                val x = px(nearest.timestampMs)
+                val y = py(nearest.bpm)
+                val zoneColor = hrZoneColor(HrZone.forHr(nearest.bpm, maxHr))
+                drawLine(Color.White.copy(alpha = 0.45f * a), Offset(x, 0f), Offset(x, size.height), 1.dp.toPx())
+                drawCircle(zoneColor.copy(alpha = 0.35f * a), radius = 8.dp.toPx(), center = Offset(x, y))
+                drawCircle(Color.White.copy(alpha = a), radius = 3.5.dp.toPx(), center = Offset(x, y))
+                val label = measurer.measure(
+                    "${nearest.bpm} bpm · ${formatClock(nearest.timestampMs - startT)}",
+                    labelStyle.copy(color = Color.White),
+                )
+                val padH = 8.dp.toPx()
+                val padV = 4.dp.toPx()
+                val w = label.size.width + padH * 2
+                val h = label.size.height + padV * 2
+                val left = (x - w / 2).coerceIn(0f, size.width - w)
+                drawRoundRect(
+                    Color(0xFF1B1A1E).copy(alpha = 0.92f * a),
+                    topLeft = Offset(left, 0f),
+                    size = Size(w, h),
+                    cornerRadius = CornerRadius(h / 2),
+                )
+                drawRoundRect(zoneColor.copy(alpha = 0.8f * a), topLeft = Offset(left, 0f), size = Size(w, h), cornerRadius = CornerRadius(h / 2), style = Stroke(1.dp.toPx()))
+                drawText(label, topLeft = Offset(left + padH, padV), alpha = a)
+            }
         }
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

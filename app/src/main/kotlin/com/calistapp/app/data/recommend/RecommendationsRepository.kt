@@ -15,6 +15,9 @@ import com.calistapp.app.data.session.SessionRepository
 import com.calistapp.app.di.IoDispatcher
 import com.calistapp.core.model.UserProfile
 import com.calistapp.core.progress.TrainingLoad
+import com.calistapp.core.weather.OutdoorAdvice
+import com.calistapp.core.weather.OutdoorAdvisor
+import com.calistapp.core.weather.Venue
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.coroutineScope
@@ -90,7 +93,9 @@ class RecommendationsRepository @Inject constructor(
             val todayEpoch = LocalDate.now(zone).toEpochDay()
             val now = System.currentTimeMillis()
             val needReadiness = forceReadiness || memReadiness == null || memReadinessDay != todayEpoch
-            val needConditions = forceConditions || memConditions == null || now - memConditionsAt >= WEATHER_INTERVAL_MS
+            // A saved result from before the outdoor rules (no score) is regenerated rather than shown.
+            val staleConditions = memConditions?.let { it.score == null && !it.needsLocation } ?: true
+            val needConditions = forceConditions || staleConditions || now - memConditionsAt >= WEATHER_INTERVAL_MS
 
             _ui.value = RecommendationsUi(
                 readiness = if (needReadiness) null else memReadiness,
@@ -382,52 +387,61 @@ class RecommendationsRepository @Inject constructor(
 
     // ---- conditions ----
 
+    /**
+     * The verdict is decided by rules ([OutdoorAdvisor], unit-tested in `:core`) and the AI only words
+     * the explanation. Left to choose, the model called 8 °C a fine day for outdoor bar work because the
+     * prompt only ruled out "temperature extremes" — and a calisthenics session, mostly standing still
+     * between sets on cold metal bars, needs it a good deal warmer than that.
+     */
     private suspend fun generateConditions(): Conditions {
         val coords = runCatching { location.currentOrLast() }.getOrNull() ?: return noLocationConditions()
         val w = runCatching { weather.current(coords.latitude, coords.longitude) }.getOrNull() ?: return noLocationConditions()
+        val input = w.toAdviceInput()
+        val advice = OutdoorAdvisor.advise(input)
 
-        val prompt = buildConditionsPrompt(w)
-        val parsed = when (val r = gemini.generate(prompt, AiModelTier.FAST)) {
-            is AiResult.Success -> parseConditions(r.text)
-            is AiResult.Failure -> null
+        val aiReason = when (val r = gemini.generate(buildConditionsPrompt(w, advice), AiModelTier.FAST)) {
+            is AiResult.Success -> parseConditions(r.text)?.reason?.trim().orEmpty()
+            is AiResult.Failure -> ""
         }
-        val base = if (parsed != null && parsed.label.isNotBlank()) {
-            Conditions(parsed.label, parsed.detail.ifBlank { w.glance }, parsed.reason)
-        } else {
-            heuristicConditions(w)
-        }
-        return base.copy(factors = buildConditionsFactors(w))
+        val reason = aiReason.ifBlank { advice.reasons.take(3).joinToString(" ") { OutdoorAdvisor.describe(it, input) } }
+        return Conditions(
+            label = advice.label,
+            detail = w.glance,
+            reason = reason,
+            factors = buildConditionsFactors(w),
+            score = advice.score,
+            outdoor = advice.venue == Venue.OUTDOOR,
+            tempC = w.tempC.roundToInt(),
+            weatherCode = w.weatherCode,
+            isDay = w.isDay,
+        )
     }
 
-    private fun buildConditionsPrompt(w: WeatherSnapshot): String = buildString {
-        appendLine("Advise whether to train indoors or outdoors right now. Respond with ONLY minified JSON, no markdown:")
-        appendLine("""{"label":"<Indoor|Outdoor|Outdoor · SPF>","detail":"<glanceable, e.g. 12°·rain>","reason":"<2-3 sentences explaining the call from the specific conditions>"}""")
+    private fun buildConditionsPrompt(w: WeatherSnapshot, advice: OutdoorAdvice): String = buildString {
+        val input = w.toAdviceInput()
+        appendLine("You're a calisthenics coach. The call on where to train right now is already made — explain it; don't change it.")
+        appendLine("Respond with ONLY minified JSON, no markdown:")
+        appendLine("""{"reason":"<2-3 sentences, ~200-320 chars, explaining the call from the specific conditions>"}""")
         appendLine()
-        appendLine("- ${w.tempC.roundToInt()}°C (feels ${w.apparentTempC.roundToInt()}°C), ${w.weatherText}, wind ${w.windKph.roundToInt()} km/h, precip ${"%.1f".format(w.precipMm)} mm")
+        appendLine("CALL: ${advice.label} (outdoor score ${advice.score}/100)")
+        appendLine("WHY: " + advice.reasons.joinToString(" ") { OutdoorAdvisor.describe(it, input) })
+        appendLine()
+        appendLine("CONDITIONS:")
+        appendLine("- ${w.tempC.roundToInt()}°C (feels ${w.apparentTempC.roundToInt()}°C), ${w.weatherText}, wind ${w.windKph.roundToInt()} km/h" + (w.gustKph?.let { ", gusts ${it.roundToInt()} km/h" } ?: ""))
+        appendLine("- precipitation now ${"%.1f".format(w.precipMm)} mm, last 3 h ${w.recentPrecipMm?.let { "%.1f mm".format(it) } ?: "n/a"}; ${if (w.isDay == false) "dark out" else "daylight"}")
         appendLine("- UV index ${w.uvIndex?.let { "%.1f".format(it) } ?: "n/a"}, PM2.5 ${w.pm25?.let { "${it.roundToInt()} µg/m³" } ?: "n/a"}, US AQI ${w.usAqi ?: "n/a"}")
-        appendLine("Recommend Indoor when rain/storm/poor air (AQI>100)/temperature extremes; Outdoor when pleasant. When UV index >= 6 use label \"Outdoor · SPF\" and mention sunscreen. Keep detail short like \"23°·clear\".")
+        appendLine()
+        appendLine("Context: a calisthenics session is mostly standing still between sets, so you cool down fast; cold metal bars sap grip and wet ones are slippery; explosive moves on cold muscles risk strains. If outdoors on a cool day, suggest layers and a longer warm-up; on a hot one, shade and water; with high UV, sunscreen.")
     }
 
     @Serializable
-    private data class ConditionsDto(val label: String = "", val detail: String = "", val reason: String = "")
+    private data class ConditionsDto(val reason: String = "")
 
     private fun parseConditions(text: String): ConditionsDto? {
         val start = text.indexOf('{')
         val end = text.lastIndexOf('}')
         if (start < 0 || end <= start) return null
         return runCatching { json.decodeFromString(ConditionsDto.serializer(), text.substring(start, end + 1)) }.getOrNull()
-    }
-
-    private fun heuristicConditions(w: WeatherSnapshot): Conditions {
-        val poorAir = (w.usAqi ?: 0) > 100
-        val wet = w.precipMm > 0.2 || w.weatherCode in setOf(61, 63, 65, 80, 81, 82, 95, 96, 99)
-        val highUv = (w.uvIndex ?: 0.0) >= 6.0
-        return when {
-            wet -> Conditions("Indoor", w.glance, "It's wet out there right now, so an indoor session is the safer, more comfortable call today.")
-            poorAir -> Conditions("Indoor", w.glance, "Air quality is poor right now (AQI ${w.usAqi}). Training indoors avoids the extra respiratory load.")
-            highUv -> Conditions("Outdoor · SPF", w.glance, "Conditions are good for outdoor training, but the UV index is high — wear sunscreen and a hat.")
-            else -> Conditions("Outdoor", w.glance, "Pleasant, dry conditions with clean air — a good window to train outside.")
-        }
     }
 
     private fun noLocationConditions(): Conditions = Conditions(
@@ -440,10 +454,12 @@ class RecommendationsRepository @Inject constructor(
 
     private fun buildConditionsFactors(w: WeatherSnapshot): List<RecFactor> = buildList {
         add(RecFactor("Temperature", "${w.tempC.roundToInt()}°C", ((w.tempC + 10) / 45.0).toFloat().coerceIn(0f, 1f)))
+        add(RecFactor("Feels like", "${w.apparentTempC.roundToInt()}°C", ((w.apparentTempC + 10) / 45.0).toFloat().coerceIn(0f, 1f)))
         w.uvIndex?.let { add(RecFactor("UV index", "%.1f".format(it), (it / 11.0).toFloat().coerceIn(0f, 1f))) }
         w.usAqi?.let { add(RecFactor("Air quality", "AQI $it", (it / 200f).coerceIn(0f, 1f))) }
         add(RecFactor("Wind", "${w.windKph.roundToInt()} km/h", (w.windKph / 40.0).toFloat().coerceIn(0f, 1f)))
         if (w.precipMm > 0.0) add(RecFactor("Rain", "%.1f mm".format(w.precipMm), (w.precipMm / 10.0).toFloat().coerceIn(0f, 1f)))
+        else if ((w.recentPrecipMm ?: 0.0) >= 0.5) add(RecFactor("Recent rain", "%.1f mm".format(w.recentPrecipMm), (w.recentPrecipMm!! / 10.0).toFloat().coerceIn(0f, 1f)))
     }
 
     // ---- shared ----

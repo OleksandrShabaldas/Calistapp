@@ -1,5 +1,12 @@
 package com.calistapp.app.ui.exercises
 
+import com.calistapp.app.ui.common.DismissStyle
+import com.calistapp.app.ui.common.SwipeSwitcher
+import com.calistapp.app.ui.common.dragToDismiss
+import com.calistapp.app.ui.common.rememberDragDismissState
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -146,7 +153,15 @@ fun ExerciseDetailScreen(
     var showShare by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(PageWarm, PageDim, PageInk)))) {
+    // Pull down from the top of the page (or anywhere off the list) and the screen follows the finger,
+    // shrinking like a card being put away; far enough or a flick goes back.
+    val dismiss = rememberDragDismissState(onDismissed = onBack)
+    Box(
+        Modifier
+            .fillMaxSize()
+            .dragToDismiss(dismiss, DismissStyle.Screen)
+            .background(Brush.verticalGradient(listOf(PageWarm, PageDim, PageInk))),
+    ) {
         if (e == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Flame)
@@ -182,12 +197,19 @@ fun ExerciseDetailScreen(
                 }
                 stickyHeader { TabPills(tab, onSelect = { tab = it }) }
                 item {
-                    when (tab) {
-                        DetailTab.GUIDE -> GuideTab(e, faqs, faqAsk, aiState, viewModel::enrich, viewModel::askFaq, viewModel::clearFaqError)
-                        DetailTab.MUSCLES -> MusclesTab(e)
-                        DetailTab.SKILLS -> SkillsTab(e)
-                        DetailTab.PROGRESS -> ProgressTab(progress, trend, history, onOpenSession)
-                        DetailTab.DETAILS -> DetailsTab(e, appearsIn, onOpenWorkout)
+                    // Swipe sideways between the tabs; tapping a pill slides in from its side too.
+                    SwipeSwitcher(
+                        index = tab.ordinal,
+                        count = DetailTab.entries.size,
+                        onIndexChange = { tab = DetailTab.entries[it] },
+                    ) { i ->
+                        when (DetailTab.entries[i]) {
+                            DetailTab.GUIDE -> GuideTab(e, faqs, faqAsk, aiState, viewModel::enrich, viewModel::askFaq, viewModel::clearFaqError)
+                            DetailTab.MUSCLES -> MusclesTab(e)
+                            DetailTab.SKILLS -> SkillsTab(e)
+                            DetailTab.PROGRESS -> ProgressTab(progress, trend, history, onOpenSession)
+                            DetailTab.DETAILS -> DetailsTab(e, appearsIn, onOpenWorkout)
+                        }
                     }
                 }
                 item { Spacer(Modifier.height(112.dp).navigationBarsPadding()) }
@@ -324,13 +346,20 @@ private fun HeroTitle(e: Exercise, modifier: Modifier = Modifier) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TabPills(selected: DetailTab, onSelect: (DetailTab) -> Unit) {
+    // A swipe can land on a tab whose pill is scrolled out of view — bring it in.
+    val scroll = rememberScrollState()
+    val pillX = remember { mutableMapOf<DetailTab, Int>() }
+    LaunchedEffect(selected) {
+        pillX[selected]?.let { scroll.animateScrollTo((it - 120).coerceAtLeast(0)) }
+    }
     Row(
-        Modifier.fillMaxWidth().background(PageDim).horizontalScroll(rememberScrollState())
+        Modifier.fillMaxWidth().background(PageDim).horizontalScroll(scroll)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         DetailTab.entries.forEach { t ->
             val on = t == selected
+            Box(Modifier.onGloballyPositioned { pillX[t] = it.positionInParent().x.toInt() }) {
             if (on) {
                 GlowBox(color = FlameHot, shape = Capsule, glowRadius = 10.dp, glowAlpha = 0.4f) {
                     Text(
@@ -353,6 +382,7 @@ private fun TabPills(selected: DetailTab, onSelect: (DetailTab) -> Unit) {
                         .clickable { onSelect(t) }
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                 )
+            }
             }
         }
     }

@@ -27,10 +27,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import com.calistapp.app.ui.common.GestureModalSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -85,12 +84,11 @@ fun AiCoachSheet(
     onRegenerate: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var confirmRegen by remember { mutableStateOf(false) }
     val loading = aiState is AiUiState.Loading
     val error = (aiState as? AiUiState.Error)?.message
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = OnyxRaised) {
+    GestureModalSheet(onDismissRequest = onDismiss, containerColor = OnyxRaised) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),

@@ -42,7 +42,19 @@ data class Conditions(
     val needsLocation: Boolean = false,
     /** The inputs it weighed — temperature, UV, air, wind — for the detail card's bars. */
     val factors: List<RecFactor> = emptyList(),
-)
+    /** How good it is to train outside, 0..100 (the gauge's ring). Null on results saved before 1.4.0. */
+    val score: Int? = null,
+    /** The verdict itself; null when there's no weather read (or an old saved result). */
+    val outdoor: Boolean? = null,
+    /** Air temperature, rounded — the big number in the gauge's lens. */
+    val tempC: Int? = null,
+    /** WMO weather code + daylight, for the lens's weather glyph. */
+    val weatherCode: Int? = null,
+    val isDay: Boolean? = null,
+) {
+    /** The short qualifier after "Outdoor" — "SPF", "layers" — or null. */
+    val qualifier: String? get() = label.substringAfter(" · ", "").ifBlank { null }
+}
 
 /**
  * What the dashboard reads. The two halves resolve independently, so each gauge can show its own

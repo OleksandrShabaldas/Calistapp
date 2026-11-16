@@ -23,7 +23,6 @@ import com.calistapp.core.model.ExerciseType
 import com.calistapp.core.model.SetLog
 import com.calistapp.core.model.SlotPhase
 import com.calistapp.core.model.WorkoutPlan
-import com.calistapp.core.progress.PerformedSession
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -45,7 +44,6 @@ class ActiveSessionViewModel @Inject constructor(
     private val watchConnection: WatchConnectionMonitor,
     private val sessionPrefs: SessionPrefsRepository,
     bandHeartRate: com.calistapp.app.data.device.BandHeartRateManager,
-    sessionRepository: SessionRepository,
     savedStateHandle: SavedStateHandle,
     exerciseRepository: ExerciseRepository,
 ) : ViewModel() {
@@ -91,13 +89,6 @@ class ActiveSessionViewModel @Inject constructor(
     val heroExercise: StateFlow<Exercise?> = combine(controller.live, exercisesById) { s, byId ->
         s?.heroExercise?.exerciseId?.let { byId[it] }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    /** Cross-session history for the hero exercise — last time performed, and personal bests. */
-    val heroHistory: StateFlow<ExerciseHistoryStat?> = combine(
-        controller.live.map { it?.heroExercise?.exerciseId }.distinctUntilChanged(),
-        sessionRepository.observePerformed(),
-    ) { id, performed -> historyFor(id, performed) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * Artwork per exercise id, for the journal's thumbnails. Falls back to a frame of the exercise's
@@ -247,31 +238,6 @@ private fun thumbUrlsFor(exercise: Exercise): List<String> = exercise.imageUrls.
     exercise.media.firstOrNull { it.type == com.calistapp.core.model.MediaType.VIDEO }
         ?.let { listOf(com.calistapp.app.ui.exercises.VideoThumbUrlMapper.SCHEME + it.url) }
         ?: emptyList()
-}
-
-/** Last-time and best figures for one exercise, pulled from finished sessions. */
-data class ExerciseHistoryStat(
-    val lastSets: List<SetLog>,
-    val lastWhenMs: Long,
-    val bestReps: Int,
-    val bestWeightKg: Double,
-)
-
-private fun historyFor(exerciseId: String?, performed: List<PerformedSession>): ExerciseHistoryStat? {
-    if (exerciseId == null) return null
-    val withEx = performed.mapNotNull { s ->
-        val sets = s.setLogs.filter { it.exerciseId == exerciseId }
-        if (sets.isEmpty()) null else s.startMs to sets
-    }
-    if (withEx.isEmpty()) return null
-    val latest = withEx.maxByOrNull { it.first }!!
-    val allSets = withEx.flatMap { it.second }
-    return ExerciseHistoryStat(
-        lastSets = latest.second,
-        lastWhenMs = latest.first,
-        bestReps = allSets.maxOfOrNull { it.reps } ?: 0,
-        bestWeightKg = allSets.maxOfOrNull { it.weightKg } ?: 0.0,
-    )
 }
 
 /** Map an exercise's category onto the closest workout type for the session. */

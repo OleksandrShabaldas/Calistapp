@@ -39,6 +39,8 @@ fun ProgressRing(
     modifier: Modifier = Modifier,
     diameter: Dp = 208.dp,
     strokeWidth: Dp = 12.dp,
+    /** How much of the inner diameter the centre content may use (the default suits two-line stacks). */
+    contentWidthFraction: Float = 0.78f,
     content: @Composable () -> Unit,
 ) {
     val animated by animateFloatAsState(
@@ -83,7 +85,7 @@ fun ProgressRing(
         // square of the inner circle so a long label — e.g. a weather line like "19° partly cloudy" —
         // wraps within the ring instead of spilling out past its edges.
         Box(
-            Modifier.widthIn(max = (diameter - strokeWidth * 2) * 0.78f),
+            Modifier.widthIn(max = (diameter - strokeWidth * 2) * contentWidthFraction),
             contentAlignment = Alignment.Center,
         ) {
             content()

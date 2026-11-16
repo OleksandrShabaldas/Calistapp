@@ -2,8 +2,6 @@ package com.calistapp.app.ui.session
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -15,7 +13,10 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,9 +28,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
@@ -41,20 +40,21 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.calistapp.app.ui.common.RepeatingIconButton
+import com.calistapp.app.ui.common.SheetDragState
+import com.calistapp.app.ui.common.blockTouchesBelow
 import com.calistapp.app.ui.common.formatClock
 import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.Capsule
@@ -66,7 +66,6 @@ import com.calistapp.app.ui.theme.OnyxRaised
 import com.calistapp.app.ui.theme.Sky
 import com.calistapp.core.model.SlotPhase
 import com.calistapp.core.model.formatKg
-import kotlinx.coroutines.launch
 
 /** State of one segment in the top progress bar. */
 enum class SegState { DONE, CURRENT, UPCOMING, SKIPPED }
@@ -116,97 +115,95 @@ fun SegmentBar(items: List<SegItem>, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * One vertical drag on the live screen, routed by its first movement: **up** lifts the journal, **down**
+ * puts the workout away (minimise). Once the journal is out, every drag belongs to it. Shared by the
+ * card, the video and the top bar, so a swipe means the same thing wherever it starts.
+ */
+class LiveDragRouter(
+    private val journal: SheetDragState,
+    private val minimise: com.calistapp.app.ui.common.DragDismissState,
+) {
+    private var route = 0
+
+    fun start() {
+        route = if (journal.isShown) 1 else 0
+        if (route == 1) journal.dragStart()
+    }
+
+    /** [dy] = finger movement, down positive. */
+    fun drag(dy: Float) {
+        if (route == 0) {
+            route = if (dy < 0) 1 else 2
+            if (route == 1) journal.dragStart() else minimise.dragStart()
+        }
+        if (route == 1) journal.dragBy(-dy) else minimise.dragBy(dy)
+    }
+
+    fun end(velocity: Float) {
+        when (route) {
+            1 -> journal.dragEnd(-velocity)
+            2 -> minimise.dragEnd(velocity)
+        }
+        route = 0
+    }
+}
+
 /** Rounded shape shared by the live sheet — a big top radius, so it reads as a card lifting off the video. */
 private val SheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 
-/** How far the sheet can be dragged up to reveal the "this exercise" detail. */
-private val RevealMax = 340.dp
-
 /**
- * The draggable live-workout sheet.
+ * The live-workout card, resting low over the video.
  *
- * One card, not a stack of modals: it rests low (so most of the video shows), and its grabber drags
- * up **in place** to reveal [reveal] — the same "this exercise" detail that used to open as a separate
- * sheet — sliding the [peek] controls down with it. [expand] (0 = resting, 1 = open) is owned by the
- * caller so the video behind can fade as the card rises. Drag settles to the nearest end with a spring.
+ * **Swipe it up for the journal**: the whole card is the handle (its buttons still work — a drag only
+ * takes over once the finger has clearly moved). The journal grows out of the card's top edge and
+ * follows the finger 1:1, then a velocity-seeded spring finishes the motion; it can be caught on the way.
+ * Tap the grabber to open it too. This replaced an in-place "this exercise" panel the grabber used to
+ * reveal — the exercise's details now open by tapping the video itself.
+ *
+ * The card takes every touch that lands on it, so a tap on its empty parts can't reach the video
+ * underneath (it used to open the exercise from anywhere on the card).
  */
 @Composable
 fun LiveSheet(
-    expand: Animatable<Float, AnimationVector1D>,
-    canReveal: Boolean,
-    reveal: @Composable ColumnScope.() -> Unit,
+    journal: SheetDragState,
+    router: LiveDragRouter,
     peek: @Composable ColumnScope.() -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val scope = rememberCoroutineScope()
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val revealMaxPx = with(density) { RevealMax.toPx() }
-    val settle = spring<Float>(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
-
-    fun animateTo(target: Float) = scope.launch { expand.animateTo(target, settle) }
-
+    val drag = rememberDraggableState { delta -> router.drag(delta) }
     Column(
         modifier
             .fillMaxWidth()
+            // The journal starts from this card's top edge, so the card "becomes" the journal.
+            .onSizeChanged { journal.peekPx = it.height.toFloat() }
             .clip(SheetShape)
-            .background(OnyxRaised),
+            .background(OnyxRaised)
+            .draggable(
+                drag,
+                Orientation.Vertical,
+                startDragImmediately = journal.progress.isRunning,
+                onDragStarted = { router.start() },
+                onDragStopped = { v -> router.end(v) },
+            )
+            .blockTouchesBelow(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Grabber — drag it up/down, or tap to toggle. The one control that opens the detail.
+        // Grabber — the visible promise that the card lifts. Tap opens the journal.
         Box(
             Modifier
                 .fillMaxWidth()
-                .then(
-                    if (canReveal) {
-                        Modifier
-                            .clickable { animateTo(if (expand.value > 0.5f) 0f else 1f) }
-                            .pointerInput(Unit) {
-                                detectVerticalDragGestures(
-                                    onVerticalDrag = { change, dy ->
-                                        change.consume()
-                                        val next = (expand.value - dy / revealMaxPx).coerceIn(0f, 1f)
-                                        scope.launch { expand.snapTo(next) }
-                                    },
-                                    onDragEnd = { animateTo(if (expand.value > 0.32f) 1f else 0f) },
-                                    onDragCancel = { animateTo(if (expand.value > 0.32f) 1f else 0f) },
-                                )
-                            }
-                    } else {
-                        Modifier
-                    },
-                )
-                .padding(top = 10.dp, bottom = 6.dp),
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { journal.open() }
+                .semantics { contentDescription = "Open journal" }
+                .padding(top = 10.dp, bottom = 10.dp),
             contentAlignment = Alignment.Center,
         ) {
             Box(
                 Modifier
                     .size(width = 38.dp, height = 5.dp)
                     .clip(Capsule)
-                    .background(Chalk.copy(alpha = 0.28f + 0.22f * expand.value)),
+                    .background(Chalk.copy(alpha = 0.28f)),
             )
-        }
-
-        // The reveal: its height grows with the drag, pushing the peek controls down. Content is laid
-        // out at full height and clipped, so nothing reflows as it opens — only the window onto it.
-        if (canReveal) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(RevealMax * expand.value)
-                    .clipToBounds(),
-            ) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(RevealMax)
-                        .verticalScroll(rememberScrollState())
-                        .graphicsLayer { alpha = expand.value }
-                        .padding(horizontal = 20.dp)
-                        .padding(bottom = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    content = reveal,
-                )
-            }
         }
 
         Column(

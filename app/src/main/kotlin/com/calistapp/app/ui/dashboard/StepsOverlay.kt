@@ -1,5 +1,8 @@
 package com.calistapp.app.ui.dashboard
 
+import com.calistapp.app.ui.common.dragToDismiss
+import com.calistapp.app.ui.common.rememberDragDismissState
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -60,8 +63,10 @@ fun StepsInsightsOverlay(visible: Boolean, data: StepsInsights, onDismiss: () ->
         var appear by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) { appear = true }
         val scrim by animateColorAsState(if (appear) Color.Black.copy(alpha = 0.64f) else Color.Transparent, tween(200), label = "scrim")
+        // Swipe the card down to close it; the scrim lifts with it.
+        val drag = rememberDragDismissState(onDismissed = onDismiss)
         Box(
-            Modifier.fillMaxSize().background(scrim)
+            Modifier.fillMaxSize().drawBehind { drawRect(scrim.copy(alpha = scrim.alpha * (1f - drag.fraction))) }
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
             contentAlignment = Alignment.Center,
         ) {
@@ -70,7 +75,7 @@ fun StepsInsightsOverlay(visible: Boolean, data: StepsInsights, onDismiss: () ->
                 enter = fadeIn(tween(220)) + scaleIn(tween(260), initialScale = 0.92f),
                 exit = fadeOut(tween(130)) + scaleOut(tween(130), targetScale = 0.92f),
             ) {
-                StepsCard(data)
+                Box(Modifier.dragToDismiss(drag)) { StepsCard(data) }
             }
         }
     }

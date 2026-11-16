@@ -1,5 +1,8 @@
 package com.calistapp.app.ui.dashboard
 
+import com.calistapp.app.ui.common.dragToDismiss
+import com.calistapp.app.ui.common.rememberDragDismissState
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -109,10 +112,12 @@ fun MonthOverlay(
             tween(200),
             label = "scrim",
         )
+        // Swipe the card down to close it; the scrim lifts with it.
+        val drag = rememberDragDismissState(onDismissed = onDismiss)
         Box(
             Modifier
                 .fillMaxSize()
-                .background(scrim)
+                .drawBehind { drawRect(scrim.copy(alpha = scrim.alpha * (1f - drag.fraction))) }
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
             contentAlignment = Alignment.Center,
         ) {
@@ -121,7 +126,7 @@ fun MonthOverlay(
                 enter = fadeIn(tween(220)) + scaleIn(tween(260), initialScale = 0.92f),
                 exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = 0.92f),
             ) {
-                MonthCard(month, viewModel::previousMonth, viewModel::nextMonth, viewModel::resetToCurrentMonth, onDismiss, onSelectDay)
+                Box(Modifier.dragToDismiss(drag)) { MonthCard(month, viewModel::previousMonth, viewModel::nextMonth, viewModel::resetToCurrentMonth, onDismiss, onSelectDay) }
             }
         }
     }

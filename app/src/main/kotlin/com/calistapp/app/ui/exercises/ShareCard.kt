@@ -23,9 +23,8 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import com.calistapp.app.ui.common.GestureModalSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -82,7 +81,6 @@ fun ShareSheet(
     bestWeightKg: Double?,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val picture = remember { Picture() }
@@ -97,7 +95,7 @@ fun ShareSheet(
     var selected by remember { mutableStateOf(templates.first()) }
     var sharing by remember { mutableStateOf(false) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = OnyxRaised) {
+    GestureModalSheet(onDismissRequest = onDismiss, containerColor = OnyxRaised) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 26.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),

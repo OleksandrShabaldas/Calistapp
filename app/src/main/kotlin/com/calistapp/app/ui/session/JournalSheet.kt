@@ -1,6 +1,11 @@
 package com.calistapp.app.ui.session
 
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import com.calistapp.app.ui.common.GestureMotion
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
@@ -51,11 +56,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
@@ -88,7 +91,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.calistapp.app.session.LiveSession
 import com.calistapp.app.ui.common.DecimalPadSheet
+import com.calistapp.app.ui.common.GestureSheetLayout
 import com.calistapp.app.ui.common.GlowBox
+import com.calistapp.app.ui.common.SheetDragState
 import com.calistapp.app.ui.common.HelpDot
 import com.calistapp.app.ui.common.NumberPadSheet
 import com.calistapp.app.ui.common.formatClock
@@ -152,31 +157,39 @@ private val RailX = 11.dp
  * timeline put a thumbnail, a target line and three large numbers on every row. This keeps the rail
  * and the phases and drops the rest until you ask for it.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * [state] is the journal's position, shared with the live workout card: swiping the card up drives it
+ * directly, so the journal follows the finger from the card's top edge. Swipe it back down (anywhere on
+ * it, or past the top of its list), tap the dimmed screen above it, or press back, to close.
+ */
 @Composable
 fun JournalSheet(
+    state: SheetDragState,
     live: LiveSession,
     vm: ActiveSessionViewModel,
     imageUrlsFor: (String) -> List<String>,
     onAddExercise: () -> Unit,
     onOpenExercise: (String) -> Unit,
-    onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var editing by remember { mutableStateOf<JournalEdit?>(null) }
     var editMode by rememberSaveable { mutableStateOf(false) }
     val pendingReorder by vm.pendingReorder.collectAsStateWithLifecycle()
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = PageWarm,
+    GestureSheetLayout(
+        state = state,
+        onClosed = { editMode = false },
+        containerColor = PageInk,
+        background = Brush.verticalGradient(listOf(PageWarm, PageDim, PageInk)),
     ) {
-        Box(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(PageWarm, PageDim, PageInk)))) {
+        // Always taller than the card it grows out of (plus room to travel): a short workout made the
+        // journal shorter than the card, which then peeked out above it and the swipe barely moved it.
+        val cardDp = with(LocalDensity.current) { state.peekPx.toDp() }
+        val minHeight = (cardDp + 180.dp).coerceAtMost(680.dp)
+        Box(Modifier.fillMaxWidth()) {
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 680.dp)
+                    .heightIn(min = minHeight, max = 680.dp)
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 18.dp)
                     .padding(bottom = 28.dp),
@@ -184,7 +197,6 @@ fun JournalSheet(
                 JournalHeader(
                     editMode = editMode,
                     onToggleEdit = { editMode = !editMode },
-                    onDone = { if (editMode) editMode = false else onDismiss() },
                 )
                 // The editor slides in from the side, the timeline back — a mode change, not a new screen.
                 AnimatedContent(
@@ -279,10 +291,16 @@ fun JournalSheet(
     }
 }
 
+/**
+ * "Journal" + Edit, or "Edit session" + Done. Done only ever means "finished editing": outside edit mode
+ * it used to sit next to Edit and close the sheet, which read as "done — what?". Closing is the sheet's
+ * own job (swipe down, tap above, back). The pill morphs between the two — same place, same job: the
+ * mode switch.
+ */
 @Composable
-private fun JournalHeader(editMode: Boolean, onToggleEdit: () -> Unit, onDone: () -> Unit) {
+private fun JournalHeader(editMode: Boolean, onToggleEdit: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 18.dp),
+        Modifier.fillMaxWidth().padding(top = 0.dp, bottom = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AnimatedContent(targetState = editMode, transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) }, label = "title", modifier = Modifier.weight(1f)) { e ->
@@ -300,27 +318,39 @@ private fun JournalHeader(editMode: Boolean, onToggleEdit: () -> Unit, onDone: (
                 }
             }
         }
-        if (!editMode) {
-            Box(
-                Modifier
-                    .clip(Capsule)
-                    .border(1.dp, Chalk.copy(alpha = 0.12f), Capsule)
-                    .clickable(onClick = onToggleEdit)
-                    .padding(horizontal = 14.dp, vertical = 7.dp),
-            ) { Text("Edit", style = MaterialTheme.typography.labelLarge, color = Chalk) }
-            Spacer(Modifier.width(8.dp))
-        }
-        GlowBox(FlameHot, Capsule, glowRadius = 10.dp, glowAlpha = 0.4f) {
-            Row(
-                Modifier
-                    .background(Brush.verticalGradient(listOf(FlameGlow, FlameHot)), Capsule)
-                    .clickable(onClick = onDone)
-                    .padding(horizontal = 14.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                Icon(Icons.Filled.Check, null, tint = Onyx, modifier = Modifier.size(15.dp))
-                Text("Done", style = MaterialTheme.typography.labelLarge, color = Onyx, fontWeight = FontWeight.Bold)
+        AnimatedContent(
+            targetState = editMode,
+            transitionSpec = {
+                (fadeIn(tween(180)) + scaleIn(tween(220), initialScale = 0.85f)) togetherWith
+                    (fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.85f)) using
+                    androidx.compose.animation.SizeTransform(clip = false)
+            },
+            contentAlignment = Alignment.CenterEnd,
+            label = "journal-mode-pill",
+        ) { e ->
+            if (!e) {
+                Box(
+                    Modifier
+                        .clip(Capsule)
+                        .border(1.dp, Chalk.copy(alpha = 0.12f), Capsule)
+                        .clickable(onClick = onToggleEdit)
+                        .padding(horizontal = 16.dp, vertical = 9.dp),
+                ) { Text("Edit", style = MaterialTheme.typography.labelLarge, color = Chalk) }
+            } else {
+                // The one thing to press while editing, so it glows (shaped like the pill).
+                GlowBox(FlameHot, Capsule, glowRadius = 10.dp, glowAlpha = 0.4f) {
+                    Row(
+                        Modifier
+                            .background(Brush.verticalGradient(listOf(FlameGlow, FlameHot)), Capsule)
+                            .clickable(onClick = onToggleEdit)
+                            .padding(horizontal = 16.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        Icon(Icons.Filled.Check, null, tint = Onyx, modifier = Modifier.size(15.dp))
+                        Text("Done", style = MaterialTheme.typography.labelLarge, color = Onyx, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }
@@ -865,7 +895,13 @@ private fun ReorderableSlots(live: LiveSession, plan: WorkoutPlan, vm: ActiveSes
 
     val order = main.map { it.slotId }
     val fromIndex = order.indexOf(dragging)
-    val target = if (fromIndex < 0) -1 else (fromIndex + (dragDy / rowPx).roundToInt()).coerceIn(0, main.lastIndex)
+    val haptics = LocalHapticFeedback.current
+    // The finger's travel, rubber-banded past the first and last rows so a row can't be flung off the list.
+    fun shown(dy: Float, from: Int, last: Int) = if (from < 0) dy else GestureMotion.elastic(dy, -from * rowPx, (last - from) * rowPx)
+    val shownDy = shown(dragDy, fromIndex, main.lastIndex)
+    val target = if (fromIndex < 0) -1 else (fromIndex + (shownDy / rowPx).roundToInt()).coerceIn(0, main.lastIndex)
+    // A tick each time the row crosses into a new slot, so the move is felt as well as seen.
+    LaunchedEffect(target) { if (target >= 0 && target != fromIndex && committed == null) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
 
     // The reordered list has arrived: the dropped row now sits in its new slot. The rows that had made
     // room are already where they belong, so they snap; the dropped row eases off its last finger offset.
@@ -896,6 +932,8 @@ private fun ReorderableSlots(live: LiveSession, plan: WorkoutPlan, vm: ActiveSes
     fun drop(slotId: String) {
         val ord = currentOrder
         val from = ord.indexOf(slotId)
+        // The finger is gone: what was rubber-banded is where the row actually is now.
+        dragDy = shown(dragDy, from, ord.lastIndex)
         val to = if (from < 0) -1 else (from + (dragDy / rowPx).roundToInt()).coerceIn(0, ord.lastIndex)
         if (from >= 0 && to >= 0 && to != from) {
             committed = from to to
@@ -936,7 +974,7 @@ private fun ReorderableSlots(live: LiveSession, plan: WorkoutPlan, vm: ActiveSes
             Modifier
                 .zIndex(if (isDragging) 1f else 0f)
                 .graphicsLayer {
-                    translationY = if (isDragging) dragDy + settle.value else animatedShift
+                    translationY = if (isDragging) shownDy + settle.value else animatedShift
                     shadowElevation = 18f * lift
                     shape = RoundedCornerShape(16.dp)
                     clip = false
@@ -983,19 +1021,17 @@ private fun ReorderableSlots(live: LiveSession, plan: WorkoutPlan, vm: ActiveSes
                             Spacer(Modifier.width(6.dp))
                             TargetChip(if (kg > 0) "+${formatKg(kg)}" else "+", "kg") { onEdit(JournalEdit.TargetWeight(slot.slotId, value, kg)) }
                             Spacer(Modifier.width(4.dp))
-                            Icon(
-                                Icons.Filled.DragHandle,
-                                "Drag to reorder",
-                                tint = if (isDragging) FlameGlow else Ash,
-                                modifier = Modifier
-                                    .size(30.dp)
-                                    .padding(4.dp)
+                            // A 44dp grip around the 22dp glyph (it was a 30dp target).
+                            Box(
+                                Modifier
+                                    .size(44.dp)
                                     .pointerInput(slot.slotId, index) {
                                         detectDragGestures(
                                             onDragStart = {
                                                 if (committed == null && dragging == null) {
                                                     dragging = slot.slotId
                                                     dragDy = 0f
+                                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 }
                                             },
                                             onDragEnd = { if (dragging == slot.slotId && committed == null) drop(slot.slotId) },
@@ -1005,7 +1041,15 @@ private fun ReorderableSlots(live: LiveSession, plan: WorkoutPlan, vm: ActiveSes
                                             if (dragging == slot.slotId && committed == null) dragDy += amount.y
                                         }
                                     },
-                            )
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Filled.DragHandle,
+                                    "Drag to reorder",
+                                    tint = if (isDragging) FlameGlow else Ash,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
                         },
                     )
                 }

@@ -1,5 +1,6 @@
 package com.calistapp.app.ui.session
 
+import com.calistapp.app.ui.common.GestureModalSheet
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -36,12 +37,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -110,11 +109,7 @@ fun SkipChoicesSheet(
     onRemove: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = SheetSurface,
-    ) {
+    GestureModalSheet(onDismissRequest = onDismiss, containerColor = SheetSurface) { sheet ->
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 18.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -140,14 +135,14 @@ fun SkipChoicesSheet(
                     else -> "Marked skipped; the workout carries on from the next set."
                 },
                 primary = true,
-                onClick = onSkip,
+                onClick = { sheet.dismiss(onSkip) },
             )
             SkipOption(
                 icon = Icons.Filled.Schedule,
                 title = "Do it later",
                 body = if (isCircuit) "Moves to the end of this round, before the cool-down."
                 else "Moves after the other exercises, before the cool-down.",
-                onClick = onLater,
+                onClick = { sheet.dismiss(onLater) },
             )
             SkipOption(
                 icon = Icons.Filled.Remove,
@@ -155,9 +150,9 @@ fun SkipChoicesSheet(
                 body = if (multiRound) "Drops it from this session, every round. Your saved workout is unchanged."
                 else "Drops it from this session. Your saved workout is unchanged.",
                 tint = Coral,
-                onClick = onRemove,
+                onClick = { sheet.dismiss(onRemove) },
             )
-            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            TextButton(onClick = { sheet.dismiss(onDismiss) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
                 Text("Keep going", color = Ash, style = MaterialTheme.typography.labelLarge)
             }
         }
@@ -183,11 +178,7 @@ fun ReorderChoicesSheet(
         1 -> behindNames[0]
         else -> behindNames.dropLast(1).joinToString(", ") + " and " + behindNames.last()
     }
-    ModalBottomSheet(
-        onDismissRequest = { onChoice(null) },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = SheetSurface,
-    ) {
+    GestureModalSheet(onDismissRequest = { onChoice(null) }, containerColor = SheetSurface) { sheet ->
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 18.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -209,21 +200,21 @@ fun ReorderChoicesSheet(
                 title = if (lastRound) "Keep this round's order" else "New order from next round",
                 body = if (lastRound) "The new order is for next time." else "This round finishes as it was.",
                 primary = true,
-                onClick = { onChoice(BehindChoice.NEXT_ROUND) },
+                onClick = { sheet.dismiss { onChoice(BehindChoice.NEXT_ROUND) } },
             )
             SkipOption(
                 icon = Icons.Filled.SkipNext,
                 title = "Skip them this round",
                 body = if (lastRound) "Marked skipped." else "Marked skipped. Next round uses the new order.",
-                onClick = { onChoice(BehindChoice.SKIP_THIS_ROUND) },
+                onClick = { sheet.dismiss { onChoice(BehindChoice.SKIP_THIS_ROUND) } },
             )
             SkipOption(
                 icon = Icons.Filled.Schedule,
                 title = "Do them later this round",
                 body = "After the rest of the round, in the new order.",
-                onClick = { onChoice(BehindChoice.LATER_THIS_ROUND) },
+                onClick = { sheet.dismiss { onChoice(BehindChoice.LATER_THIS_ROUND) } },
             )
-            TextButton(onClick = { onChoice(null) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            TextButton(onClick = { sheet.dismiss { onChoice(null) } }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
                 Text("Put it back", color = Ash, style = MaterialTheme.typography.labelLarge)
             }
         }

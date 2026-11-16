@@ -1,5 +1,8 @@
 package com.calistapp.app.ui.dashboard
 
+import com.calistapp.app.ui.common.dragToDismiss
+import com.calistapp.app.ui.common.rememberDragDismissState
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -49,10 +52,13 @@ import androidx.compose.ui.window.DialogProperties
 import com.calistapp.app.data.recommend.Conditions
 import com.calistapp.app.data.recommend.Readiness
 import com.calistapp.app.data.recommend.RecFactor
+import androidx.compose.ui.unit.sp
+import com.calistapp.app.ui.common.FitText
 import com.calistapp.app.ui.common.ProgressRing
 import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.Chalk
 import com.calistapp.app.ui.theme.FlameHot
+import com.calistapp.app.ui.theme.Sky
 
 private val MedallionSize = 96.dp
 private val MedallionRadius = 48.dp
@@ -82,10 +88,12 @@ fun GaugeDetailOverlay(
             tween(200),
             label = "scrim",
         )
+        // Swipe the card down to close it; the scrim lifts with it.
+        val drag = rememberDragDismissState(onDismissed = onDismiss)
         Box(
             Modifier
                 .fillMaxSize()
-                .background(scrim)
+                .drawBehind { drawRect(scrim.copy(alpha = scrim.alpha * (1f - drag.fraction))) }
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
             contentAlignment = Alignment.Center,
         ) {
@@ -94,12 +102,14 @@ fun GaugeDetailOverlay(
                 enter = fadeIn(tween(220)) + scaleIn(tween(260), initialScale = 0.9f),
                 exit = fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.9f),
             ) {
-                GaugeDetailContent(
-                    kind = kind,
-                    readiness = readiness,
-                    conditions = conditions,
-                    onRegenerate = { onRegenerateConditions(); onDismiss() },
-                )
+                Box(Modifier.dragToDismiss(drag)) {
+                    GaugeDetailContent(
+                        kind = kind,
+                        readiness = readiness,
+                        conditions = conditions,
+                        onRegenerate = { onRegenerateConditions(); onDismiss() },
+                    )
+                }
             }
         }
     }
@@ -113,10 +123,13 @@ private fun GaugeDetailContent(
     onRegenerate: () -> Unit,
 ) {
     val isReadiness = kind == GaugeKind.READINESS
-    val accent = if (isReadiness) readinessColor(readiness!!.score) else FlameHot
-    val progress = if (isReadiness) readiness!!.score / 100f else conditionsFill(conditions!!.label)
-    val top = if (isReadiness) shortReadiness(readiness!!.score) else conditions!!.label
-    val bottom = if (isReadiness) "${readiness!!.score}%" else conditions!!.detail
+    val outdoor = conditions?.let { it.outdoor ?: it.label.contains("Outdoor", ignoreCase = true) } ?: false
+    val accent = if (isReadiness) readinessColor(readiness!!.score) else if (outdoor) FlameHot else Sky
+    val progress = if (isReadiness) readiness!!.score / 100f else conditionsFill(conditions!!)
+    // The medallion holds the verdict word; the qualifier ("SPF", "layers") rides on the second line
+    // with the weather, so neither has to wrap.
+    val top = if (isReadiness) shortReadiness(readiness!!.score) else conditions!!.label.substringBefore(" · ")
+    val bottom = if (isReadiness) "${readiness!!.score}%" else listOfNotNull(conditions!!.detail.ifBlank { null }, conditions.qualifier).joinToString(" · ")
     val headline = if (isReadiness) "Should you train today?" else "Indoors or out?"
     val factors = if (isReadiness) readiness!!.factors else conditions!!.factors
     val reason = if (isReadiness) readiness!!.reason else conditions!!.reason
@@ -177,10 +190,12 @@ private fun GaugeDetailContent(
                 .border(1.dp, CardBorder, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            ProgressRing(progress = progress, accent = accent, diameter = MedallionSize, strokeWidth = 8.dp) {
+            // A line near the ring's middle can use most of its inner width, so "8° · partly cloudy" fits at a readable size.
+            ProgressRing(progress = progress, accent = accent, diameter = MedallionSize, strokeWidth = 8.dp, contentWidthFraction = 0.92f) {
+                // Always one line each: "8° · overcast" used to break onto a second line in here.
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(top, style = MaterialTheme.typography.titleSmall, color = accent, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(bottom, style = MaterialTheme.typography.labelMedium, color = Chalk, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    FitText(top, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = accent)
+                    FitText(bottom, style = MaterialTheme.typography.labelMedium, color = Chalk, minFontSize = 8.sp)
                 }
             }
         }
@@ -217,7 +232,9 @@ private fun factorNote(f: RecFactor): String {
         "load" in l -> "How this week compares to your normal."
         "intensity" in l -> if (p >= 0.75f) "Your last session was hard." else "Recent effort has been comfortable."
         "activity" in l || "steps" in l -> if (p >= 0.8f) "Very active on foot lately." else if (p >= 0.4f) "Moderately active." else "Fairly quiet on foot."
-        "temp" in l -> "Current temperature."
+        "feels" in l -> if (p >= 0.6f) "Warm enough to stand around between sets." else if (p >= 0.45f) "Cool between sets — layers help." else "Too cold for bar work outside."
+        "temp" in l -> "Air temperature."
+        "recent rain" in l -> "Bars and ground may still be wet."
         "uv" in l -> if (p >= 0.55f) "High UV — sunscreen if you go out." else "UV is comfortable."
         "air" in l -> if (p >= 0.5f) "Air quality is poor right now." else "Air is clean."
         "wind" in l -> if (p >= 0.6f) "Breezy out there." else "Barely any wind."

@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.calistapp.app.data.session.SessionPrefs
+import com.calistapp.app.ui.common.HoldToConfirmButton
 import com.calistapp.app.ui.common.formatClock
 import com.calistapp.app.ui.theme.Ash
 import com.calistapp.app.ui.theme.Capsule
@@ -69,18 +70,6 @@ fun PauseScreen(
     onDiscard: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var confirmDiscard by remember { mutableStateOf(false) }
-
-    if (confirmDiscard) {
-        AlertDialog(
-            onDismissRequest = { confirmDiscard = false },
-            title = { Text("Discard this workout?") },
-            text = { Text("Everything recorded so far is thrown away and nothing is saved. This can't be undone.") },
-            confirmButton = { TextButton(onClick = { confirmDiscard = false; onDiscard() }) { Text("Discard", color = Coral) } },
-            dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text("Keep it") } },
-        )
-    }
-
     Column(
         modifier
             .fillMaxSize()
@@ -132,17 +121,14 @@ fun PauseScreen(
             ) {
                 Text("End now", style = MaterialTheme.typography.titleSmall, color = Chalk)
             }
-            Box(
-                Modifier
-                    .weight(1f)
-                    .clip(Capsule)
-                    .border(1.dp, OnyxBorder, Capsule)
-                    .clickable { confirmDiscard = true }
-                    .padding(vertical = 14.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("Discard", style = MaterialTheme.typography.titleSmall, color = Coral)
-            }
+            // Held, not tapped-then-confirmed: throwing a workout away can't be undone, and a hold is a
+            // deliberate act a stray tap can't trigger — without a dialog in the way.
+            HoldToConfirmButton(
+                label = "Discard",
+                color = Coral,
+                onConfirm = onDiscard,
+                modifier = Modifier.weight(1f),
+            )
         }
         Spacer(Modifier.height(28.dp))
     }

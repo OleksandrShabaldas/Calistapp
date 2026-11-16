@@ -22,7 +22,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import com.calistapp.app.ui.common.GestureModalSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -103,11 +103,7 @@ fun ExerciseFilterSheet(
     actions: ExerciseFilterActions,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = OnyxRaised,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = Ash) },
-    ) {
+    GestureModalSheet(onDismissRequest = onDismiss, containerColor = OnyxRaised) {
         Column(
             Modifier
                 .fillMaxWidth()

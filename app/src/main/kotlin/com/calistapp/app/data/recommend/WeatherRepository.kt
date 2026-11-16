@@ -22,9 +22,26 @@ data class WeatherSnapshot(
     val uvIndex: Double?,
     val pm25: Double?,
     val usAqi: Int?,
+    val gustKph: Double? = null,
+    /** Rain over the previous ~3 hours — bars stay wet after it stops. */
+    val recentPrecipMm: Double? = null,
+    val isDay: Boolean? = null,
 ) {
-    /** "12°·rain" — the glanceable line under the conditions gauge. */
-    val glance: String get() = "${tempC.roundToIntSafe()}°·$weatherText"
+    /** "12° · rain" — the glanceable line under the conditions gauge. */
+    val glance: String get() = "${tempC.roundToIntSafe()}° · $weatherText"
+
+    fun toAdviceInput() = com.calistapp.core.weather.WeatherInput(
+        tempC = tempC,
+        feelsLikeC = apparentTempC,
+        windKph = windKph,
+        precipMm = precipMm,
+        weatherCode = weatherCode,
+        recentPrecipMm = recentPrecipMm,
+        gustKph = gustKph,
+        uvIndex = uvIndex,
+        usAqi = usAqi,
+        isDay = isDay,
+    )
 }
 
 private fun Double.roundToIntSafe(): Int = Math.round(this).toInt()
@@ -42,13 +59,18 @@ class WeatherRepository @Inject constructor(
     @IoDispatcher private val io: CoroutineDispatcher,
 ) {
     suspend fun current(latitude: Double, longitude: Double): WeatherSnapshot? = withContext(io) {
-        val forecast = get(
+        val forecastDto = get(
             "https://api.open-meteo.com/v1/forecast" +
                 "?latitude=$latitude&longitude=$longitude" +
-                "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,precipitation" +
+                "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,wind_gusts_10m,precipitation,is_day" +
+                "&hourly=precipitation&past_hours=3&forecast_hours=1" +
                 "&wind_speed_unit=kmh&timezone=auto",
         )?.let { runCatching { json.decodeFromString(ForecastDto.serializer(), it) }.getOrNull() }
-            ?.current ?: return@withContext null
+        val forecast = forecastDto?.current ?: return@withContext null
+        // past_hours=3 + forecast_hours=1: the first three hourly values are the hours before this one.
+        val recentPrecip = forecastDto.hourly?.precipitation?.let { hours ->
+            if (hours.size > 1) hours.dropLast(1).filterNotNull().sum() else null
+        }
 
         val air = get(
             "https://air-quality-api.open-meteo.com/v1/air-quality" +
@@ -65,6 +87,9 @@ class WeatherRepository @Inject constructor(
             uvIndex = air?.uv,
             pm25 = air?.pm25,
             usAqi = air?.usAqi,
+            gustKph = forecast.gust,
+            recentPrecipMm = recentPrecip,
+            isDay = forecast.isDay?.let { it == 1 },
         )
     }
 
@@ -75,15 +100,20 @@ class WeatherRepository @Inject constructor(
     }.getOrNull()
 
     @Serializable
-    private data class ForecastDto(val current: Cur? = null) {
+    private data class ForecastDto(val current: Cur? = null, val hourly: Hourly? = null) {
         @Serializable
         data class Cur(
             @SerialName("temperature_2m") val temp: Double = 0.0,
             @SerialName("apparent_temperature") val apparent: Double = 0.0,
             @SerialName("weather_code") val weatherCode: Int = 0,
             @SerialName("wind_speed_10m") val wind: Double = 0.0,
+            @SerialName("wind_gusts_10m") val gust: Double? = null,
             val precipitation: Double = 0.0,
+            @SerialName("is_day") val isDay: Int? = null,
         )
+
+        @Serializable
+        data class Hourly(val precipitation: List<Double?>? = null)
     }
 
     @Serializable
