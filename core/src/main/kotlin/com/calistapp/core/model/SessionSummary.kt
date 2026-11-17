@@ -107,7 +107,23 @@ data class SessionSummary(
      * [com.calistapp.core.calorie.NoHeartRateEstimate]. Screens label these calories as an estimate.
      */
     val estimated: Boolean = false,
+    /**
+     * Share of the session the heart-rate stream covered, 0..1 (see `CalorieEngine.hrCoverage`). Null in
+     * summaries stored before it was recorded; read those through [coverageOrEstimate].
+     */
+    val hrCoverage: Double? = null,
 ) {
+    /**
+     * [hrCoverage] when it was recorded. Older summaries fall back to the time the zones account for over
+     * the whole session (each reading's interval is credited the same way), and to 0 for an estimate.
+     */
+    val coverageOrEstimate: Double
+        get() = hrCoverage ?: when {
+            estimated -> 0.0
+            totalDurationMs <= 0L -> 0.0
+            else -> (timeInZonesMs.values.sum().toDouble() / totalDurationMs).coerceIn(0.0, 1.0)
+        }
+
     /**
      * The whole session on the clock. [activeDurationMs] and [restDurationMs] are the workout proper —
      * the working sets and the rest between them — so the warm-up and cool-down are never "work".

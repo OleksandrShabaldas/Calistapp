@@ -357,6 +357,7 @@ class CalorieEngine(
             // Not a calorie term — but this is the one pass that has the samples and the work/rest
             // boundaries lined up, and recovering them separately would mean walking both again.
             hrRecovery = HeartRateRecovery.analyze(sorted, segments, plan),
+            hrCoverage = coverage,
         )
 
         val audit = CalorieAudit(
@@ -505,6 +506,7 @@ class CalorieEngine(
             perExercise = breakdown.values.sortedByDescending { it.kcal },
             totalReps = totalReps,
             estimated = true,
+            hrCoverage = coverage,
         )
         val audit = CalorieAudit(
             summary = summary,

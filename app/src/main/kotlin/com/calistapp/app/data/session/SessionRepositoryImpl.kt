@@ -12,6 +12,8 @@ import com.calistapp.core.model.SessionStatus
 import com.calistapp.core.model.SessionSummary
 import com.calistapp.core.model.SetLog
 import com.calistapp.core.model.SetSkip
+import com.calistapp.core.model.HrZone
+import com.calistapp.core.model.WeatherSnapshot
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.WorkoutSession
 import com.calistapp.core.model.withSessionTiming
@@ -47,9 +49,14 @@ class SessionRepositoryImpl @Inject constructor(
     override suspend fun saveSession(session: WorkoutSession) {
         // Preserve fields that live only on the row (not the domain model) — @Upsert overwrites the
         // whole row: the AI insight, and the FitPal sync stamp (so an unrelated save doesn't reset
-        // it and force a needless re-push).
+        // it and force a needless re-push). Weather and indoor/outdoor are kept too when the saving
+        // path didn't carry them (a watch merge, an edit built from an older copy).
         val existing = dao.getById(session.id)
-        val timed = session.copy(summary = session.summary?.withSessionTiming(session.segments, session.endMs, session.plan))
+        val timed = session.copy(
+            summary = session.summary?.withSessionTiming(session.segments, session.endMs, session.plan),
+            weather = session.weather ?: existing?.weatherJson?.let(::decodeWeather),
+            outdoor = session.outdoor ?: existing?.outdoor,
+        )
         dao.upsert(timed.toEntity(existing?.aiInsight, existing?.aiInsightAtMs, existing?.fitpalSyncedAt))
     }
 
@@ -59,6 +66,8 @@ class SessionRepositoryImpl @Inject constructor(
     override suspend fun updateNotes(id: String, notes: String) = dao.updateNotes(id, notes)
 
     override suspend fun updateRpe(id: String, rpe: Int?) = dao.updateRpe(id, rpe)
+
+    override suspend fun updateOutdoor(id: String, outdoor: Boolean?) = dao.updateOutdoor(id, outdoor)
 
     override suspend fun deleteSession(id: String) = dao.delete(id)
 
@@ -99,7 +108,12 @@ class SessionRepositoryImpl @Inject constructor(
         rpe = rpe,
         fitpalSyncedAt = preservedFitpalSyncedAt,
         skipsJson = if (skips.isEmpty()) "" else json.encodeToString(skipListSerializer, skips),
+        weatherJson = weather?.let { json.encodeToString(WeatherSnapshot.serializer(), it) } ?: "",
+        outdoor = outdoor,
     )
+
+    private fun decodeWeather(raw: String): WeatherSnapshot? =
+        raw.takeIf { it.isNotBlank() }?.let { runCatching { json.decodeFromString(WeatherSnapshot.serializer(), it) }.getOrNull() }
 
     private fun SessionOverviewRow.toOverview() = SessionOverview(
         id = id,
@@ -128,6 +142,14 @@ class SessionRepositoryImpl @Inject constructor(
             rpe = rpe,
             notes = notes,
             hrRecoveryMeanDrop = summary?.hrRecovery?.meanDropBpm,
+            zoneMinutes = summary?.timeInZonesMs
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { zones -> IntArray(HrZone.entries.size) { i -> ((zones[HrZone.entries[i]] ?: 0L) / 60_000L).toInt() } }
+                ?: IntArray(0),
+            hrCoverage = summary?.coverageOrEstimate ?: 0.0,
+            estimated = summary?.estimated ?: false,
+            weather = decodeWeather(weatherJson),
+            outdoor = outdoor,
         )
     }
 
@@ -155,5 +177,7 @@ class SessionRepositoryImpl @Inject constructor(
             ?.let { runCatching { json.decodeFromString(skipListSerializer, it) }.getOrNull() }
             ?: emptyList(),
         rpe = rpe,
+        weather = decodeWeather(weatherJson),
+        outdoor = outdoor,
     ).let { it.copy(summary = it.summary?.withSessionTiming(it.segments, it.endMs, it.plan)) }
 }

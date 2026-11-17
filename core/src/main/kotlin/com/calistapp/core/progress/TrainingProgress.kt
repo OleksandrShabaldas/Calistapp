@@ -3,6 +3,7 @@ package com.calistapp.core.progress
 import com.calistapp.core.model.PlannedExercise
 import com.calistapp.core.model.SetLog
 import com.calistapp.core.model.UserProfile
+import com.calistapp.core.model.WeatherSnapshot
 import com.calistapp.core.model.WorkoutPlan
 import com.calistapp.core.model.formatKg
 import com.calistapp.core.model.repsIn
@@ -36,6 +37,20 @@ data class PerformedSession(
     val notes: String = "",
     /** Mean heart-rate recovery for the session, when it had rests long enough to measure one. */
     val hrRecoveryMeanDrop: Int? = null,
+    /**
+     * Whole minutes spent in heart-rate zones 1–5, index 0 being zone 1. Empty when the session has no
+     * zone breakdown (older rows, or no heart rate). An array, so equality on this class is by reference
+     * for this field: compare sessions by [id] rather than with `==`.
+     */
+    val zoneMinutes: IntArray = IntArray(0),
+    /** Share of the session that heart rate actually covered, 0..1. Older rows default to fully covered. */
+    val hrCoverage: Double = 1.0,
+    /** Scored without usable heart rate (the no-device estimate) rather than measured. */
+    val estimated: Boolean = false,
+    /** Conditions where the session was done, when the weather was known at the time. */
+    val weather: WeatherSnapshot? = null,
+    /** Trained outside (true), inside (false), or not recorded (null). */
+    val outdoor: Boolean? = null,
 )
 
 /** A single set worth remembering — the most reps, or the most weight. */

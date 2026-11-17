@@ -11,6 +11,18 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.geometry.Rect
+import com.calistapp.app.ui.medals.EarnedSection
+import com.calistapp.app.ui.medals.MedalFullView
+import com.calistapp.app.ui.medals.MedalUnlockOverlay
+import com.calistapp.app.ui.medals.MedalsViewModel
+import com.calistapp.app.ui.medals.StruckMedal
+import com.calistapp.app.ui.medals.struckNewestFirst
+import com.calistapp.core.model.WeatherSnapshot
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -97,6 +109,7 @@ import kotlinx.coroutines.launch
 fun SessionDetailScreen(
     onBack: () -> Unit,
     viewModel: SessionDetailViewModel = hiltViewModel(),
+    medalsViewModel: MedalsViewModel = hiltViewModel(),
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val aiState by viewModel.aiState.collectAsStateWithLifecycle()
@@ -108,6 +121,8 @@ fun SessionDetailScreen(
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
     val phases by viewModel.phases.collectAsStateWithLifecycle()
     val maxHr by viewModel.maxHr.collectAsStateWithLifecycle()
+    val medalReport by medalsViewModel.report.collectAsStateWithLifecycle()
+    val unseenMedals by medalsViewModel.unseen.collectAsStateWithLifecycle()
 
     val current = session
     if (current == null) {
@@ -117,6 +132,26 @@ fun SessionDetailScreen(
         return
     }
     val s = current.summary ?: SessionSummary.EMPTY
+
+    // The medals this session struck, oldest first. Any not shown yet play the unlock moment, once.
+    val earned = remember(medalReport, current.id) {
+        medalReport?.struckNewestFirst()?.filter { it.award.sessionId == current.id }?.asReversed().orEmpty()
+    }
+    var played by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var unlocking by remember { mutableStateOf<List<StruckMedal>?>(null) }
+    val seated = remember { mutableStateListOf<String>() }
+    val slotBounds = remember { mutableStateMapOf<String, Rect>() }
+    var openMedal by remember { mutableStateOf<Pair<StruckMedal, Rect?>?>(null) }
+    val unseenKeys = unseenMedals.mapTo(HashSet()) { it.key }
+    val pending = earned.filter { it.award.key in unseenKeys && it.award.key !in played }
+    LaunchedEffect(pending.map { it.award.key }) {
+        if (pending.isEmpty() || unlocking != null) return@LaunchedEffect
+        delay(420) // the summary lands first, then the medal drops in over it
+        played = played + pending.map { it.award.key }
+        unlocking = pending
+    }
+    // Slots stay empty sockets until their medal has flown in.
+    val waiting = (pending.map { it.award.key } + unlocking.orEmpty().map { it.award.key }).toSet() - seated.toSet()
 
     // Popup + dialog state.
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
@@ -207,13 +242,32 @@ fun SessionDetailScreen(
                 }
             }
 
-            records.forEachIndexed { i, record ->
-                Entrance(4 + i) { PersonalBestCard(record) { showPb = record } }
+            if (earned.isNotEmpty()) {
+                Entrance(4) {
+                    Section(if (justFinished) "Earned today" else "Earned in this session") {
+                        EarnedSection(
+                            medals = earned,
+                            waiting = waiting,
+                            onBounds = { key, bounds -> slotBounds[key] = bounds },
+                            onOpen = { medal, bounds -> openMedal = medal to bounds },
+                        )
+                    }
+                }
             }
-            val base = 4 + records.size
+
+            records.forEachIndexed { i, record ->
+                Entrance(5 + i) { PersonalBestCard(record) { showPb = record } }
+            }
+            val base = 5 + records.size
 
             Entrance(base) {
-                Section("How it felt") { RpeCard(rpe = current.rpe, onChange = viewModel::setRpe) }
+                Section("How it felt") {
+                    RpeCard(rpe = current.rpe, onChange = viewModel::setRpe)
+                    // Asked only when outside was plausible (it wasn't raining), or once already answered.
+                    current.weather?.takeIf { !it.raining || current.outdoor != null }?.let { w ->
+                        OutdoorCard(w, current.outdoor, viewModel::setOutdoor)
+                    }
+                }
             }
 
             if (current.samples.size >= 2 || s.timeInZonesMs.isNotEmpty()) {
@@ -284,6 +338,19 @@ fun SessionDetailScreen(
             },
             modifier = Modifier.align(Alignment.BottomCenter),
         )
+
+        unlocking?.let { list ->
+            MedalUnlockOverlay(
+                medals = list,
+                slotOf = { key -> slotBounds[key] },
+                onSeated = { key -> if (key !in seated) seated += key },
+                onFinished = { keys ->
+                    medalsViewModel.markSeen(keys)
+                    unlocking = null
+                },
+            )
+        }
+        openMedal?.let { (medal, bounds) -> MedalFullView(medal, bounds, onDismiss = { openMedal = null }) }
     }
 
     // ---- Overlays ----
@@ -613,6 +680,53 @@ private fun Section(
         Eyebrow(title, modifier = Modifier.padding(start = 4.dp))
         content()
     }
+}
+
+// ---------- Indoor / outdoor ----------
+
+/**
+ * "Trained outside?" with the weather the session started in. One tap answers it; the answer stays
+ * changeable. Outdoor sessions on cold days earn the cold-day medal, which nothing else can know.
+ */
+@Composable
+private fun OutdoorCard(weather: WeatherSnapshot, outdoor: Boolean?, onSet: (Boolean) -> Unit) {
+    FlatCard {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    when (outdoor) { null -> "Trained outside?"; true -> "Trained outside"; false -> "Trained inside" },
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Chalk,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    "Felt like ${weather.feelsLikeC.roundToInt()}° when you started",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Ash,
+                )
+            }
+            ChoicePill("Outside", selected = outdoor == true) { onSet(true) }
+            ChoicePill("Inside", selected = outdoor == false) { onSet(false) }
+        }
+    }
+}
+
+@Composable
+private fun ChoicePill(label: String, selected: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(999.dp)
+    val fill by animateColorAsState(if (selected) Flame.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.04f), label = "pill")
+    val edge by animateColorAsState(if (selected) Flame.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.14f), label = "pillEdge")
+    Text(
+        label,
+        style = MaterialTheme.typography.labelLarge,
+        color = if (selected) Chalk else Ash,
+        modifier = Modifier
+            .clip(shape)
+            .background(fill)
+            .border(1.dp, edge, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    )
 }
 
 // ---------- How it felt (RPE) ----------

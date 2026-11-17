@@ -11,7 +11,14 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.tween
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import com.calistapp.app.ui.common.LocalNavScope
+import com.calistapp.app.ui.common.LocalSharedScope
+import com.calistapp.app.ui.insights.InsightPageScreen
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -90,6 +97,7 @@ private val NavBarInset = 104.dp
 private fun startDestination(sessionRunning: Boolean): String =
     if (sessionRunning) Routes.active() else Routes.PLANNER
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
     val navController = rememberNavController()
@@ -114,6 +122,9 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
     }
 
     AmbientHost(routeTint = tintFor(currentRoute)) {
+        // One shared-element scope for the whole app, so a card can grow into its own screen.
+        SharedTransitionLayout {
+        CompositionLocalProvider(LocalSharedScope provides this) {
         NavHost(
             navController = navController,
             startDestination = Routes.DASHBOARD,
@@ -187,10 +198,51 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
                 )
             }
             composable(Routes.HISTORY) {
+                CompositionLocalProvider(LocalNavScope provides this) {
                 HistoryScreen(
+                    onOpenInsight = { q -> navController.navigate(Routes.insight(q.name)) },
                     onOpenSession = { id -> navController.navigate(Routes.detail(id)) },
                     onStartWorkout = { navController.navigate(startDestination(sessionRunning)) },
+                    onOpenPlanner = { navController.navigate(Routes.PLANNER) },
+                    onOpenSchedule = { navController.navigate(Routes.SCHEDULE) },
+                    onOpenExercise = { id -> navController.navigate(Routes.exerciseDetail(id)) },
+                    onOpenMedals = { focus -> navController.navigate(Routes.medals(focus)) },
                 )
+                }
+            }
+            composable(
+                route = Routes.MEDALS,
+                arguments = listOf(
+                    navArgument(Routes.MEDALS_ARG) {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+            ) { entry ->
+                com.calistapp.app.ui.medals.MedalCaseScreen(
+                    onBack = { navController.popBackStack() },
+                    focus = entry.arguments?.getString(Routes.MEDALS_ARG),
+                )
+            }
+            composable(Routes.INSIGHT) { entry ->
+                val question = entry.arguments?.getString(Routes.INSIGHT_ARG)
+                    ?.let { runCatching { com.calistapp.core.insights.Question.valueOf(it) }.getOrNull() }
+                // The same model as the History tab, so the page opens on the report already built.
+                val historyEntry = remember(entry) { navController.getBackStackEntry(Routes.HISTORY) }
+                CompositionLocalProvider(LocalNavScope provides this) {
+                    if (question != null) {
+                        InsightPageScreen(
+                            question = question,
+                            viewModel = hiltViewModel(historyEntry),
+                            onBack = { navController.popBackStack() },
+                            onOpenSession = { id -> navController.navigate(Routes.detail(id)) },
+                            onOpenPlanner = { navController.navigate(Routes.PLANNER) },
+                            onOpenSchedule = { navController.navigate(Routes.SCHEDULE) },
+                            onOpenExercise = { id -> navController.navigate(Routes.exerciseDetail(id)) },
+                        )
+                    }
+                }
             }
             composable(Routes.PROFILE) {
                 ProfileScreen()
@@ -288,6 +340,8 @@ fun CalistApp(viewModel: AppViewModel = hiltViewModel()) {
             composable(Routes.DETAIL) {
                 SessionDetailScreen(onBack = { navController.popBackStack() })
             }
+        }
+        }
         }
 
         if (showBar) {

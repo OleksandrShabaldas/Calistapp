@@ -110,6 +110,7 @@ class SessionController @Inject constructor(
     private val fitPalExportManager: FitPalExportManager,
     private val watchConnection: WatchConnectionMonitor,
     private val devicePrefs: com.calistapp.app.data.device.DevicePrefsRepository,
+    private val weatherRepository: com.calistapp.app.data.recommend.WeatherRepository,
 ) {
     private val _live = MutableStateFlow<LiveSession?>(null)
     val live: StateFlow<LiveSession?> = _live.asStateFlow()
@@ -127,6 +128,8 @@ class SessionController @Inject constructor(
     private val setLogs = mutableListOf<SetLog>()
     private val skips = mutableListOf<SetSkip>()
     private var lastSampleAtMs = 0L
+    /** The weather the session started in, kept with every save of it (see [WorkoutSession.weather]). */
+    private var weatherAtStart: com.calistapp.core.model.WeatherSnapshot? = null
     private var lastCheckpointMs = 0L
     /** When the accumulator was last integrated forward — readings timestamped before it need a rebuild. */
     private var integratedToMs = 0L
@@ -944,6 +947,7 @@ class SessionController @Inject constructor(
 
     private fun resumeSession(saved: WorkoutSession, now: Long) {
         clearBuffers()
+        weatherAtStart = saved.weather
         samples += saved.samples
         segments += saved.segments
         setLogs += saved.setLogs
@@ -1062,6 +1066,7 @@ class SessionController @Inject constructor(
                 skips = skips.toList(),
                 exerciseName = sessionTitle(cur.plan),
                 summary = cur.summary,
+                weather = weatherAtStart,
             )
         }
         // Outside the lock: a database write must never stall the incoming heart-rate stream.
@@ -1091,6 +1096,7 @@ class SessionController @Inject constructor(
         val firstSlot = plan.exercises.firstOrNull()
 
         clearBuffers()
+        weatherAtStart = weatherRepository.recent()?.toSessionWeather()
         _previousReps.value = loadPreviousReps(plan)
         // Sessions open in REST. You start the app before you start the set — walking to the bar,
         // finding the timer — and counting that as work inflates both the clock and the calories.
@@ -1167,6 +1173,7 @@ class SessionController @Inject constructor(
                 skips = skips.toList(),
                 exerciseName = sessionTitle(cur.plan),
                 summary = summary,
+                weather = weatherAtStart ?: weatherRepository.recent()?.toSessionWeather(),
             )
             sessionRepository.saveSession(completed)
             // Auto-send to FitPal the moment a workout finishes.

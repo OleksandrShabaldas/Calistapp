@@ -38,6 +38,8 @@ data class SessionPerformanceRow(
     val planJson: String,
     val rpe: Int?,
     val notes: String,
+    val weatherJson: String,
+    val outdoor: Boolean?,
 )
 
 @Entity(tableName = "sessions")
@@ -68,4 +70,8 @@ data class SessionEntity(
     val fitpalSyncedAt: Long? = null,
     /** Planned sets skipped or removed from the session, as JSON. Empty for sessions without any. */
     val skipsJson: String = "",
+    /** The weather when the session started, as JSON. Empty when it wasn't known. */
+    val weatherJson: String = "",
+    /** Trained outside (true), inside (false), or not said (null). */
+    val outdoor: Boolean? = null,
 )

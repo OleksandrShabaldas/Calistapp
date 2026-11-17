@@ -8,6 +8,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.temporal.TemporalAdjusters
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -58,6 +61,29 @@ class ScheduleRepository @Inject constructor(
     fun weekPlan(weekStartMs: Long): Flow<Map<DayOfWeek, List<ScheduledItem>>> =
         combine(dao.observeRules(), dao.observeOverrides(), savedWorkouts.saved) { rules, overrides, saved ->
             resolveWeek(weekStartMs, rules, overrides, saved)
+        }
+
+    /** True once any recurring rule exists. */
+    val hasSchedule: Flow<Boolean> = dao.observeRules().map { it.isNotEmpty() }
+
+    /**
+     * Every planned training day from [from] to [to] inclusive, each week resolved with its own
+     * overrides. Past weeks are resolved against today's rules (rules carry no creation date), so
+     * callers that judge adherence should only count days after the schedule existed.
+     */
+    fun plannedDays(from: LocalDate, to: LocalDate, zone: ZoneId): Flow<Set<LocalDate>> =
+        combine(dao.observeRules(), dao.observeOverrides(), savedWorkouts.saved) { rules, overrides, saved ->
+            val out = HashSet<LocalDate>()
+            var monday = from.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+            while (!monday.isAfter(to)) {
+                val weekStartMs = monday.atStartOfDay(zone).toInstant().toEpochMilli()
+                for (day in resolveWeek(weekStartMs, rules, overrides, saved).keys) {
+                    val date = monday.plusDays(day.value - 1L)
+                    if (!date.isBefore(from) && !date.isAfter(to)) out += date
+                }
+                monday = monday.plusWeeks(1)
+            }
+            out
         }
 
     private fun resolveWeek(

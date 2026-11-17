@@ -2,6 +2,7 @@ package com.calistapp.app.data.local
 
 import androidx.room.Dao
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
@@ -11,9 +12,14 @@ interface ExerciseDao {
     @Query("SELECT COUNT(*) FROM exercises")
     suspend fun count(): Int
 
+    // Both reads span several 2 MB cursor windows (834 exercises with their coaching text) while the
+    // launch sync rewrites rows; a transaction keeps each read one consistent snapshot instead of
+    // failing mid-way with "Couldn't read row N from CursorWindow". See SessionDao.observeOverviews.
+    @Transaction
     @Query("SELECT * FROM exercises")
     suspend fun getAll(): List<ExerciseEntity>
 
+    @Transaction
     @Query("SELECT * FROM exercises ORDER BY name")
     fun observeAll(): Flow<List<ExerciseEntity>>
 

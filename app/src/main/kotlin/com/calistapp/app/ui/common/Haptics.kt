@@ -21,6 +21,22 @@ class Haptics(private val vibrator: Vibrator?) {
     /** A set was banked. One short tick, purely confirmatory. */
     fun setBanked() = play(longArrayOf(0, 60), intArrayOf(0, 180))
 
+    /** Something landed: a medal hitting the end of its ribbon. One firm knock. */
+    fun impact() = predefined(VibrationEffect.EFFECT_HEAVY_CLICK, longArrayOf(0, 28), intArrayOf(0, 255))
+
+    /** A detent passed: a carousel landing on the next medal, a medal turning over. Barely there. */
+    fun tick() = predefined(VibrationEffect.EFFECT_TICK, longArrayOf(0, 8), intArrayOf(0, 90))
+
+    private fun predefined(effect: Int, fallbackTimings: LongArray, fallbackAmplitudes: IntArray) {
+        val v = vibrator ?: return
+        if (!v.hasVibrator()) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            runCatching { v.vibrate(VibrationEffect.createPredefined(effect)) }
+        } else {
+            play(fallbackTimings, fallbackAmplitudes)
+        }
+    }
+
     private fun play(timings: LongArray, amplitudes: IntArray) {
         val v = vibrator ?: return
         if (!v.hasVibrator()) return

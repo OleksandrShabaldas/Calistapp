@@ -88,4 +88,8 @@ data class WorkoutSession(
     /** Latest AI feedback for this session, if generated. */
     val aiInsight: String? = null,
     val aiInsightAtMs: Long? = null,
+    /** The weather when the session started, when it was known (the cold-day medal reads it). */
+    val weather: WeatherSnapshot? = null,
+    /** Trained outside (true), inside (false), or not said (null) — answered on the summary. */
+    val outdoor: Boolean? = null,
 )

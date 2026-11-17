@@ -2,6 +2,7 @@ package com.calistapp.app.data.local
 
 import androidx.room.Dao
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
@@ -19,7 +20,12 @@ interface SessionDao {
      * process dying, and history is a record of what you did, not of what is still running. Written
      * as an exclusion rather than `= 'COMPLETED'` so a row with an unexpected status still surfaces
      * instead of vanishing.
+     *
+     * In a transaction because a long history is larger than one 2 MB cursor window and is read in
+     * chunks; without one, a session saved or deleted between chunks made the next chunk fail with
+     * "Couldn't read row N from CursorWindow" and crashed the app.
      */
+    @Transaction
     @Query(
         """
         SELECT id, exerciseType, startMs, endMs, exerciseName, summaryJson
@@ -30,10 +36,15 @@ interface SessionDao {
     )
     fun observeOverviews(): Flow<List<SessionOverviewRow>>
 
-    /** Finished sessions with what was performed, for building trends and personal bests. */
+    /**
+     * Finished sessions with what was performed, for building trends and personal bests. In a
+     * transaction for the same reason as [observeOverviews]: set logs and plans make this the largest
+     * read in the app, so it's the first to span several cursor windows.
+     */
+    @Transaction
     @Query(
         """
-        SELECT id, startMs, summaryJson, setLogsJson, planJson, rpe, notes
+        SELECT id, startMs, summaryJson, setLogsJson, planJson, rpe, notes, weatherJson, outdoor
         FROM sessions
         WHERE status NOT IN ('ACTIVE', 'PAUSED')
         ORDER BY startMs DESC
@@ -62,6 +73,9 @@ interface SessionDao {
 
     @Query("UPDATE sessions SET rpe = :rpe WHERE id = :id")
     suspend fun updateRpe(id: String, rpe: Int?)
+
+    @Query("UPDATE sessions SET outdoor = :outdoor WHERE id = :id")
+    suspend fun updateOutdoor(id: String, outdoor: Boolean?)
 
     /** Finished workouts not yet pushed to FitPal — the auto-retry + manual transfer work list. */
     @Query("SELECT * FROM sessions WHERE status NOT IN ('ACTIVE', 'PAUSED') AND endMs IS NOT NULL AND fitpalSyncedAt IS NULL ORDER BY startMs DESC")

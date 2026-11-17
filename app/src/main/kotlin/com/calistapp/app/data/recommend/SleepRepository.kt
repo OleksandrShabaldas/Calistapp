@@ -199,6 +199,31 @@ class SleepRepository @Inject constructor(
     }
 
     /** Total covered milliseconds of a set of time ranges, counting overlaps (duplicates) once. */
+    /**
+     * Minutes asleep per night between [from] and [to], keyed by the date you woke up, so "the night
+     * before" a session is the entry for the session's own date. Empty without the sleep permission.
+     * Overlapping records (a tracker mirrored into two apps) are merged so a night counts once.
+     */
+    suspend fun asleepMinutesByNight(from: Instant, to: Instant): Map<java.time.LocalDate, Int> {
+        if (!isAvailable() || sleepPermission !in granted()) return emptyMap()
+        val sessions = runCatching {
+            client.readRecords(ReadRecordsRequest(SleepSessionRecord::class, TimeRangeFilter.between(from, to))).records
+        }.getOrNull().orEmpty()
+        val byNight = HashMap<java.time.LocalDate, MutableList<LongRange>>()
+        sessions.forEach { s ->
+            val night = byNight.getOrPut(s.endTime.atZone(zone).toLocalDate()) { mutableListOf() }
+            val awakeTypes = setOf(
+                SleepSessionRecord.STAGE_TYPE_AWAKE, SleepSessionRecord.STAGE_TYPE_AWAKE_IN_BED, SleepSessionRecord.STAGE_TYPE_OUT_OF_BED,
+            )
+            if (s.stages.isNotEmpty()) {
+                s.stages.filter { it.stage !in awakeTypes }.forEach { night += it.startTime.toEpochMilli()..it.endTime.toEpochMilli() }
+            } else {
+                night += s.startTime.toEpochMilli()..s.endTime.toEpochMilli()
+            }
+        }
+        return byNight.mapValues { (_, ranges) -> (mergedMs(ranges) / 60_000L).toInt() }.filterValues { it > 0 }
+    }
+
     private fun mergedMs(intervals: List<LongRange>): Long {
         if (intervals.isEmpty()) return 0L
         val sorted = intervals.sortedBy { it.first }

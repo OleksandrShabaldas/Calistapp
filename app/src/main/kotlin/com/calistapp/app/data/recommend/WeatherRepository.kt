@@ -27,6 +27,13 @@ data class WeatherSnapshot(
     val recentPrecipMm: Double? = null,
     val isDay: Boolean? = null,
 ) {
+    /** What a session keeps of these conditions: what was felt, and whether it was raining. */
+    fun toSessionWeather() = com.calistapp.core.model.WeatherSnapshot(
+        tempC = tempC,
+        feelsLikeC = apparentTempC,
+        raining = precipMm >= 0.1,
+    )
+
     /** "12° · rain" — the glanceable line under the conditions gauge. */
     val glance: String get() = "${tempC.roundToIntSafe()}° · $weatherText"
 
@@ -58,6 +65,16 @@ class WeatherRepository @Inject constructor(
     private val json: Json,
     @IoDispatcher private val io: CoroutineDispatcher,
 ) {
+    @Volatile private var last: Pair<Long, WeatherSnapshot>? = null
+
+    /**
+     * The conditions fetched most recently, when they are no older than [maxAgeMs]. A workout started now
+     * keeps these as the weather it was done in — the dashboard fetches them on every open, so starting
+     * a session never waits on the network.
+     */
+    fun recent(maxAgeMs: Long = RECENT_MAX_AGE_MS): WeatherSnapshot? =
+        last?.takeIf { System.currentTimeMillis() - it.first in 0..maxAgeMs }?.second
+
     suspend fun current(latitude: Double, longitude: Double): WeatherSnapshot? = withContext(io) {
         val forecastDto = get(
             "https://api.open-meteo.com/v1/forecast" +
@@ -90,7 +107,7 @@ class WeatherRepository @Inject constructor(
             gustKph = forecast.gust,
             recentPrecipMm = recentPrecip,
             isDay = forecast.isDay?.let { it == 1 },
-        )
+        ).also { last = System.currentTimeMillis() to it }
     }
 
     private fun get(url: String): String? = runCatching {
@@ -143,3 +160,6 @@ class WeatherRepository @Inject constructor(
         }
     }
 }
+
+/** Older than this, the last fetched conditions no longer describe a session starting now. */
+private const val RECENT_MAX_AGE_MS = 3 * 60 * 60_000L

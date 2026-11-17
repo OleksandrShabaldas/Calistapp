@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only additions merged into the main manifest. Never shipped in release. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Demo history for checking Insights and medals: see DebugSeedReceiver. Exported so adb can reach it. -->
+        <receiver
+            android:name="com.calistapp.app.debug.DebugSeedReceiver"
+            android:exported="true" />
+    </application>
+</manifest>

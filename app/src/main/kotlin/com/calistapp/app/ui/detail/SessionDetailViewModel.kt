@@ -206,6 +206,11 @@ class SessionDetailViewModel @Inject constructor(
         viewModelScope.launch { sessionRepository.updateRpe(sessionId, rpe) }
     }
 
+    /** Trained outside (true) or inside (false): the cold-day medal reads it with the weather. */
+    fun setOutdoor(outdoor: Boolean) {
+        viewModelScope.launch { sessionRepository.updateOutdoor(sessionId, outdoor) }
+    }
+
     /**
      * Correct the reps recorded against performed sets, keyed by when each set began.
      *

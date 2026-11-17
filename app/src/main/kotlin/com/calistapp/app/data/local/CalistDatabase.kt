@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ScheduledWorkoutEntity::class,
         ScheduleOverrideEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 abstract class CalistDatabase : RoomDatabase() {
@@ -25,6 +25,17 @@ abstract class CalistDatabase : RoomDatabase() {
     abstract fun weightDao(): WeightDao
     abstract fun stepDayDao(): StepDayDao
     abstract fun scheduleDao(): ScheduleDao
+}
+
+/**
+ * Adds where a session happened: the weather when it started, and whether it was done outside. Both
+ * additive with empty defaults; older sessions simply have neither (the cold-day medal reads them).
+ */
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE sessions ADD COLUMN weatherJson TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE sessions ADD COLUMN outdoor INTEGER")
+    }
 }
 
 /**

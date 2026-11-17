@@ -46,5 +46,15 @@ object Routes {
     fun exerciseEdit(exerciseId: String? = null): String =
         if (exerciseId == null) "exerciseEdit" else "exerciseEdit?exerciseId=$exerciseId"
 
+    /** One Insights question on its own page, grown out of its card on the History tab. */
+    const val INSIGHT = "insight/{question}"
+    const val INSIGHT_ARG = "question"
+    fun insight(question: String) = "insight/$question"
+
+    /** The medal case. [focus] is an award key ("pull-ups#1") to open lifted out, from Insights. */
+    const val MEDALS = "medals?focus={focus}"
+    const val MEDALS_ARG = "focus"
+    fun medals(focus: String? = null) = if (focus == null) "medals" else "medals?focus=${android.net.Uri.encode(focus)}"
+
     val bottomBarRoutes = setOf(DASHBOARD, EXERCISES, HISTORY, PROFILE)
 }

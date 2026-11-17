@@ -30,6 +30,9 @@ interface SessionRepository {
 
     /** Rating of perceived exertion, 1–10. Null clears it. */
     suspend fun updateRpe(id: String, rpe: Int?)
+
+    /** Trained outside (true) or inside (false), answered on the summary. */
+    suspend fun updateOutdoor(id: String, outdoor: Boolean?)
     suspend fun deleteSession(id: String)
 
     // ---- FitPal bridge ----
