@@ -71,22 +71,32 @@ fun FloatingNavBar(
     ) {
         // The floating capsule panel: real frosted glass (Haze backdrop blur of the content scrolling
         // under it) so the icons stay legible without a solid black band behind the bar.
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .height(64.dp)
-                .clip(Capsule)
-                .hazeEffect(state = hazeState) {
-                    blurRadius = 24.dp
-                    backgroundColor = Onyx
-                    tints = listOf(HazeTint(OnyxRaised.copy(alpha = 0.22f)))
-                }
-                .border(BorderStroke(1.dp, OnyxBorder), Capsule),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            NavCluster(left, currentRoute, onSelect, Modifier.weight(1f))
-            Box(Modifier.size(86.dp))
-            NavCluster(right, currentRoute, onSelect, Modifier.weight(1f))
+        // The glass is its own empty layer behind the icons, not a modifier on the row that holds
+        // them. With the blur on the same node as the icons (whose glows blur too), the bar
+        // sometimes drew no glass at all after returning from a screen with video, and stayed
+        // see-through until it was rebuilt.
+        Box(Modifier.fillMaxWidth().height(64.dp)) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .clip(Capsule)
+                    .hazeEffect(state = hazeState) {
+                        blurRadius = 24.dp
+                        backgroundColor = Onyx
+                        tints = listOf(HazeTint(OnyxRaised.copy(alpha = 0.22f)))
+                    },
+            )
+            Row(
+                Modifier
+                    .matchParentSize()
+                    .clip(Capsule)
+                    .border(BorderStroke(1.dp, OnyxBorder), Capsule),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                NavCluster(left, currentRoute, onSelect, Modifier.weight(1f))
+                Box(Modifier.size(86.dp))
+                NavCluster(right, currentRoute, onSelect, Modifier.weight(1f))
+            }
         }
 
         Box(
